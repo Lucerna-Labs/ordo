@@ -101,6 +101,23 @@ fn visible_assistant_message(response: &Value, invocations: &[ToolInvocation]) -
         return assistant_message.to_string();
     }
 
+    // Reasoning-only turn with no tool work to summarize: the model's
+    // only output is its thinking trace. Once the turn loop's
+    // final-answer retry has been exhausted, surface that reasoning
+    // (the clean `reasoning` field, without the operator-facing preview
+    // prefix) rather than hiding the model's only words behind a
+    // generic error. Better a thinking-aloud answer than nothing.
+    if invocations.is_empty() {
+        let reasoning = response
+            .get("reasoning")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .trim();
+        if !reasoning.is_empty() {
+            return reasoning.to_string();
+        }
+    }
+
     synthesize_tool_result_fallback(invocations)
 }
 
@@ -1286,6 +1303,11 @@ impl AssistantService {
         let mut invocations: Vec<crate::types::ToolInvocation> = Vec::new();
         let assistant_text;
         let mut model: Option<String> = None;
+        // Once-only guard: when a thinking model returns reasoning-only
+        // (empty content + non-empty reasoning), force a single
+        // plain-prose final-answer pass to recover the answer. The flag
+        // prevents an infinite finalize loop if the model stays silent.
+        let mut finalize_attempted = false;
 
         // Push 6: if tools are off and the credential is OpenAI,
         // take the streaming path so the studio gets live token
@@ -1433,6 +1455,44 @@ impl AssistantService {
             // Without tool-use the turn is a straight pass-through
             // for both providers Ã¢â‚¬â€ grab the assistant text and exit.
             if !tool_use_enabled {
+                // Straight pass-through EXCEPT when a thinking model came
+                // back reasoning-only (empty content + non-empty
+                // reasoning): coax one plain-prose final answer before
+                // giving up — the same recovery the tool path uses.
+                let content_raw = response
+                    .get("content_raw")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let reasoning_raw = response
+                    .get("reasoning")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if content_raw.is_empty()
+                    && !reasoning_raw.is_empty()
+                    && !finalize_attempted
+                    && iteration <= self.max_tool_iterations
+                {
+                    finalize_attempted = true;
+                    tracing::info!(
+                        target: "ordo_assistant",
+                        iteration = iteration,
+                        reasoning_len = reasoning_raw.len(),
+                        "reasoning-only response on a no-tool turn; forcing final-answer pass"
+                    );
+                    messages_array.push(json!({
+                        "role": "assistant",
+                        "content": "",
+                    }));
+                    messages_array.push(json!({
+                        "role": "user",
+                        "content": "Now write your final answer to my original question in plain prose. Don't think aloud, don't call tools, just answer.",
+                    }));
+                    // tool_use_enabled is already false; loop back for
+                    // one more (finalize) call.
+                    continue;
+                }
                 assistant_text = visible_assistant_message(&response, &invocations);
                 break;
             }
@@ -1465,12 +1525,17 @@ impl AssistantService {
                 // only) AND we ran tool calls earlier in this turn,
                 // force one explicit final-answer pass â€” the model
                 // has the tool results, it just got stuck thinking.
+                // Reasoning-only response (empty content + non-empty
+                // reasoning) — whether or not tool calls ran earlier this
+                // turn. Force one plain-prose final-answer pass. The
+                // `finalize_attempted` guard bounds it to a single retry.
                 let needs_finalize = content_raw.trim().is_empty()
                     && !reasoning_raw.trim().is_empty()
-                    && !invocations.is_empty()
+                    && !finalize_attempted
                     && iteration <= self.max_tool_iterations;
 
                 if needs_finalize {
+                    finalize_attempted = true;
                     tracing::info!(
                         target: "ordo_assistant",
                         iteration = iteration,
@@ -1907,6 +1972,16 @@ impl AssistantService {
                     return Err(AssistantError::LlmFailed(message));
                 }
             }
+        }
+        // A reasoning model can stream its thinking on the (non-standard)
+        // `reasoning` delta channel and emit no `content` deltas at all,
+        // leaving `acc` empty. Rather than deliver a blank bubble, bail to
+        // the non-streaming loop — it runs the reasoning-only finalize
+        // retry and the reasoning fallback.
+        if acc.trim().is_empty() {
+            return Err(AssistantError::LlmFailed(
+                "streaming produced no visible content (reasoning-only); retrying non-streamed".into(),
+            ));
         }
         Ok((acc, model_name))
     }
@@ -3118,6 +3193,40 @@ mod taint_helpers_tests {
         assert!(!visible.contains("reasoning preview"));
         assert!(visible.contains("runtime.describe_profile"));
         assert!(visible.contains("profile=standard"));
+    }
+
+    #[test]
+    fn reasoning_only_with_no_tools_surfaces_reasoning_not_error() {
+        // Thinking model emits reasoning-only on a plain chat turn (no
+        // tool calls). After the turn loop's finalize retry is
+        // exhausted, the model's reasoning text must be shown instead of
+        // the "no visible answer" error — that was the suppression bug.
+        let response = json!({
+            "assistant_message": "(no content emitted; reasoning preview)\nThe capital of France is Paris.",
+            "content_raw": "",
+            "reasoning": "The capital of France is Paris.",
+        });
+
+        let visible = visible_assistant_message(&response, &[]);
+
+        assert_eq!(visible, "The capital of France is Paris.");
+        assert!(!visible.contains("no visible answer"));
+        assert!(!visible.contains("reasoning preview"));
+    }
+
+    #[test]
+    fn fully_empty_response_still_returns_no_visible_answer() {
+        // Truly empty (no content, no reasoning, no tools) keeps the
+        // canned operator message — there is genuinely nothing to show.
+        let response = json!({
+            "assistant_message": "",
+            "content_raw": "",
+            "reasoning": "",
+        });
+
+        let visible = visible_assistant_message(&response, &[]);
+
+        assert!(visible.contains("no visible answer"));
     }
 
     #[test]
