@@ -1,4 +1,9 @@
-pub mod mode_classifier;
+// NOTE: the text-to-mode auto-classifier (`mode_classifier`) was retired.
+// Modes are chosen explicitly at session creation (and, going forward, are
+// operator-created — see docs/mode-lifecycle.md), so a TF-IDF router that
+// guessed a mode from the prompt against a fixed template list no longer fits
+// the architecture. It had no callers. This crate now only does message
+// traffic/route classification (below).
 
 use ordo_protocol::{ExecutionTarget, OrdoMessage, PeerPresence, RouteDirective, TrafficClass};
 

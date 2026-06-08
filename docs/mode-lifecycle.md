@@ -66,11 +66,11 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
 
 ## Follow-ups
 
-- `ordo-classify::mode_classifier` carries its OWN hardcoded mode list
-  (`llm_training`, `self_host`, `investigations`, …) that is now out of sync with
-  the shipped core set. It compiles + self-tests fine (independent of
-  `ordo-modes`), but its routing suggestions point at modes that no longer ship.
-  Reconcile (drive it from the live registry) or retire it.
+- ~~`ordo-classify::mode_classifier` carries its OWN hardcoded mode list out of
+  sync with the shipped core set.~~ **RETIRED** — the TF-IDF text→mode
+  auto-router had no callers and conflicts with the architecture (mode is chosen
+  explicitly at session creation; going forward, operator-created). Deleted the
+  module; `ordo-classify` now only does message traffic/route classification.
 
 ## Build log
 
