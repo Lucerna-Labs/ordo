@@ -347,8 +347,14 @@ The isolation + taint lenses found escape hatches, all fixed:
 
 **Deferred (tracked, out of Stage 1 scope):**
 - `assistant.turn` accepts a caller-supplied `session_id` and isn't taint-gated — a
-  **pre-existing** auth gap (serde-skip removed the *new* fields from its surface). Spawned a
-  follow-up task to taint-gate/normalize turn-spawning bus capabilities.
+  **pre-existing** auth gap (serde-skip removed the *new* fields from its surface).
+  ✅ **RESOLVED** (follow-up): reachability mapped (the control API + in-process spawns call
+  `service.turn` directly; the LLM can't call `assistant.turn` — `assistant.*` is reserved; the
+  only bus-exposed path is `assistant_do_turn` with no in-repo publisher). Fix: the bus handler
+  now runs `sanitize_untrusted_turn_request` (forces a fresh `session_id`, strips the internal
+  isolation fields) and `assistant.turn` is marked sensitive (taint-gated for defense in depth).
+  Trusted callers are unaffected. Tests: `untrusted_bus_turn_request_is_sanitized`,
+  `assistant_turn_is_taint_gated`.
 - `session_taint` unbounded growth for ephemeral subagent sessions → **Stage 5** (orchestrator
   lifecycle), where it pairs with returning a turn's accrued taints.
 - Diagnostic mode excludes per-subagent G1 (its self-contained wall wins — by design); lane

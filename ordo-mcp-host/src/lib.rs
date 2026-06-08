@@ -5794,6 +5794,12 @@ async fn assistant_do_turn(
 ) -> Result<Value, ordo_assistant::AssistantError> {
     let request: ordo_assistant::TurnRequest = serde_json::from_value(arguments.clone())
         .map_err(|err| ordo_assistant::AssistantError::InvalidArgument(err.to_string()))?;
+    // `assistant.turn` is an untrusted bus/MCP boundary: the caller is not
+    // an authenticated session owner. Sanitize the request so a caller
+    // cannot target/hijack an existing session id (it always runs on a
+    // fresh session) or set the internal isolation fields. Trusted callers
+    // (control API, in-process spawns) call `service.turn` directly.
+    let request = ordo_assistant::sanitize_untrusted_turn_request(request);
     let result = service.turn(request).await?;
     Ok(serde_json::to_value(&result).unwrap_or(Value::Null))
 }

@@ -3209,7 +3209,27 @@ fn is_sensitive_capability(capability: &str) -> bool {
             | "webhooks.register"
             | "webhooks.delete"
             | "webhooks.update"
+    // Turn-spawning (defense in depth): a tainted session must not mint a
+    // fresh agent turn that could run unburdened by taint. Not LLM-callable
+    // today (assistant.* is reserved from the assistant); future-proofing.
+            | "assistant.turn"
     )
+}
+
+/// Sanitize a `TurnRequest` that arrived from an UNTRUSTED boundary —
+/// the bus/MCP `assistant.turn` capability, whose caller has no
+/// authenticated session ownership. Forces a FRESH session (a bus caller
+/// must not target or hijack an existing session by id) and clears the
+/// internal-only isolation fields (defense in depth — they are already
+/// `#[serde(skip)]`, but a caller constructing the request another way
+/// must not be able to set them). Trusted callers (the control API,
+/// in-process subagent spawns) call `turn` directly and are unaffected.
+pub fn sanitize_untrusted_turn_request(mut request: TurnRequest) -> TurnRequest {
+    request.session_id = None;
+    request.memory_scope = None;
+    request.allowed_lanes = None;
+    request.inherit_taint = Vec::new();
+    request
 }
 
 /// Decide whether a successful tool call should mint an
@@ -3292,6 +3312,32 @@ mod taint_helpers_tests {
         assert!(!capability_in_lanes("webhook.send", &["web".to_string()])); // boundary
         // Empty allow-list matches nothing (fail-closed).
         assert!(!capability_in_lanes("files.read_file", &[]));
+    }
+
+    #[test]
+    fn untrusted_bus_turn_request_is_sanitized() {
+        // A bus/MCP caller of `assistant.turn` has no session ownership;
+        // sanitization forces a fresh session and strips the internal
+        // isolation controls so it can't target a victim or self-scope.
+        let req = TurnRequest {
+            session_id: Some(Uuid::new_v4()),
+            user_message: "do something".into(),
+            memory_scope: Some("agent:attacker".into()),
+            allowed_lanes: Some(vec!["code.".to_string()]),
+            ..Default::default()
+        };
+        let clean = sanitize_untrusted_turn_request(req);
+        assert!(clean.session_id.is_none(), "must not target an existing session");
+        assert!(clean.memory_scope.is_none());
+        assert!(clean.allowed_lanes.is_none());
+        assert!(clean.inherit_taint.is_empty());
+    }
+
+    #[test]
+    fn assistant_turn_is_taint_gated() {
+        // Turn-spawning is sensitive so a tainted session can't mint a
+        // fresh agent turn that runs unburdened by taint.
+        assert!(is_sensitive_capability("assistant.turn"));
     }
 
     #[test]
