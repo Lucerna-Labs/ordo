@@ -394,3 +394,36 @@ Stage 5 when the production runner touches the live assistant + isolation.
 
 **Next:** Stage 3 — planner split (`AssistantService::plan_goal`: goal → `ordo-tasks::Goal`
 DAG via LLM structured output + agent routing; deterministic single-task fallback).
+
+### Stage 3 — Planner split (goal → task DAG) ✅ (2026-06-08)
+
+**Done (ordo-orchestrator, new `plan` module):**
+- `PlannedGoal { goal, tasks: Vec<PlannedTask> }` + `PlannedTask { subtask: Subtask, deps: Vec<Uuid> }`
+  — a DAG over the Stage 2 `Subtask`. `ready(completed)` returns dep-satisfied, not-yet-done
+  subtasks; plus `is_complete`, `single()` (the fallback constructor).
+- `GoalPlanner` trait (`async fn plan(&self, goal) -> PlannedGoal`) — the LLM decomposition CALL
+  is the production impl (Stage 5 glue); the orchestrator depends only on the trait.
+- `planning_prompt(goal, modes)` (strict-JSON decomposition instruction) + `parse_plan(goal, raw)`:
+  permissive parse (strips ``` fences / leading prose), maps the model's string ids → stable
+  Uuids, wires deps, drops self/unknown deps. **Deterministic fallback** to a single-task plan on
+  ANY parse failure or empty decomposition — a malformed model response degrades to today's
+  single-subagent behaviour rather than failing the goal. Dep added: serde_json.
+
+**Design decisions (deviations from this doc's original sketch, with rationale):**
+- **Plan is orchestrator-owned, not `ordo-tasks::Goal`.** `ordo-tasks::Task` has the DAG +
+  a `TaskInput.goal` string but NO typed `mode`/`allowed_lanes` — both of which the dispatcher
+  needs; stuffing them into `TaskInput.context` as untyped JSON is hacky. Wrapping the typed
+  `Subtask` + a ~10-line readiness layer is the clean fit (and `ordo-tasks` stays unused for now).
+- **Routing by MODE, not agent profile.** The model assigns each subtask a mode — the runtime's
+  specialist workspaces ARE modes, a subagent runs *in a mode*, and `ordo-agents::AgentProfile`
+  doesn't map to one. So no `ordo-agents` coupling. Per-subtask lane narrowing is left to the
+  model/caller (defaults to the mode's lanes).
+
+**Verified:** `cargo test -p ordo-orchestrator` → 10 pass, incl.
+`parses_dag_with_dependencies_and_modes` (DAG + mode routing + `ready()` gating), `strips_code_fences`,
+malformed/empty → single-task fallback, self/unknown-dep dropping. Clean under `-D warnings`. Pure
+parse/DAG logic — no review workflow this stage; the LLM decomposition call gets integration
+scrutiny in Stage 5.
+
+**Next:** Stage 4 — verifier gate (deterministic checks + optional LLM critic → `TaskVerdict`
+Pass/Revise/Fail; on Fail, bounded re-dispatch).

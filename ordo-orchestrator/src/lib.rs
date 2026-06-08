@@ -8,13 +8,15 @@
 //!
 //! See `docs/agent-orchestration.md` for the full architecture and the
 //! staged build plan. Stages landed: the crate + budget + phase enum
-//! (Stage 0); parallel scoped dispatch (Stage 2, the `dispatch` module).
-//! Still to come — planner split (Stage 3), verifier gate (Stage 4), and
-//! the driver loop + peer (Stage 5).
+//! (Stage 0); parallel scoped dispatch (Stage 2, `dispatch`); planner
+//! split into a task DAG (Stage 3, `plan`). Still to come — verifier
+//! gate (Stage 4) and the driver loop + peer (Stage 5).
 
 pub mod dispatch;
+pub mod plan;
 
 pub use dispatch::{dispatch_subtasks, SubagentRunner, Subtask, SubtaskResult};
+pub use plan::{parse_plan, planning_prompt, GoalPlanner, PlannedGoal, PlannedTask};
 
 use std::time::Duration;
 
