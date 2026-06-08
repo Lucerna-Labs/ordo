@@ -12,6 +12,7 @@ ordo-cloud = { path = "../ordo-cloud" }
 ordo-review = { path = "../ordo-review" }
 ordo-memory-log = { path = "../ordo-memory-log" }
 ordo-modes = { path = "../ordo-modes" }
+ordo-orchestrator = { path = "../ordo-orchestrator" }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["full"] }
 serde.workspace = true

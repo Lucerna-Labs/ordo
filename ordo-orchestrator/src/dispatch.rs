@@ -9,6 +9,7 @@
 //! private memory scope + lane narrowing + inherited taint (Stage 1) — is
 //! wired in Stage 5.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::Semaphore;
@@ -94,6 +95,10 @@ pub async fn dispatch_subtasks(
     let limit = max_concurrent.max(1);
     let semaphore = Arc::new(Semaphore::new(limit));
     let mut set: JoinSet<SubtaskResult> = JoinSet::new();
+    // Track ids so a panicked/cancelled task (which yields no SubtaskResult)
+    // is surfaced as a synthetic error rather than silently lost — the
+    // driver then counts it as an attempt and fails it after the cap.
+    let mut pending: HashSet<Uuid> = subtasks.iter().map(|s| s.id).collect();
 
     for subtask in subtasks {
         // Acquire BEFORE spawning so at most `limit` subagents run at
@@ -111,18 +116,29 @@ pub async fn dispatch_subtasks(
         });
     }
 
-    let mut results = Vec::with_capacity(set.len());
+    let mut results = Vec::with_capacity(pending.len());
     while let Some(joined) = set.join_next().await {
         match joined {
-            Ok(result) => results.push(result),
+            Ok(result) => {
+                pending.remove(&result.id);
+                results.push(result);
+            }
             Err(join_err) => {
                 tracing::error!(
                     target: "ordo_orchestrator",
                     error = %join_err,
-                    "subtask subagent task panicked; dropping its result"
+                    "subtask subagent task panicked or was cancelled"
                 );
             }
         }
+    }
+    // Any id that produced no result (its task panicked/cancelled) is
+    // surfaced as a synthetic error so the driver can count + cap it.
+    for id in pending {
+        results.push(SubtaskResult::err(
+            id,
+            "subagent task panicked or was cancelled",
+        ));
     }
     results
 }

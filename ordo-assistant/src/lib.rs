@@ -19,6 +19,7 @@
 pub mod events;
 pub mod extractor;
 pub mod knowledge;
+pub mod orchestration;
 pub mod prompt;
 pub mod recall;
 pub mod seeder;
@@ -37,6 +38,7 @@ pub use knowledge::KnowledgeStore;
 pub use prompt::{KNOWLEDGE_PREAMBLE, MEMORY_PREAMBLE};
 pub use recall::FactStore;
 pub use seeder::{KnowledgeSeeder, SeedReport};
+pub use orchestration::AssistantOrchestration;
 pub use service::{sanitize_untrusted_turn_request, AssistantService};
 pub use store::{embedding_from_bytes, embedding_to_bytes, fact_summaries, AssistantStore};
 pub use tools::{ToolGateway, DEFAULT_ALLOWED_LANES, RESERVED_FROM_ASSISTANT};

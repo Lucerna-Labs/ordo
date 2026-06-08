@@ -325,6 +325,9 @@ struct SubagentIsolation {
     memory_scope: Option<String>,
     /// Narrowing tool-lane allow-list (None = the mode's lanes apply).
     allowed_lanes: Option<Vec<String>>,
+    /// This turn's subagent recursion depth, so cross-mode `consult` spawns
+    /// accumulate against `MAX_SUBAGENT_DEPTH` instead of resetting to 0.
+    depth: u32,
 }
 
 /// Scope handed to [`AssistantService::spawn_subagent_in_mode`] to
@@ -345,12 +348,17 @@ pub struct SubagentScope {
 /// subagent turn ends, keeping `session_isolation` bounded.
 struct IsolationGuard {
     map: Arc<Mutex<HashMap<Uuid, SubagentIsolation>>>,
+    taint: Arc<Mutex<HashMap<Uuid, Vec<ordo_protocol::Taint>>>>,
     session_id: Uuid,
 }
 
 impl Drop for IsolationGuard {
     fn drop(&mut self) {
         self.map.lock().remove(&self.session_id);
+        // Ephemeral subagent sessions also shed their taint when the turn
+        // ends, so `session_taint` stays bounded across many spawns.
+        // (Operator sessions have no guard and keep their taint.)
+        self.taint.lock().remove(&self.session_id);
     }
 }
 
@@ -1006,22 +1014,26 @@ impl AssistantService {
         for taint in &request.inherit_taint {
             self.taint_session(session_id, taint.clone());
         }
-        let _isolation_guard =
-            if request.memory_scope.is_some() || request.allowed_lanes.is_some() {
-                self.session_isolation.lock().insert(
-                    session_id,
-                    SubagentIsolation {
-                        memory_scope: request.memory_scope.clone(),
-                        allowed_lanes: request.allowed_lanes.clone(),
-                    },
-                );
-                Some(IsolationGuard {
-                    map: self.session_isolation.clone(),
-                    session_id,
-                })
-            } else {
-                None
-            };
+        let _isolation_guard = if request.memory_scope.is_some()
+            || request.allowed_lanes.is_some()
+            || request.subagent_depth > 0
+        {
+            self.session_isolation.lock().insert(
+                session_id,
+                SubagentIsolation {
+                    memory_scope: request.memory_scope.clone(),
+                    allowed_lanes: request.allowed_lanes.clone(),
+                    depth: request.subagent_depth,
+                },
+            );
+            Some(IsolationGuard {
+                map: self.session_isolation.clone(),
+                taint: self.session_taint.clone(),
+                session_id,
+            })
+        } else {
+            None
+        };
 
         self.events.publish(
             session_id,
@@ -2351,6 +2363,22 @@ impl AssistantService {
             "assistant.list_facts" => self.meta_list_facts(session_id, arguments).await,
             "assistant.forget_fact" => self.meta_forget_fact(session_id, arguments).await,
             other => {
+                // Per-subagent lane narrowing is enforced at DISPATCH too,
+                // not just in the schema build: a scoped subagent can't
+                // reach an off-lane workspace capability by naming it
+                // directly. Fail-closed.
+                if let Some(lanes) = self
+                    .session_isolation
+                    .lock()
+                    .get(&session_id)
+                    .and_then(|iso| iso.allowed_lanes.clone())
+                {
+                    if !capability_in_lanes(other, &lanes) {
+                        return Err(AssistantError::InvalidArgument(format!(
+                            "capability '{other}' is outside this subagent's allowed tool lanes"
+                        )));
+                    }
+                }
                 let Some(gateway) = &self.tools else {
                     return Err(AssistantError::InvalidArgument(
                         "assistant has no tool gateway configured".into(),
@@ -3029,14 +3057,20 @@ impl AssistantService {
         // A scoped-subagent parent confines the consult child to its own
         // narrowed lanes, so `consult` can't be used to widen capability
         // (e.g. a web-only subagent consulting a code-capable mode).
-        let parent_lanes = self
-            .session_isolation
-            .lock()
-            .get(&session_id)
-            .and_then(|iso| iso.allowed_lanes.clone());
+        let (parent_lanes, parent_depth) = {
+            let map = self.session_isolation.lock();
+            let iso = map.get(&session_id);
+            (
+                iso.and_then(|i| i.allowed_lanes.clone()),
+                iso.map(|i| i.depth).unwrap_or(0),
+            )
+        };
         let result = self
             .spawn_subagent_in_mode(
-                0,
+                // Accumulate depth across consult hops so MAX_SUBAGENT_DEPTH
+                // actually bounds nesting (was a hardcoded 0, which reset
+                // the counter every hop).
+                parent_depth,
                 consult_goal,
                 Some(max_iterations),
                 Some(target_mode_id.clone()),
@@ -3344,24 +3378,31 @@ mod taint_helpers_tests {
     fn isolation_guard_removes_entry_on_drop() {
         let map: Arc<Mutex<HashMap<Uuid, SubagentIsolation>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let taint: Arc<Mutex<HashMap<Uuid, Vec<ordo_protocol::Taint>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let session_id = Uuid::new_v4();
         map.lock().insert(
             session_id,
             SubagentIsolation {
                 memory_scope: Some("agent:test".to_string()),
                 allowed_lanes: None,
+                depth: 1,
             },
         );
+        taint.lock().insert(session_id, Vec::new());
         assert!(map.lock().contains_key(&session_id));
         {
             let _guard = IsolationGuard {
                 map: map.clone(),
+                taint: taint.clone(),
                 session_id,
             };
             assert!(map.lock().contains_key(&session_id));
         }
-        // Guard dropped at the end of the block — entry must be gone.
+        // Guard dropped at the end of the block — both entries must be gone
+        // (the ephemeral session sheds its isolation AND its taint).
         assert!(!map.lock().contains_key(&session_id));
+        assert!(!taint.lock().contains_key(&session_id));
     }
 
     #[test]

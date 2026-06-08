@@ -484,3 +484,45 @@ glue over the live `AssistantService` (`spawn_subagent_in_mode` with Stage 1 sco
 the `OrchestratorPeer` (subscribe `GOAL_SUBMIT`, emit `Task*`/`Goal*` events, wall-clock timeout
 around `run`), spawned in `ordo-runtime` boot behind a `RuntimeConfig` flag. It touches the live
 assistant + isolation + runtime, so it gets the **adversarial review**.
+
+### Stage 5b — Glue over the live assistant + isolation hardening ✅ (2026-06-08)
+
+The integration where the (tested) orchestration logic meets the live model + Stage 1 isolation.
+It got the adversarial review (isolation-threading + runaway/correctness), which found real gaps
+in the PRIMITIVES the glue exposes — all fixed here before any wiring (the orchestrator is not yet
+triggered anywhere, so none were live).
+
+**Glue (ordo-assistant `orchestration` module): `AssistantOrchestration` impls all 3 traits.**
+- Runner → `spawn_subagent_in_mode` (auto `agent:<uuid>` private scope + the subtask's lane narrowing).
+- Planner + Critic → a tool-less, RAG/memory-off `turn()` + `parse_plan` / `parse_critic_verdict`;
+  LLM failure degrades safely (planner → single task; critic → inconclusive Pass).
+
+**Review findings → fixes (all verified):**
+- 🔴 **BLOCKER:** `consult_mode_agent` hardcoded `parent_depth=0`, resetting the depth counter every
+  hop → unbounded consult-chain recursion (every orchestration subtask is a consult-capable
+  subagent). **Fixed:** the turn's `subagent_depth` is recorded in `SubagentIsolation`, and
+  `meta_consult_mode_agent` reads it so depth ACCUMULATES against `MAX_SUBAGENT_DEPTH`.
+- 🟠 Lane narrowing was schema-only (advisory). **Fixed:** `dispatch_tool` now re-checks the
+  session's `allowed_lanes` via `capability_in_lanes` and rejects off-lane calls (fail-closed) —
+  enforced at execution, not just hidden from the model.
+- 🟠 Plans accepted an arbitrary model-chosen mode (privilege widening). **Fixed:** the glue strips
+  per-subtask modes in v1 (no mode catalogue advertised → subtasks run in the default mode).
+- 🟠 `session_taint` had no cleanup (unbounded growth — the deferred Stage 1 item). **Fixed:**
+  `IsolationGuard` now evicts the ephemeral subagent session's taint on turn exit too.
+- 🟡 A deterministically-panicking subtask bypassed the per-task attempt cap. **Fixed:**
+  `dispatch_subtasks` surfaces a synthetic error for any task that produced no result, so the
+  driver counts + caps it.
+
+**Deferred (tracked):**
+- Seed `inherit_taint` from the ORIGINATING operator session onto runner spawns + re-scan/re-taint
+  aggregated subagent outputs → belongs in 5b-wire (the peer has the originating session). Flagged
+  in the glue comments.
+- No-registry deployments lose subagent READ isolation (recall all-scopes fallback) — NOT
+  exploitable in the runtime (a mode registry is always attached); fail-close it as a follow-up.
+
+**Verified:** `cargo test -p ordo-orchestrator` 23 pass; `cargo test -p ordo-assistant` 53 pass
+(incl. the taint-cleanup guard test); full `cargo build` (ordo-cli tree) clean under `-D warnings`.
+
+**Next:** Stage 5b-wire — construct the `Orchestrator` in `ordo-runtime` boot behind a
+`RuntimeConfig` flag (+ originating-session taint seeding + a wall-clock `tokio::timeout` around
+`run`), then **Stage 6** (a thin control-API endpoint to submit a goal and read the outcome).
