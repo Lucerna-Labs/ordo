@@ -10,13 +10,16 @@
 //! staged build plan. Stages landed: the crate + budget + phase enum
 //! (Stage 0); parallel scoped dispatch (Stage 2, `dispatch`); planner
 //! split (Stage 3, `plan`); adversarial verifier gate (Stage 4,
-//! `verify`). Still to come — the driver loop + peer (Stage 5).
+//! `verify`); the deterministic driver loop (Stage 5a, `driver`). Still
+//! to come — the runtime glue + `OrchestratorPeer` (Stage 5b).
 
 pub mod dispatch;
+pub mod driver;
 pub mod plan;
 pub mod verify;
 
 pub use dispatch::{dispatch_subtasks, SubagentRunner, Subtask, SubtaskResult};
+pub use driver::{AcceptedTask, FailedTask, OrchestrationOutcome, Orchestrator};
 pub use plan::{parse_plan, planning_prompt, GoalPlanner, PlannedGoal, PlannedTask};
 // NB: the `verify` free fn is reached as `verify::verify` (re-exporting it
 // here would collide with the `verify` module name).
@@ -37,6 +40,10 @@ pub struct OrchestratorBudget {
     /// Maximum split -> dispatch -> gate rounds before the driver
     /// force-completes the goal.
     pub max_rounds: usize,
+    /// Maximum dispatches of a single subtask (initial attempt + any
+    /// re-dispatches on Revise / transient error) before it is marked
+    /// terminally failed. Bounds Revise loops.
+    pub max_attempts_per_task: usize,
     /// Wall-clock ceiling for the whole goal, in seconds.
     pub wall_clock_secs: u64,
 }
@@ -46,6 +53,7 @@ impl Default for OrchestratorBudget {
         Self {
             max_concurrent: 4,
             max_rounds: 5,
+            max_attempts_per_task: 2,
             wall_clock_secs: 600,
         }
     }
@@ -85,6 +93,7 @@ mod tests {
         let b = OrchestratorBudget::default();
         assert_eq!(b.max_concurrent, 4);
         assert_eq!(b.max_rounds, 5);
+        assert_eq!(b.max_attempts_per_task, 2);
         assert_eq!(b.wall_clock(), Duration::from_secs(600));
     }
 }

@@ -455,3 +455,32 @@ inconclusive-pass). Clean under `-D warnings`. Pure gate logic — no review wor
 verifier → re-dispatch-on-Revise (bounded) → iterate until done/budget; spawn it in `ordo-runtime`
 with the production `GoalPlanner` / `SubagentRunner` / `Critic` glue over the live
 `AssistantService`.
+
+### Stage 5a — Deterministic driver loop ✅ (2026-06-08)
+
+Stage 5 is split into **5a** (the pure driver loop — done here) and **5b** (the runtime glue +
+peer — next). 5a is the algorithmic core; 5b is the integration that gets the adversarial review.
+
+**Done (ordo-orchestrator, new `driver` module):**
+- `Orchestrator { planner, runner, critic, budget }` + `run(goal) -> OrchestrationOutcome`
+  (`{ phase: Done|Halted, succeeded, rounds, reason, accepted: Vec<AcceptedTask>, failed: Vec<FailedTask> }`).
+- The loop: plan → each round take `PlannedGoal::ready(&completed)` (minus terminally-failed
+  tasks), inject any Revise feedback into the goal text, dispatch the round in parallel
+  (`dispatch_subtasks`, ≤ `max_concurrent`), `verify` each result, then apply the verdict to the
+  DAG — Pass → completed; Revise → re-dispatch next round (bounded by `max_attempts_per_task`);
+  Fail or exhausted → terminally failed. Iterate until complete, until no task is runnable
+  (blocked/failed/cycle → Halted), or until `max_rounds` (Halted).
+- Pure w.r.t. the injected planner/runner/critic — no I/O, no clock — fully unit-tested with
+  stubs. Added `OrchestratorBudget::max_attempts_per_task` (default 2) to bound Revise loops.
+
+**Verified:** `cargo test -p ordo-orchestrator` → 23 pass; the 6 driver tests cover full DAG
+completion + round count, the passing-critic path, `max_rounds` halt, Revise-then-pass (bounded
+re-dispatch, feedback injected into the goal), Revise-exhausted → fail, and Fail-verdict →
+blocked dependents → halt. Clean under `-D warnings`. Termination is guaranteed (every task
+reaches completed/failed within `max_attempts_per_task`; `max_rounds` is the backstop).
+
+**Next:** Stage 5b — the runtime wiring: production `GoalPlanner` / `SubagentRunner` / `Critic`
+glue over the live `AssistantService` (`spawn_subagent_in_mode` with Stage 1 scope/lane/taint),
+the `OrchestratorPeer` (subscribe `GOAL_SUBMIT`, emit `Task*`/`Goal*` events, wall-clock timeout
+around `run`), spawned in `ordo-runtime` boot behind a `RuntimeConfig` flag. It touches the live
+assistant + isolation + runtime, so it gets the **adversarial review**.
