@@ -1,43 +1,58 @@
 # Ordo (WebView Beta)
 
-Lucerna Labs · local-first AI runtime with the Ordo Studio React UI hosted in WebView2.
+Lucerna Labs · local-first AI runtime with the Ordo Studio React UI hosted in
+a Tauri WebView2 window. The desktop app is **Ordo Studio**; the headless
+runtime (control API on `127.0.0.1:4141`) is the `ordo` binary.
 
-This folder is everything you need. Three ways to use it:
+This folder is the full workspace. Three ways to use it:
 
 ---
 
-## 1. Portable — run directly from this folder
+## 1. Run from this workspace (source)
 
-Double-click **`ordo.exe`**. The runtime boots, port `127.0.0.1:4141` comes
-up, and the WebView2 window opens with the Studio UI. Your data lives in
-`data/` and `user-files/` inside this folder. No install, no admin.
+Double-click **`Launch-Ordo-Studio.cmd`**. It starts the Ordo runtime from this
+workspace (`cargo`, control API at `127.0.0.1:4141`) and opens the Ordo Studio
+UI. `Launch-Ordo-Portable.cmd` is the equivalent portable/detached launcher —
+it builds the runtime (`cargo build --bin ordo --features sandbox-wasm,native-exec`)
+and runs it hidden/detached. Your data lives in `data/` and `user-files/` inside
+this folder. Requires `npm` and `cargo` on PATH (the launcher checks).
 
-To get a Desktop launcher pointing at this portable copy:
+To get a Desktop launcher pointing at this workspace:
 1. Double-click **`Install-Desktop-Shortcut.cmd`**
-2. A `Ordo (WebView Beta).lnk` appears on your Desktop pointing at this folder
+2. An **`Ordo Studio.lnk`** appears on your Desktop, targeting
+   `Launch-Ordo-Studio.cmd`
 
 ---
 
-## 2. Installer — `ordo-webview-beta.msi`
+## 2. Install the packaged app (no toolchain needed)
 
-Double-click the MSI to install per-user (no UAC):
+Prebuilt Windows installers live under **`installers/`**:
 
-- Files go to `%LOCALAPPDATA%\Ordo (WebView Beta)\bin\`
-- Start Menu tile + Desktop shortcut both created automatically
-- Data lives in the install folder (writable user location, no admin needed)
-- Uninstall normally via Settings → Apps
+- **`installers\Ordo_0.1.0_x64_en-US.msi`** — per-user MSI (no UAC)
+- **`installers\Ordo_0.1.0_x64-setup.exe`** — NSIS setup (alternative)
+
+Either one installs the packaged Tauri app per-user, adds Start Menu + Desktop
+entries, and is removable via Settings → Apps. The packaged desktop host binary
+is `bin\windows\Ordo.exe`.
 
 ---
 
-## 3. Build from source
+## 3. Build artifacts from source
 
 ```
-cd ordo-studio && npm install --legacy-peer-deps && npm run build
-cd ..
+# React UI bundle (ordo-studio/dist)
+cd ordo-studio && npm install && npm run build && cd ..
+
+# Headless runtime  ->  target\release\ordo.exe
 cargo build --release -p ordo-cli
+
+# Packaged desktop app + Windows installers (NSIS + MSI)
+cd ordo-studio && npm run tauri:build:windows
 ```
 
-Output: `target\release\ordo.exe`. Same as the bundled `ordo.exe`.
+`cargo build --release -p ordo-cli` produces `target\release\ordo.exe` (the
+headless runtime). `npm run tauri:build:windows` produces the `.msi` / `-setup.exe`
+bundles that are mirrored into `installers/`.
 
 ---
 
@@ -45,14 +60,18 @@ Output: `target\release\ordo.exe`. Same as the bundled `ordo.exe`.
 
 | File | What it is |
 |---|---|
-| `ordo.exe` | The portable runtime + WebView2 host binary (release build) |
-| `ordo-webview-beta.msi` | Per-user Windows installer |
-| `Install-Desktop-Shortcut.cmd` | Portable-mode Desktop launcher creator |
+| `Launch-Ordo-Studio.cmd` / `.ps1` | Run the runtime + Studio UI from this workspace |
+| `Launch-Ordo-Portable.cmd` / `.ps1` | Portable/detached launcher (builds + runs hidden) |
+| `Install-Desktop-Shortcut.cmd` | Creates the `Ordo Studio.lnk` Desktop launcher |
+| `installers\Ordo_0.1.0_x64_en-US.msi` | Per-user Windows MSI installer |
+| `installers\Ordo_0.1.0_x64-setup.exe` | NSIS Windows setup installer |
+| `bin\windows\Ordo.exe` | Packaged Tauri desktop host (WebView2) |
+| `target\release\ordo.exe` | Headless runtime binary (built from `ordo-cli`) |
 | `README-BETA.md` | This file |
-| `ordo-studio/dist/` | Bundled React UI (needed alongside `ordo.exe` for portable mode) |
-| `ordo-*/` (51 crates) | Full Rust source for the workspace |
+| `ordo-studio/dist/` | Bundled React UI (loaded by the Tauri host) |
+| `ordo-*/` (~60 crates) | Full Rust source for the workspace |
 | `Cargo.toml`, `Cargo.lock` | Workspace manifest + pinned versions |
-| `docs/` | Internal docs + the canonical UXI design spec |
+| `docs/` | Internal docs (developer guide, UI extensions, UXI dev notes) |
 
 ---
 

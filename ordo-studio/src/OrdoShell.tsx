@@ -15538,39 +15538,6 @@ export default function OrdoShell() {
                   style={{ display: "none" }}
                   onChange={(e) => void onPickFiles(e)}
                 />
-                {/* Voice input — Web Speech API. Toggles recording.
-                    Pulses red while listening; greyed out + tooltip
-                    explains when unsupported. Spoken text streams
-                    into the input field as it's recognized. */}
-                <button
-                  onClick={undefined}
-                  disabled={sending || voiceUnsupported}
-                  className={`rounded-lg px-2 py-2 transition-all${
-                    isListening ? " ordo-mic-pulse" : ""
-                  }`}
-                  style={{
-                    display: "none",
-                    background: isListening
-                      ? `${RED}22`
-                      : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${
-                      isListening ? `${RED}88` : "rgba(255,255,255,0.08)"
-                    }`,
-                    color: isListening ? RED : PARCHMENT,
-                    cursor:
-                      sending || voiceUnsupported ? "not-allowed" : "pointer",
-                    opacity: voiceUnsupported ? 0.4 : 1,
-                  }}
-                  title={
-                    voiceUnsupported
-                      ? "Voice input unavailable in this runtime (no SpeechRecognition API)"
-                      : isListening
-                      ? "Stop listening"
-                      : "Start voice input — speech streams into the message field"
-                  }
-                >
-                  {isListening ? <MicOff size={14} /> : <Mic size={14} />}
-                </button>
                 <div
                   className="flex-1 rounded-xl px-4 py-3"
                   style={{
