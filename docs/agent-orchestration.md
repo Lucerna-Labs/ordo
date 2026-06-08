@@ -427,3 +427,31 @@ scrutiny in Stage 5.
 
 **Next:** Stage 4 — verifier gate (deterministic checks + optional LLM critic → `TaskVerdict`
 Pass/Revise/Fail; on Fail, bounded re-dispatch).
+
+### Stage 4 — Adversarial verifier gate ✅ (2026-06-08)
+
+**Done (ordo-orchestrator, new `verify` module; emits `ordo-protocol::TaskVerdict`):**
+- `deterministic_check(output)` — pure, always-on structural floor: rejects empty output,
+  whole-output placeholders (`...`/`tbd`/`n/a`/`todo`/`lorem ipsum`, EXACT-match so real content
+  that merely mentions "todo" still passes), and refusals ("as an AI", "I cannot", …) → `Revise`.
+- `Critic` trait (`async fn critique`) — the LLM critic; the production impl spawns the Critic
+  profile as a scoped subagent (Stage 5 glue). The orchestrator depends only on the trait.
+- `verify(subtask, output, critic)` — deterministic floor FIRST (cheap reject, no model call),
+  then defer to the critic if configured, else `Pass`. Test-proven to short-circuit before the
+  critic on a deterministic reject.
+- `critic_prompt` (adversarial "default to rejecting if not confident", strict JSON) +
+  `parse_critic_verdict` (permissive parse → Pass/Revise/Fail). An UNPARSEABLE critic response is
+  an inconclusive `Pass` — the critic is additive, not the floor, so a flaky critic never fails
+  output that already cleared the deterministic checks. Dep added: ordo-protocol. (The `verify`
+  free fn is reached as `verify::verify` — re-exporting it at the crate root would collide with
+  the `verify` module name.)
+
+**Verified:** `cargo test -p ordo-orchestrator` → 17 pass (incl. 7 new verify tests: deterministic
+reject/pass, short-circuit-before-critic, defer-to-critic, pass-without-critic, verdict parsing,
+inconclusive-pass). Clean under `-D warnings`. Pure gate logic — no review workflow; critic
+*efficacy* is an LLM-quality question exercised at Stage 5 integration.
+
+**Next:** Stage 5 — the driver loop + `OrchestratorPeer`: wire planner → parallel dispatch →
+verifier → re-dispatch-on-Revise (bounded) → iterate until done/budget; spawn it in `ordo-runtime`
+with the production `GoalPlanner` / `SubagentRunner` / `Critic` glue over the live
+`AssistantService`.

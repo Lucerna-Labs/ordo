@@ -189,7 +189,7 @@ fn try_parse_plan(goal: &str, raw: &str) -> Option<PlannedGoal> {
 /// Pull the JSON object out of a model response: strips a leading ```json
 /// (or plain ```) fence if present, otherwise returns the first `{ ... }`
 /// span. Permissive — reasoning models often wrap output or think aloud.
-fn extract_json(raw: &str) -> &str {
+pub(crate) fn extract_json(raw: &str) -> &str {
     let trimmed = raw.trim();
     if let Some(fence) = trimmed.find("```") {
         let after = &trimmed[fence + 3..];

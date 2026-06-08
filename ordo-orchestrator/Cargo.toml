@@ -6,6 +6,7 @@ description = "Deterministic multi-agent orchestrator: splits a goal, dispatches
 publish = false
 
 [dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
