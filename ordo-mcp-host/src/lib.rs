@@ -1097,7 +1097,10 @@ impl CapabilityProvider for FilesystemProvider {
     ) -> Option<ToolCallResult> {
         match capability {
             "filesystem.read_file" => {
-                let path = arguments.get("path")?.as_str()?;
+                let path = match require_string_argument(arguments, "path") {
+                    Ok(value) => value,
+                    Err(failed) => return Some(failed),
+                };
                 let resolved_path = match self.resolve_path(path) {
                     Ok(path) => path,
                     Err(error) => return Some(ToolCallResult::Failed { error }),
@@ -1118,8 +1121,14 @@ impl CapabilityProvider for FilesystemProvider {
                 })
             }
             "filesystem.write_file" => {
-                let path = arguments.get("path")?.as_str()?;
-                let content = arguments.get("content")?.as_str()?;
+                let path = match require_string_argument(arguments, "path") {
+                    Ok(value) => value,
+                    Err(failed) => return Some(failed),
+                };
+                let content = match require_string_argument(arguments, "content") {
+                    Ok(value) => value,
+                    Err(failed) => return Some(failed),
+                };
                 let resolved_path = match self.resolve_path(path) {
                     Ok(path) => path,
                     Err(error) => return Some(ToolCallResult::Failed { error }),
@@ -1225,7 +1234,10 @@ impl CapabilityProvider for KnowledgeProvider {
     ) -> Option<ToolCallResult> {
         let task = knowledge_task_from_capability(capability)?;
 
-        let goal = arguments.get("goal")?.as_str()?;
+        let goal = match require_string_argument(arguments, "goal") {
+            Ok(value) => value,
+            Err(failed) => return Some(failed),
+        };
         let snippets = knowledge_snippets_from_arguments(arguments);
         let sources = knowledge_sources_from_arguments(arguments);
 
@@ -3953,7 +3965,10 @@ impl CapabilityProvider for SelfHealToolsProvider {
                 })
             }
             "self_heal.forget_case" => {
-                let fingerprint = arguments.get("fingerprint")?.as_str()?.trim().to_string();
+                let fingerprint = match require_string_argument(arguments, "fingerprint") {
+                    Ok(value) => value.trim().to_string(),
+                    Err(failed) => return Some(failed),
+                };
                 if fingerprint.is_empty() {
                     return Some(ToolCallResult::Failed {
                         error: "fingerprint must not be empty".to_string(),
@@ -3965,7 +3980,10 @@ impl CapabilityProvider for SelfHealToolsProvider {
                 })
             }
             "self_heal.pin_case" => {
-                let fingerprint = arguments.get("fingerprint")?.as_str()?.trim().to_string();
+                let fingerprint = match require_string_argument(arguments, "fingerprint") {
+                    Ok(value) => value.trim().to_string(),
+                    Err(failed) => return Some(failed),
+                };
                 if fingerprint.is_empty() {
                     return Some(ToolCallResult::Failed {
                         error: "fingerprint must not be empty".to_string(),
@@ -3977,7 +3995,10 @@ impl CapabilityProvider for SelfHealToolsProvider {
                 })
             }
             "self_heal.replay_case" => {
-                let fingerprint = arguments.get("fingerprint")?.as_str()?.trim().to_string();
+                let fingerprint = match require_string_argument(arguments, "fingerprint") {
+                    Ok(value) => value.trim().to_string(),
+                    Err(failed) => return Some(failed),
+                };
                 if fingerprint.is_empty() {
                     return Some(ToolCallResult::Failed {
                         error: "fingerprint must not be empty".to_string(),
@@ -3989,7 +4010,10 @@ impl CapabilityProvider for SelfHealToolsProvider {
                 })
             }
             "self_heal.export_case" => {
-                let fingerprint = arguments.get("fingerprint")?.as_str()?.trim().to_string();
+                let fingerprint = match require_string_argument(arguments, "fingerprint") {
+                    Ok(value) => value.trim().to_string(),
+                    Err(failed) => return Some(failed),
+                };
                 if fingerprint.is_empty() {
                     return Some(ToolCallResult::Failed {
                         error: "fingerprint must not be empty".to_string(),
@@ -4485,6 +4509,29 @@ fn parse_limit_argument(arguments: &Value, key: &str, default: usize) -> Result<
         return Err(format!("{key} must be greater than zero"));
     }
     usize::try_from(numeric).map_err(|_| format!("{key} is too large for this platform"))
+}
+
+/// Extract a required string argument for a capability the provider has ALREADY
+/// recognised as its own. Returns `Err(ToolCallResult::Failed { .. })` with a
+/// clear validation message when the field is missing or not a string.
+///
+/// Why this exists: in `handle_tool_call`, returning `None` is the host's
+/// signal for "this capability is not mine" — the dispatch loop treats `None`
+/// as "no provider handled" and falls through to a misleading routing error.
+/// So once an arm has matched its own capability, a missing/invalid argument is
+/// a *validation* failure and MUST be reported as `Some(Failed)` (which the
+/// control API maps to a 4xx), never swallowed into `None`. Using
+/// `arguments.get("x")?.as_str()?` inside a matched arm is the bug this fixes.
+fn require_string_argument<'a>(
+    arguments: &'a Value,
+    field: &str,
+) -> Result<&'a str, ToolCallResult> {
+    match arguments.get(field).and_then(Value::as_str) {
+        Some(value) => Ok(value),
+        None => Err(ToolCallResult::Failed {
+            error: format!("missing required string field '{field}'"),
+        }),
+    }
 }
 
 fn extract_read_path(goal: &str) -> Option<String> {
@@ -6110,7 +6157,9 @@ fn assistant_parse_id(
 
 #[cfg(test)]
 mod tests {
-    use super::{CapabilityProvider, OrdoOpsProvider, ToolCallResult};
+    use super::{
+        CapabilityProvider, FilesystemProvider, KnowledgeProvider, OrdoOpsProvider, ToolCallResult,
+    };
     use serde_json::json;
 
     async fn call(capability: &str, args: serde_json::Value) -> serde_json::Value {
@@ -6123,6 +6172,75 @@ mod tests {
             ToolCallResult::Completed { result } => result,
             ToolCallResult::Failed { error } => panic!("call failed: {error}"),
         }
+    }
+
+    // --- Regression: once a provider matches its OWN capability, a missing
+    // required argument is a validation failure and must be reported as
+    // `Some(ToolCallResult::Failed)`. Returning `None` would make the host's
+    // dispatch loop emit the misleading "no provider handled" routing error
+    // (the pre-fix bug). A capability the provider does NOT own must still
+    // decline with `None`. ---
+
+    #[tokio::test]
+    async fn knowledge_missing_goal_fails_validation_instead_of_declining() {
+        let provider = KnowledgeProvider;
+
+        let missing = provider
+            .handle_tool_call("knowledge.summarize", &json!({}))
+            .await;
+        assert!(
+            missing.is_some(),
+            "a missing 'goal' must not decline to None (which reads as 'no provider handled')"
+        );
+        match missing.expect("some result") {
+            ToolCallResult::Failed { error } => {
+                assert!(error.contains("goal"), "error should name the field: {error}")
+            }
+            ToolCallResult::Completed { .. } => {
+                panic!("missing 'goal' should fail validation, not complete")
+            }
+        }
+
+        // With the required argument it completes.
+        assert!(matches!(
+            provider
+                .handle_tool_call("knowledge.summarize", &json!({ "goal": "what is ordo" }))
+                .await,
+            Some(ToolCallResult::Completed { .. })
+        ));
+
+        // A capability it does not own is still declined with `None`.
+        assert!(provider
+            .handle_tool_call("filesystem.read_file", &json!({ "goal": "x" }))
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn filesystem_missing_path_fails_validation_instead_of_declining() {
+        let provider = FilesystemProvider::default();
+
+        let missing = provider
+            .handle_tool_call("filesystem.read_file", &json!({}))
+            .await;
+        assert!(
+            missing.is_some(),
+            "a missing 'path' must not decline to None (which reads as 'no provider handled')"
+        );
+        match missing.expect("some result") {
+            ToolCallResult::Failed { error } => {
+                assert!(error.contains("path"), "error should name the field: {error}")
+            }
+            ToolCallResult::Completed { .. } => {
+                panic!("missing 'path' should fail validation, not complete")
+            }
+        }
+
+        // A capability it does not own is still declined with `None`.
+        assert!(provider
+            .handle_tool_call("knowledge.summarize", &json!({}))
+            .await
+            .is_none());
     }
 
     #[tokio::test]

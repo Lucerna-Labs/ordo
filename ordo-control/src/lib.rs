@@ -100,6 +100,33 @@ impl ControlApiError {
             message: message.into(),
         }
     }
+
+    /// A precondition the caller/operator must satisfy first — e.g. a tool
+    /// whose required credential is not configured. Honest 4xx, not a fault.
+    fn precondition_failed(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::PRECONDITION_FAILED,
+            message: message.into(),
+        }
+    }
+
+    /// The runaway guard rejected the call as too-frequent. Mirror it as 429
+    /// rather than burying a client-rate problem in a 500.
+    fn too_many_requests(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            message: message.into(),
+        }
+    }
+
+    /// A downstream capability/provider timed out on the bus. The HTTP layer
+    /// is the gateway, so 504 is the faithful status.
+    fn gateway_timeout(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::GATEWAY_TIMEOUT,
+            message: message.into(),
+        }
+    }
 }
 
 impl IntoResponse for ControlApiError {
@@ -2803,11 +2830,86 @@ async fn invoke_tool(
     capability: &str,
     arguments: Value,
 ) -> Result<Json<Value>, ControlApiError> {
-    let result = brain
-        .invoke_tool(capability, arguments)
-        .await
-        .map_err(|err| ControlApiError::internal(err.to_string()))?;
-    Ok(Json(result))
+    match brain.invoke_tool(capability, arguments).await {
+        Ok(result) => Ok(Json(result)),
+        Err(err) => Err(match err.downcast_ref::<ordo_brain::BrainError>() {
+            Some(brain_err) => classify_brain_error(brain_err),
+            None => ControlApiError::internal(err.to_string()),
+        }),
+    }
+}
+
+/// Map a typed [`ordo_brain::BrainError`] from a tool invocation to the most
+/// honest HTTP status. The old code blanket-mapped every failure to 500, so a
+/// caller passing bad arguments — or a tool that needs an unconfigured
+/// credential — looked like the runtime had crashed. Validation belongs in the
+/// 4xx range; only genuine internal faults stay 5xx.
+fn classify_brain_error(err: &ordo_brain::BrainError) -> ControlApiError {
+    use ordo_brain::BrainError::{
+        CapabilityInventoryTimedOut, CapabilityResponseTimedOut, GoalPlanningFailed,
+        RagCollectionsTimedOut, RagIngestTimedOut, RagQueryTimedOut, RunTimedOut, SelfHealTimedOut,
+        ToolCallFailed, ToolCallRateLimited, ToolCallTimedOut,
+    };
+    match err {
+        // The runaway guard tripped — a client-rate problem, not a server fault.
+        ToolCallRateLimited { .. } => ControlApiError::too_many_requests(err.to_string()),
+        // A provider ran and reported a failure. The message tells us whether
+        // it was the caller's fault (bad input) or ours.
+        ToolCallFailed { error, .. } => classify_tool_failure(error, err.to_string()),
+        // Anything timing out on the bus is a gateway timeout from HTTP's view.
+        ToolCallTimedOut { .. }
+        | CapabilityResponseTimedOut
+        | CapabilityInventoryTimedOut
+        | RunTimedOut { .. }
+        | RagIngestTimedOut { .. }
+        | RagQueryTimedOut { .. }
+        | RagCollectionsTimedOut
+        | SelfHealTimedOut { .. } => ControlApiError::gateway_timeout(err.to_string()),
+        // Planning failed for an internal reason — genuine 5xx.
+        GoalPlanningFailed { .. } => ControlApiError::internal(err.to_string()),
+    }
+}
+
+/// Classify the free-text error string a provider returned in
+/// [`ordo_brain::BrainError::ToolCallFailed`]. The error type is erased to a
+/// `String` on the bus, so we key on stable message fragments — the same
+/// signals the exhaustive harness keys on — preferring 4xx for anything the
+/// caller can fix. When in doubt we keep 500 (a too-low status is worse than a
+/// too-high one for a genuine fault).
+fn classify_tool_failure(inner: &str, full: String) -> ControlApiError {
+    let low = inner.to_ascii_lowercase();
+    // Capability genuinely owned by no provider (post-fix this only happens for
+    // a truly unknown capability, since providers now report bad args as
+    // validation failures rather than declining).
+    if low.contains("no provider handled") {
+        return ControlApiError::not_found(full);
+    }
+    // A required credential / external precondition is not configured.
+    if low.contains("not configured")
+        || low.contains("no compatible credential")
+        || low.contains("credential for service")
+    {
+        return ControlApiError::precondition_failed(full);
+    }
+    // Client-side validation: missing/invalid arguments.
+    if low.contains("invalid argument")
+        || low.contains("missing")
+        || low.contains("required")
+        || low.contains("requires")
+        || low.contains("must be")
+        || low.contains("must not be empty")
+        || low.contains("expected")
+        || low.contains("unknown field")
+    {
+        return ControlApiError::bad_request(full);
+    }
+    // A referenced entity does not exist.
+    if low.contains("not found") || low.contains("no remembered") || low.contains("does not exist")
+    {
+        return ControlApiError::not_found(full);
+    }
+    // Unrecognised provider error — treat as a genuine server fault.
+    ControlApiError::internal(full)
 }
 
 fn parse_collection_query(value: Option<&str>) -> Vec<String> {

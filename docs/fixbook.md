@@ -470,3 +470,46 @@ repair that actually stabilized the platform.
 - It uses what the operator already runs (nomic-embed-text, 768d), keeps the
   model warm (no per-call reload), stays local-first, and replaces the weak
   hashing floor. Verified live: the runtime reports `embedding_backend: ollama`.
+
+## Fix Pattern 25: A Provider Must FAIL Its Own Call, Never Decline It
+
+### Symptom
+- An exhaustive black-box sweep (`scripts/ordo_exhaustive_test.py`) of every
+  control-API route + every advertised capability surfaced two pre-public
+  problems:
+  1. `POST /api/tools/<cap>` returned **HTTP 500** for *every* tool failure —
+     bad input, an unconfigured credential, a timeout — so a caller mistake
+     looked like a runtime crash.
+  2. Seven advertised capabilities (`knowledge.*`, `filesystem.read_file`,
+     `self_heal.export_case`/`replay_case`) returned
+     `"no provider handled the requested capability"` even though their
+     providers were registered. The capabilities worked with correct args
+     (`knowledge.summarize {goal}` → 200; `self_heal.export_case {fingerprint}`
+     → a real handled error) but declined on missing args.
+- Root cause of (2): inside `handle_tool_call`, after an arm had matched its
+  OWN capability, the code did `arguments.get("x")?.as_str()?`. The `?` returns
+  `None` on a missing argument, and the host's dispatch loop treats `None` as
+  "this provider does not own this capability" — so it falls through to the
+  misleading "no provider handled" routing error, masking a validation error.
+
+### Repair
+- `ordo-mcp-host`: add `require_string_argument(args, field) -> Result<&str,
+  ToolCallResult>` and use it in every matched arm (FilesystemProvider,
+  KnowledgeProvider, SelfHealToolsProvider). A matched-but-bad call now returns
+  `Some(ToolCallResult::Failed { "missing required string field 'x'" })`.
+  `None` is reserved for its one true meaning: "not my capability."
+- `ordo-control`: stop blanket-mapping to 500. `invoke_tool` downcasts to the
+  typed `ordo_brain::BrainError` and classifies — validation → **400**,
+  missing-credential/precondition → **412**, no-provider → **404**, bus timeout
+  → **504**, runaway-guard → **429**; only an unrecognised fault stays **500**.
+
+### Why it worked
+- The two layers compose: a provider now reports a missing arg as a real
+  failure, and the control API renders that failure as an honest 4xx. The
+  exhaustive harness went from `PASS 65 / WARN 38 / FAIL 7` to
+  `PASS 108 / WARN 2 / FAIL 0` (the 2 WARNs are transient per-IP rate-limit
+  429s from the dense burst, not faults). Locked in by two regression tests
+  asserting missing-arg → `Some(Failed)` and unowned-cap → `None`.
+- General rule: in a first-match dispatch loop, "I decline" and "I accept but
+  the request is invalid" are different answers. Collapsing them into `None`
+  turns every validation error into a phantom routing failure.
