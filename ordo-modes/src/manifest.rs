@@ -193,6 +193,15 @@ pub struct ModeManifest {
     /// modes should set `"restrictive"`. `None` = permissive.
     #[serde(default)]
     pub default_skill_admission: Option<String>,
+
+    /// Protected (built-in core) mode. Protected modes ship compiled-in and the
+    /// mode-lifecycle surface refuses to DELETE them — so an operator can't
+    /// casually remove `general`, `diagnostic`, or another core mode. Editing a
+    /// protected mode's config is still allowed; only deletion is guarded.
+    /// User-created modes default to `false` and are freely deletable.
+    /// See `docs/mode-lifecycle.md`.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 /// The outcome of routing a skill to a mode, with the reason — produced by
@@ -486,6 +495,7 @@ mod tests {
             blocked_skills: vec![],
             max_skill_risk: None,
             default_skill_admission: None,
+            protected: false,
         }
     }
 

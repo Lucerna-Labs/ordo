@@ -296,24 +296,15 @@ mod tests {
     #[test]
     fn from_defaults_loads_all_modes() {
         let r = ModeRegistry::from_defaults().unwrap();
-        assert_eq!(r.len(), 16);
+        assert_eq!(r.len(), 7);
         for id in &[
             "general",
-            "diagnostic",
-            "llm_training",
-            "self_host",
-            "investigations",
-            "business",
-            "sovereign_comms",
-            "personal",
-            "security_research",
+            "rust_vibe_coder",
+            "coding",
+            "research",
             "security_lab",
-            "special_projects_1",
-            "special_projects_2",
-            "special_projects_3",
-            "windows_tech_specialist",
-            "linux_tech_specialist",
-            "apple_os_tech_specialist",
+            "tech_specialist",
+            "diagnostic",
         ] {
             assert!(r.get(id).is_some(), "missing mode: {id}");
         }
@@ -332,26 +323,17 @@ mod tests {
     fn load_with_defaults_materializes_first_run() {
         let tmp = tempfile::tempdir().unwrap();
         let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        assert_eq!(r.len(), 16);
+        assert_eq!(r.len(), 7);
         let stats = r.stats();
-        assert_eq!(stats.defaults_materialized, 16);
+        assert_eq!(stats.defaults_materialized, 7);
         let all = [
             "general",
-            "diagnostic",
-            "llm_training",
-            "self_host",
-            "investigations",
-            "business",
-            "sovereign_comms",
-            "personal",
-            "security_research",
+            "rust_vibe_coder",
+            "coding",
+            "research",
             "security_lab",
-            "special_projects_1",
-            "special_projects_2",
-            "special_projects_3",
-            "windows_tech_specialist",
-            "linux_tech_specialist",
-            "apple_os_tech_specialist",
+            "tech_specialist",
+            "diagnostic",
         ];
         for id in &all {
             assert!(
@@ -387,9 +369,9 @@ mod tests {
     fn deleted_default_is_remateralized() {
         let tmp = tempfile::tempdir().unwrap();
         ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        std::fs::remove_file(tmp.path().join("self_host.json")).unwrap();
+        std::fs::remove_file(tmp.path().join("coding.json")).unwrap();
         let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        assert!(r.get("self_host").is_some());
+        assert!(r.get("coding").is_some());
         assert_eq!(r.stats().defaults_materialized, 1);
     }
 
@@ -397,9 +379,8 @@ mod tests {
     fn invalid_file_skipped_others_load() {
         let tmp = tempfile::tempdir().unwrap();
         ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        std::fs::write(tmp.path().join("business.json"), "{ not valid json").unwrap();
+        std::fs::write(tmp.path().join("corrupt_mode.json"), "{ not valid json").unwrap();
         let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        assert!(r.get("business").is_some());
         assert!(r.get("general").is_some());
         assert!(r.get("security_lab").is_some());
         assert!(r.stats().files_skipped >= 1);
@@ -435,11 +416,12 @@ mod tests {
             blocked_skills: vec![],
             max_skill_risk: None,
             default_skill_admission: None,
+            protected: false,
         };
         new_mode.normalize_and_validate().unwrap();
         r.upsert(new_mode).unwrap();
         assert_eq!(r.get("general").unwrap().label, "Custom General");
-        assert_eq!(r.len(), 16);
+        assert_eq!(r.len(), 7);
     }
 
     #[test]
@@ -466,6 +448,7 @@ mod tests {
             blocked_skills: vec![],
             max_skill_risk: None,
             default_skill_admission: None,
+            protected: false,
         };
         assert!(r.upsert(bad).is_err());
         assert!(r.is_empty());

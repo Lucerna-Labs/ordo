@@ -3668,6 +3668,7 @@ mod cross_mode_consult_tests {
             blocked_skills: Vec::new(),
             max_skill_risk: None,
             default_skill_admission: None,
+            protected: false,
         };
         manifest.normalize_and_validate().expect("valid test mode");
         manifest

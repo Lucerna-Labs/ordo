@@ -1016,6 +1016,7 @@ mod tests {
             blocked_skills: vec![],
             max_skill_risk: None,
             default_skill_admission: None,
+            protected: false,
         };
         m.normalize_and_validate().unwrap();
         m
