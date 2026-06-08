@@ -5,8 +5,8 @@ mod types;
 
 use backend::{
     delete_local_plugin, delete_local_skill, detect_local_llm, emit_log, find_local_binary,
-    get_library_snapshot, get_local_health, get_local_runtime_profile, get_local_runtime_settings,
-    get_local_runtime_storage, get_local_session_taint, get_local_skill, get_shell_bootstrap,
+    get_local_health, get_local_runtime_profile, get_local_runtime_settings,
+    get_local_runtime_storage, get_local_session_taint, get_local_skill,
     init_new_crate, install_local_api_key_env, install_local_plugin, list_local_apps,
     list_local_assistant_facts, list_local_capabilities, list_local_cloud_credentials,
     list_local_connection_types, list_local_files, list_local_mcp_capabilities,
@@ -14,7 +14,7 @@ use backend::{
     list_local_rag_collections, list_local_review_pending, list_local_review_recent,
     list_local_security_audit, list_local_security_rules, list_local_self_heal_cases,
     list_local_webhooks, list_local_working_memory, preview_local_rag_collections,
-    send_mechanic_command, set_local_plugin_enabled, simulate_failure, update_local_plugin,
+    set_local_plugin_enabled, update_local_plugin,
     update_local_skill, StudioState,
 };
 use types::LogLevel;
@@ -37,11 +37,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_shell_bootstrap,
-            get_library_snapshot,
             init_new_crate,
-            simulate_failure,
-            send_mechanic_command,
             list_local_modes,
             list_local_plugins,
             install_local_plugin,
