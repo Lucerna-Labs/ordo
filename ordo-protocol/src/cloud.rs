@@ -20,7 +20,7 @@
 //!
 //! Nothing in this file publishes or subscribes. The bridge in
 //! `ordo-cloud` (Cycle 3 of the Cloud-tab work) is the
-//! publisher; `ordo-uxi::tab_cloud` (Cycle 4) is the consumer.
+//! publisher; the studio Cloud/Provider tab is the consumer.
 //! Until those land, the topics defined here are dormant.
 
 use std::collections::HashMap;

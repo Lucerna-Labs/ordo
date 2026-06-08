@@ -27,7 +27,7 @@ inside the emitting crate.
   Additive: new variants, new structs, new topics — no breaking
   changes to existing types. The publisher
   (`ordo-cloud-bridge`, Cycle 3) and consumer
-  (`ordo-uxi::tab_cloud`, Cycle 4) ship separately; nothing
+  (the studio Cloud/Provider tab) ships separately; nothing
   currently publishes or subscribes, so the topics are dormant
   until Cycle 3 lands. The list response bundles
   `default_service: Option<String>` so subscribers receive an
@@ -48,7 +48,7 @@ inside the emitting crate.
   information visible to operators. Wire labels are stable; new
   variants on either axis are additive. No thresholds or policy
   data on the wire — the supervisor (PR 2) owns derivation. The
-  consumer (`ordo-uxi`, PR 3) renders the two axes; nothing
+  consumer (the studio) renders the two axes; nothing
   currently publishes or subscribes, so the topic is dormant
   until PR 2 lands. Backwards compatible: `match` arms over
   `OrdoMessage` need a new branch or wildcard, but envelopes from

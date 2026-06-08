@@ -26,7 +26,7 @@
 //!
 //! ## What this module does NOT touch
 //!
-//! `ordo-uxi`, `ordo-control`, `ordo-mcp-host`. The existing HTTP
+//! `ordo-control`, `ordo-mcp-host`. The existing HTTP
 //! capability path (`cloud.credentials.list` / `upsert` / `delete`
 //! tools) keeps working unmodified — it calls the same
 //! `CloudCredentialTask`, which (once configured with `with_bus`)

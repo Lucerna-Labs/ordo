@@ -377,7 +377,6 @@ cargo run -p ordo-operator-sim -- --origin http://127.0.0.1:4141
 - [Security](docs/security.md)
 - [Plugins](docs/plugins.md)
 - [Operator Simulator](docs/operator-simulator.md)
-- [UXI Design Spec](docs/uxi-design-spec.md)
 
 ## Status
 

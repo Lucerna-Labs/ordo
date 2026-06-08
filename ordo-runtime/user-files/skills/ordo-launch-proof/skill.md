@@ -15,9 +15,9 @@ A screenshot proves a window appeared. It does not prove the message bus is aliv
 
 1. **Launch the app.** Start the binary. Confirm it comes up without panicking. Capture the startup output. The app's own bus comes alive here — this is the only point in the pipeline where that bus exists.
 
-2. **Capture the screenshot.** For the Vello self-render surface, capture the running UI. This is necessary but not sufficient.
+2. **Capture the screenshot.** Capture the running studio UI (the Tauri/React webview). This is necessary but not sufficient.
 
-3. **Prove one real UiInput round-trip.** Drive a real input — the same live-render proof that distinguishes a running UXI from a static diagram: emit a `UiInput`, let it ride the app's bus, let the orchestrator resolve the resulting content, and confirm Vello rasterizes the changed result. Observe the state actually change (a tab switch, a content update). Capture evidence of the round-trip: the input emitted, the message flowing, the rendered result changing. A window plus a proven round-trip is "launched." A window alone is "drew once" and does not pass.
+3. **Prove one real round-trip.** Drive a real interaction in the studio UI — the live proof that distinguishes a running UXI from a static diagram: click or type in the UI, let the studio call the runtime (a Tauri `invoke` command or the control API over HTTP), let the runtime resolve the result, and confirm the studio re-renders the changed result. Observe the state actually change (a tab switch, a content update). Capture evidence of the round-trip: the input emitted, the message flowing, the rendered result changing. A window plus a proven round-trip is "launched." A window alone is "drew once" and does not pass.
 
 4. **Confirm against the definition of done.** The requirements record (step 1) named the observable condition under which this build is finished. Verify it holds, with evidence.
 

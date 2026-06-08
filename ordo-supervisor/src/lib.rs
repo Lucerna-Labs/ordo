@@ -35,7 +35,7 @@
 //!
 //! ## What this crate is *not*
 //!
-//! - Not a UI: `ordo-uxi` (separate PR) renders the state.
+//! - Not a UI: the studio renders the state (over the control API).
 //! - Not a self-healer: it observes self-heal urgency, it doesn't
 //!   plan or execute fixes.
 //! - Not a metrics sink: state is operator-visible at the
@@ -86,7 +86,7 @@ pub use state::{IncidentKind, SupervisorConfig, SystemModel};
 /// a window to come online — see the `interval_at` call below).
 /// **Subscribers that connect after the initial publish will not
 /// see any state until the next genuine transition.** For
-/// long-lived subscribers like `ordo-uxi` that boot alongside
+/// long-lived subscribers that boot alongside
 /// the supervisor this is fine; for late joiners (a future UI
 /// tab opening at runtime, an external operator dashboard
 /// reconnecting) it isn't. Future work options:

@@ -16,7 +16,7 @@ Builds fail at the end because they were underspecified at the start. A model th
 Work through these with the user. Ask in small batches, not all at once. Stop asking when you have enough to write a blueprint, not before.
 
 1. **What does the app do?** The one-sentence purpose, then the concrete user-facing behaviors. What does the user see, do, and get back?
-2. **Does it have a UI?** If yes, is it the standard Ordo Vello self-render surface (chat + text canvas + status), or something else? What does the user actually need to read or interact with? (Resist scope creep here — Ordo is a brain with a chat interface, not a creative canvas, unless the user explicitly says otherwise.)
+2. **Does it have a UI?** If yes, is it the Ordo Studio surface (the React/Tauri webview — tabs, controls, status), or something else? What does the user actually need to read or interact with? (Resist scope creep here — Ordo is a brain with a chat interface, not a creative canvas, unless the user explicitly says otherwise.)
 3. **What persists?** Is there state that must survive a restart? That decides whether the build needs the `claw-store` crate.
 4. **What external systems does it touch?** Models, ComfyUI, a camera/ONVIF feed, an API. Anything external is a bridge crate at the boundary, never inlined into a subsystem.
 5. **What runs locally vs. cloud?** Pull `hardware-fleet` from RAG if model selection or inference siting is in scope, so the blueprint is grounded in what the fleet can actually run.

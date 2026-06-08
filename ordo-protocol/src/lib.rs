@@ -177,7 +177,7 @@ pub enum OrdoMessage {
     // List/Upsert/Remove/Test/SetDefault paired as
     // request+response or request+event. Publisher
     // (`ordo-cloud-bridge`, Cycle 3) and consumer
-    // (`ordo-uxi::tab_cloud`, Cycle 4) ship separately;
+    // (the studio Cloud/Provider tab) ship separately;
     // dormant until Cycle 3 lands. See
     // `ordo-protocol/CHANGELOG.md` + `cloud_topics`.
     CloudCredentialsListRequest,
