@@ -367,3 +367,30 @@ for the 3 new fields.)
 
 **Next:** Stage 2 — parallel scoped dispatch (run N ready subtasks as concurrent scoped
 subagents via `JoinSet` honoring `max_concurrent`, aggregate `TaskResult`s).
+
+### Stage 2 — Parallel scoped dispatch ✅ (2026-06-08)
+
+**Done (ordo-orchestrator, new `dispatch` module):**
+- `Subtask { id, goal, mode, allowed_lanes }` + `SubtaskResult { id, output: Result<String,String> }`
+  — a failed subtask is a first-class result, never a panic.
+- `SubagentRunner` trait (`async fn run_subtask`) — the orchestrator depends ONLY on this, so
+  the concurrency + aggregation logic is decoupled from `ordo-assistant` and unit-testable with
+  a stub. The production runner (over `spawn_subagent_in_mode`, threading the Stage 1 per-subtask
+  memory scope + lane narrowing + taint) wires in at Stage 5.
+- `dispatch_subtasks(runner, subtasks, max_concurrent)` — runs a round as concurrent subagents
+  via `JoinSet`, bounded by a `Semaphore` (acquire-before-spawn; a permit releases as each
+  finishes → the next is admitted, so 100 subtasks @ 4 run four-at-a-time). Aggregates all
+  results; a *panicked* task is logged + dropped (peers still complete). `max_concurrent`
+  clamped to ≥1; result order is completion order (callers key by `SubtaskResult.id`).
+- Deps added to the crate: tokio, uuid, async-trait, tracing.
+
+**Verified:** `cargo test -p ordo-orchestrator` → 4 pass, incl.
+`dispatch_bounds_concurrency_and_aggregates_all` (6 subtasks @ `max_concurrent=2`: peak
+in-flight is exactly 2 — bounded AND genuinely parallel — and all 6 results returned),
+`dispatch_handles_empty_round`, and `max_concurrent_zero_is_clamped_to_one` (serial). Clean
+under `-D warnings`. No adversarial-review workflow this stage — it's a mechanical, fully
+test-covered concurrency utility, not a security boundary; integration scrutiny lands in
+Stage 5 when the production runner touches the live assistant + isolation.
+
+**Next:** Stage 3 — planner split (`AssistantService::plan_goal`: goal → `ordo-tasks::Goal`
+DAG via LLM structured output + agent routing; deterministic single-task fallback).

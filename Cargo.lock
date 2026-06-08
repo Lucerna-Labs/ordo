@@ -3334,7 +3334,11 @@ dependencies = [
 name = "ordo-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

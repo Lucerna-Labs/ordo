@@ -7,6 +7,10 @@ publish = false
 
 [dependencies]
 serde = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
 
 [lints.clippy]
 dbg_macro = "deny"

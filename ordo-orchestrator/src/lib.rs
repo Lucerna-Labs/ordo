@@ -7,10 +7,14 @@
 //! subprocess or separate service.
 //!
 //! See `docs/agent-orchestration.md` for the full architecture and the
-//! staged build plan. Stage 0 establishes the crate, the run budget,
-//! and the phase enum (stable contract). Behaviour — planner split
-//! (Stage 3), parallel scoped dispatch (Stage 2), verifier gate
-//! (Stage 4), and the driver loop + peer (Stage 5) — lands later.
+//! staged build plan. Stages landed: the crate + budget + phase enum
+//! (Stage 0); parallel scoped dispatch (Stage 2, the `dispatch` module).
+//! Still to come — planner split (Stage 3), verifier gate (Stage 4), and
+//! the driver loop + peer (Stage 5).
+
+pub mod dispatch;
+
+pub use dispatch::{dispatch_subtasks, SubagentRunner, Subtask, SubtaskResult};
 
 use std::time::Duration;
 
