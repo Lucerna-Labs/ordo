@@ -74,6 +74,7 @@ pub fn bare_turn(user_message: &str) -> TurnRequest {
         attachments: Default::default(),
         subagent_depth: 0,
         mode: None,
+        ..Default::default()
     }
 }
 

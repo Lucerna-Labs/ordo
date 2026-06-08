@@ -95,6 +95,7 @@ async fn turn_grounds_on_remembered_fact_and_persists_context() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("turn");
@@ -178,6 +179,7 @@ async fn second_turn_in_same_session_includes_prior_history() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("first turn");
@@ -201,6 +203,7 @@ async fn second_turn_in_same_session_includes_prior_history() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("second turn");
@@ -302,6 +305,7 @@ async fn call_time_failover_retries_next_credential_on_5xx() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("turn should succeed via call-time failover");
@@ -371,6 +375,7 @@ async fn failover_chain_reaches_secondary_when_primary_credential_absent() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("turn should succeed via failover");
@@ -441,6 +446,7 @@ async fn turn_appends_user_message_and_chained_agent_response_to_memory_log() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("turn");
@@ -529,6 +535,7 @@ async fn turn_events_share_a_turn_id_and_two_turns_have_distinct_ids() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("first turn");
@@ -550,6 +557,7 @@ async fn turn_events_share_a_turn_id_and_two_turns_have_distinct_ids() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect("second turn");
@@ -748,6 +756,7 @@ async fn denied_turn_returns_error_when_no_credential_configured() {
             attachments: Default::default(),
             subagent_depth: 0,
             mode: None,
+            ..Default::default()
         })
         .await
         .expect_err("should fail");

@@ -362,6 +362,30 @@ pub struct TurnRequest {
     /// `"general"`.
     #[serde(default)]
     pub mode: Option<String>,
+    /// Per-spawn PRIVATE memory scope tag (e.g. `"agent:<uuid>"`), set by
+    /// the orchestrator / subagent spawner. When present, fact recall for
+    /// this turn also reads from it and facts the turn writes are tagged
+    /// with it — so parallel subagents can't read or clobber each other's
+    /// working memory. None = no private scope (normal operator turns).
+    /// INTERNAL ONLY: serde-skipped so it cannot be set via the bus/JSON
+    /// API — only in-process subagent spawns set it (a bus caller must
+    /// not be able to read another agent's private scope).
+    #[serde(skip)]
+    pub memory_scope: Option<String>,
+    /// Per-spawn tool-lane allow-list that NARROWS (never widens) the
+    /// active mode's lanes for this turn. None = the mode's lanes apply
+    /// unchanged. `Some(empty)` = no bus tools (fail-closed). Meta-tools
+    /// (`assistant.*`) are always available regardless.
+    /// INTERNAL ONLY: serde-skipped — set only by in-process spawns.
+    #[serde(skip)]
+    pub allowed_lanes: Option<Vec<String>>,
+    /// Taints to seed onto this turn's session before it runs. Lets a
+    /// quarantined parent propagate its taint to a spawned child so
+    /// untrusted content can't be laundered through a clean subagent.
+    /// INTERNAL ONLY: serde-skipped — a bus caller must not control the
+    /// taint a turn starts with; only in-process spawns seed it.
+    #[serde(skip)]
+    pub inherit_taint: Vec<ordo_protocol::Taint>,
 }
 
 /// Hard cap on nested assistant invocations. Three levels is
@@ -392,6 +416,9 @@ impl Default for TurnRequest {
             attachments: Vec::new(),
             subagent_depth: 0,
             mode: None,
+            memory_scope: None,
+            allowed_lanes: None,
+            inherit_taint: Vec::new(),
         }
     }
 }

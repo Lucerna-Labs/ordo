@@ -298,6 +298,13 @@ pub struct AssistantService {
     /// without restart, the operator hits the "clear taint" action.
     session_taint: Arc<Mutex<HashMap<Uuid, Vec<ordo_protocol::Taint>>>>,
 
+    /// Per-subagent isolation, keyed by (ephemeral) session id — mirrors
+    /// `session_taint`. Set when a scoped subagent turn starts; read by
+    /// recall, fact writes, and the tool gate so a subagent gets a
+    /// private memory scope + narrowed tool lanes. Removed when the turn
+    /// ends (subagent sessions are ephemeral, so the map stays bounded).
+    session_isolation: Arc<Mutex<HashMap<Uuid, SubagentIsolation>>>,
+
     /// Mode registry. The runtime resolves a session's stored mode
     /// id to a `ModeManifest` here whenever a turn fires. Built
     /// from `<runtime>/user-files/modes/*.json` plus the compiled-in
@@ -308,6 +315,62 @@ pub struct AssistantService {
     /// falls back to the pre-mode shape: no scope filtering, all
     /// existing lane allowlists in effect.
     modes: Option<ordo_modes::ModeRegistry>,
+}
+
+/// Per-subagent isolation state, recorded for the lifetime of a scoped
+/// subagent turn (keyed by its ephemeral session id).
+#[derive(Debug, Clone, Default)]
+struct SubagentIsolation {
+    /// Private memory scope tag (e.g. `"agent:<uuid>"`) for recall + writes.
+    memory_scope: Option<String>,
+    /// Narrowing tool-lane allow-list (None = the mode's lanes apply).
+    allowed_lanes: Option<Vec<String>>,
+}
+
+/// Scope handed to [`AssistantService::spawn_subagent_in_mode`] to
+/// isolate a child subagent: private memory, narrowed tool lanes, and
+/// taint inherited from the parent.
+#[derive(Debug, Clone, Default)]
+pub struct SubagentScope {
+    /// Private memory scope; auto-generated `agent:<uuid>` when None.
+    pub memory_scope: Option<String>,
+    /// Tool lanes the child may use — narrows the mode's lanes. None =
+    /// inherit the mode's lanes unchanged.
+    pub allowed_lanes: Option<Vec<String>>,
+    /// Taints to propagate from the parent onto the child session.
+    pub inherit_taint: Vec<ordo_protocol::Taint>,
+}
+
+/// Drop guard that removes a session's isolation entry when a scoped
+/// subagent turn ends, keeping `session_isolation` bounded.
+struct IsolationGuard {
+    map: Arc<Mutex<HashMap<Uuid, SubagentIsolation>>>,
+    session_id: Uuid,
+}
+
+impl Drop for IsolationGuard {
+    fn drop(&mut self) {
+        self.map.lock().remove(&self.session_id);
+    }
+}
+
+/// True if `capability` falls within one of the allowed lanes, matched
+/// on a dotted-segment boundary so a lane can't bleed into a sibling
+/// capability (e.g. lane `"files.read"` matches `files.read` and
+/// `files.read.*` but NOT `files.read_secrets`; lane `"web"` matches
+/// `web.*` but NOT `webhook.*`). An empty `lanes` slice matches nothing
+/// (fail-closed).
+fn capability_in_lanes(capability: &str, lanes: &[String]) -> bool {
+    lanes.iter().any(|lane| {
+        let lane = lane.as_str();
+        if let Some(stripped) = lane.strip_suffix('.') {
+            // Dotted lane prefix, e.g. "web." → matches "web" and "web.*".
+            capability == stripped || capability.starts_with(lane)
+        } else {
+            // Bare lane → exact capability or a dotted sub-namespace only.
+            capability == lane || capability.starts_with(&format!("{lane}."))
+        }
+    })
 }
 
 impl AssistantService {
@@ -337,6 +400,7 @@ impl AssistantService {
             memory_log: None,
             cancellations: CancellationRegistry::new(),
             session_taint: Arc::new(Mutex::new(HashMap::new())),
+            session_isolation: Arc::new(Mutex::new(HashMap::new())),
             modes: None,
         }
     }
@@ -822,8 +886,20 @@ impl AssistantService {
         goal: String,
         max_iterations: Option<usize>,
     ) -> AssistantResult<TurnResult> {
-        self.spawn_subagent_in_mode(parent_depth, goal, max_iterations, None)
-            .await
+        // NOTE: this convenience wrapper does NOT propagate parent taint
+        // or narrow lanes (it passes SubagentScope::default()). It is for
+        // in-process callers with no untrusted context and is NOT exposed
+        // on the bus. Delegating untrusted or scoped work must use
+        // `spawn_subagent_in_mode` with an explicit `SubagentScope`
+        // (see `meta_consult_mode_agent`).
+        self.spawn_subagent_in_mode(
+            parent_depth,
+            goal,
+            max_iterations,
+            None,
+            SubagentScope::default(),
+        )
+        .await
     }
 
     pub async fn spawn_subagent_in_mode(
@@ -832,6 +908,7 @@ impl AssistantService {
         goal: String,
         max_iterations: Option<usize>,
         mode: Option<String>,
+        scope: SubagentScope,
     ) -> AssistantResult<TurnResult> {
         let child_depth = parent_depth.saturating_add(1);
         if child_depth > MAX_SUBAGENT_DEPTH {
@@ -863,6 +940,14 @@ impl AssistantService {
             review: false,
             stream: false,
             mode,
+            // Every subagent gets a PRIVATE memory scope so parallel
+            // siblings can't read or clobber each other; auto-generate
+            // one when the caller didn't supply it.
+            memory_scope: scope
+                .memory_scope
+                .or_else(|| Some(format!("agent:{}", Uuid::new_v4()))),
+            allowed_lanes: scope.allowed_lanes,
+            inherit_taint: scope.inherit_taint,
             ..Default::default()
         };
         sub_service.turn(child_request).await
@@ -911,6 +996,32 @@ impl AssistantService {
             }
         };
         let session_id = session.id;
+
+        // Per-subagent isolation (Stage 1): seed any taint inherited from
+        // a parent (so a quarantined parent can't launder untrusted
+        // content through a clean child) and record this turn's private
+        // memory scope + tool-lane narrowing. The guard removes the
+        // isolation entry on exit so ephemeral subagent sessions don't
+        // accumulate in the map.
+        for taint in &request.inherit_taint {
+            self.taint_session(session_id, taint.clone());
+        }
+        let _isolation_guard =
+            if request.memory_scope.is_some() || request.allowed_lanes.is_some() {
+                self.session_isolation.lock().insert(
+                    session_id,
+                    SubagentIsolation {
+                        memory_scope: request.memory_scope.clone(),
+                        allowed_lanes: request.allowed_lanes.clone(),
+                    },
+                );
+                Some(IsolationGuard {
+                    map: self.session_isolation.clone(),
+                    session_id,
+                })
+            } else {
+                None
+            };
 
         self.events.publish(
             session_id,
@@ -2122,6 +2233,17 @@ impl AssistantService {
         let mut tools: Vec<Value> = meta_tool_schemas();
         let mut providers: HashMap<String, String> = HashMap::new();
 
+        // Per-subagent lane narrowing (Stage 1): when this session has an
+        // allowed-lanes override, bus capabilities must ALSO match one of
+        // those lanes (on top of the mode's lanes). Meta-tools above are
+        // exempt — they're the memory/routing baseline. `Some(empty)` =
+        // no bus tools (fail-closed).
+        let iso_lanes: Option<Vec<String>> = self
+            .session_isolation
+            .lock()
+            .get(&session_id)
+            .and_then(|iso| iso.allowed_lanes.clone());
+
         // Append every bus capability the operator has allow-listed
         // AND that the active mode permits. Mode-side filtering is
         // additive: the gateway's own `is_allowed` already drops
@@ -2138,6 +2260,12 @@ impl AssistantService {
                     for d in descriptors {
                         if let Some(mode) = mode {
                             if !mode.allows_capability(&d.capability) {
+                                mode_filtered += 1;
+                                continue;
+                            }
+                        }
+                        if let Some(lanes) = &iso_lanes {
+                            if !capability_in_lanes(&d.capability, lanes) {
                                 mode_filtered += 1;
                                 continue;
                             }
@@ -2259,9 +2387,23 @@ impl AssistantService {
         // pre-mode tests), fall back to all-scopes recall â€”
         // backward-compat for anything that hasn't migrated.
         let facts = if let Some(manifest) = self.resolve_mode_for_session(session_id) {
+            // Per-subagent isolation: a scoped subagent also recalls from
+            // its private `agent:<uuid>` scope (its own working memory),
+            // on top of the mode's shared scopes.
+            let mut scopes = manifest.memory_scope.clone();
+            if let Some(tag) = self
+                .session_isolation
+                .lock()
+                .get(&session_id)
+                .and_then(|iso| iso.memory_scope.clone())
+            {
+                if !scopes.contains(&tag) {
+                    scopes.push(tag);
+                }
+            }
             let scoped = self
                 .facts
-                .recall_in_scopes(&query, top_k, &manifest.memory_scope)
+                .recall_in_scopes(&query, top_k, &scopes)
                 .await?;
             // Telemetry: surface the scope filter to the insight
             // trace so an operator inspecting "why didn't fact X
@@ -2545,8 +2687,34 @@ impl AssistantService {
                         new_fact.scope = Some(mode_scope);
                     }
                 }
-            } else if new_fact.scope.is_none() {
-                new_fact.scope = Some(mode_scope);
+            } else {
+                // A scoped subagent is CONFINED to its private memory
+                // scope (anti-clobber / anti-laundering): it may only
+                // write to its own `agent:<uuid>` scope — never to
+                // `global`, another mode, or another agent — so an
+                // explicit `scope` argument that escapes is rejected.
+                // Unscoped (operator) turns keep the mode scope as the
+                // default and may target any scope they choose.
+                let private_scope = self
+                    .session_isolation
+                    .lock()
+                    .get(&session_id)
+                    .and_then(|iso| iso.memory_scope.clone());
+                match (private_scope, new_fact.scope.as_deref()) {
+                    (Some(private), Some(requested)) if requested != private => {
+                        return Err(AssistantError::InvalidArgument(format!(
+                            "a scoped subagent may only write to its own memory scope \
+                             '{private}', not '{requested}'"
+                        )));
+                    }
+                    (Some(private), _) => {
+                        new_fact.scope = Some(private);
+                    }
+                    (None, _) if new_fact.scope.is_none() => {
+                        new_fact.scope = Some(mode_scope);
+                    }
+                    (None, _) => {}
+                }
             }
         }
 
@@ -2858,14 +3026,35 @@ impl AssistantService {
              unless the operator explicitly requested it.",
             target_manifest.label, active_manifest.label, reason, question
         );
+        // A scoped-subagent parent confines the consult child to its own
+        // narrowed lanes, so `consult` can't be used to widen capability
+        // (e.g. a web-only subagent consulting a code-capable mode).
+        let parent_lanes = self
+            .session_isolation
+            .lock()
+            .get(&session_id)
+            .and_then(|iso| iso.allowed_lanes.clone());
         let result = self
             .spawn_subagent_in_mode(
                 0,
                 consult_goal,
                 Some(max_iterations),
                 Some(target_mode_id.clone()),
+                SubagentScope {
+                    // Downward: propagate the parent session's taint so a
+                    // consult can't launder untrusted content INTO the child.
+                    inherit_taint: self.session_taints(session_id),
+                    allowed_lanes: parent_lanes,
+                    ..SubagentScope::default()
+                },
             )
             .await?;
+        // Upward: if the consult child ingested untrusted content, taint
+        // flows back so a clean parent can't launder it in as "clean"
+        // consult output. (taint_session de-dups, so re-seeding is free.)
+        for taint in self.session_taints(result.session_id) {
+            self.taint_session(session_id, taint);
+        }
 
         self.events.publish(
             session_id,
@@ -3082,6 +3271,52 @@ fn extract_attr(tag: &str, name: &str) -> Option<String> {
 #[cfg(test)]
 mod taint_helpers_tests {
     use super::*;
+
+    #[test]
+    fn lane_narrowing_is_segment_bounded_and_fail_closed() {
+        // Dotted lane prefix matches its whole namespace.
+        let lanes = vec!["files.".to_string(), "web.".to_string()];
+        assert!(capability_in_lanes("files.read_file", &lanes));
+        assert!(capability_in_lanes("web.fetch", &lanes));
+        assert!(!capability_in_lanes("code.run_native", &lanes));
+        // Bare lane matches only on a segment boundary — no sibling bleed.
+        assert!(capability_in_lanes("files.read", &["files.read".to_string()])); // exact
+        assert!(capability_in_lanes(
+            "files.read.all",
+            &["files.read".to_string()]
+        )); // dotted sub-namespace
+        assert!(!capability_in_lanes(
+            "files.read_secrets",
+            &["files.read".to_string()]
+        )); // boundary: must NOT bleed into a sibling capability
+        assert!(!capability_in_lanes("webhook.send", &["web".to_string()])); // boundary
+        // Empty allow-list matches nothing (fail-closed).
+        assert!(!capability_in_lanes("files.read_file", &[]));
+    }
+
+    #[test]
+    fn isolation_guard_removes_entry_on_drop() {
+        let map: Arc<Mutex<HashMap<Uuid, SubagentIsolation>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let session_id = Uuid::new_v4();
+        map.lock().insert(
+            session_id,
+            SubagentIsolation {
+                memory_scope: Some("agent:test".to_string()),
+                allowed_lanes: None,
+            },
+        );
+        assert!(map.lock().contains_key(&session_id));
+        {
+            let _guard = IsolationGuard {
+                map: map.clone(),
+                session_id,
+            };
+            assert!(map.lock().contains_key(&session_id));
+        }
+        // Guard dropped at the end of the block — entry must be gone.
+        assert!(!map.lock().contains_key(&session_id));
+    }
 
     #[test]
     fn extract_attr_finds_quoted_value() {

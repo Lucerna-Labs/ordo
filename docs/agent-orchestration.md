@@ -315,3 +315,49 @@ confirms no other exhaustive `OrdoMessage` match broke.
 
 **Next:** Stage 1 — per-subagent context isolation (per-spawn memory-scope tag + tool-lane
 narrowing override + taint propagation on `spawn_subagent*` / `TurnRequest`).
+
+### Stage 1 — Per-subagent context isolation ✅ (2026-06-08)
+
+**Done (ordo-assistant; reuses `ordo_protocol::Taint`):**
+- `TurnRequest` gained 3 **INTERNAL-only** fields — `memory_scope: Option<String>`,
+  `allowed_lanes: Option<Vec<String>>`, `inherit_taint: Vec<Taint>` — all `#[serde(skip)]`
+  so a bus caller of `assistant.turn` cannot set them; only in-process spawns do.
+- `session_isolation: Arc<Mutex<HashMap<Uuid, SubagentIsolation>>>` mirrors `session_taint`;
+  `turn()` seeds inherited taint + records isolation behind an `IsolationGuard` (Drop cleanup).
+- **Private memory (G1):** recall unions the session's `agent:<uuid>` scope (exact scope-IN
+  match, unique per spawn); `meta_remember_fact` **confines** a scoped subagent to its private
+  scope and rejects explicit escapes (`scope:"global"` etc.).
+- **Lane narrowing (G2):** `build_tool_schema_with_providers` AND-filters bus caps through
+  `capability_in_lanes` (dotted-segment boundary, fail-closed on empty); meta-tools exempt.
+- **Taint (G3):** `spawn_subagent_in_mode(.., scope: SubagentScope)` auto-generates
+  `agent:<uuid>`; `consult` propagates parent taint DOWN, narrows the child's lanes to the
+  parent's, and propagates the child's taint back UP.
+
+**Adversarial review (3-lens workflow) → fixes applied before commit.** The correctness lens
+cleared the implementation (no lock-across-await, guard correct, serde + fail-closed sound).
+The isolation + taint lenses found escape hatches, all fixed:
+- 🔴 private-memory **clobber** via explicit `scope` arg → now confined/rejected.
+- 🔴 lane **bypass via `consult`** (child ran with target mode's full lanes) → parent's
+  narrowing now propagates into the consult child.
+- 🟠 bus `assistant.turn` could set the isolation fields → `#[serde(skip)]`.
+- 🟠 **upward consult laundering** (clean parent, tainted child answer) → child taint now
+  flows back to the parent.
+- 🟡 `capability_in_lanes` prefix bleed → dotted-segment boundary + test; taint-blind 3-arg
+  `spawn_subagent` → doc-warned (in-process-only, not bus-exposed).
+
+**Deferred (tracked, out of Stage 1 scope):**
+- `assistant.turn` accepts a caller-supplied `session_id` and isn't taint-gated — a
+  **pre-existing** auth gap (serde-skip removed the *new* fields from its surface). Spawned a
+  follow-up task to taint-gate/normalize turn-spawning bus capabilities.
+- `session_taint` unbounded growth for ephemeral subagent sessions → **Stage 5** (orchestrator
+  lifecycle), where it pairs with returning a turn's accrued taints.
+- Diagnostic mode excludes per-subagent G1 (its self-contained wall wins — by design); lane
+  telemetry labels narrowed drops as `mode_filtered` (observability only).
+
+**Verified:** `cargo test -p ordo-assistant` → 51 lib tests pass (incl. boundary + guard
+tests); all integration tests compile; full `cargo build` (ordo-cli tree) clean under
+`RUSTFLAGS=-D warnings`. (Test-file `TurnRequest` literals got `..Default::default()` fill-ins
+for the 3 new fields.)
+
+**Next:** Stage 2 — parallel scoped dispatch (run N ready subtasks as concurrent scoped
+subagents via `JoinSet` honoring `max_concurrent`, aggregate `TaskResult`s).

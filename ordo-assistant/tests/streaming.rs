@@ -100,6 +100,7 @@ async fn streaming_turn_emits_token_deltas_and_assembles_response() {
                 attachments: Default::default(),
                 subagent_depth: 0,
                 mode: None,
+                ..Default::default()
             })
             .await
     });

@@ -77,6 +77,7 @@ fn review_turn_request(message: &str) -> TurnRequest {
         attachments: Default::default(),
         subagent_depth: 0,
         mode: None,
+        ..Default::default()
     }
 }
 
