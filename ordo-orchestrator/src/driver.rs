@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ordo_protocol::TaskVerdict;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::dispatch::{dispatch_subtasks, SubagentRunner, Subtask};
@@ -23,7 +24,7 @@ use crate::verify::{verify, Critic};
 use crate::{OrchestratorBudget, OrchestratorPhase};
 
 /// A subtask whose output was accepted by the verifier.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcceptedTask {
     pub id: Uuid,
     pub goal: String,
@@ -31,7 +32,7 @@ pub struct AcceptedTask {
 }
 
 /// A subtask that terminally failed (Fail verdict, or exhausted attempts).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailedTask {
     pub id: Uuid,
     pub goal: String,
@@ -39,7 +40,7 @@ pub struct FailedTask {
 }
 
 /// Result of an orchestration run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchestrationOutcome {
     pub goal: String,
     /// Terminal phase — [`OrchestratorPhase::Done`] or
@@ -75,6 +76,28 @@ impl Orchestrator {
             runner,
             critic,
             budget,
+        }
+    }
+
+    /// Run with the budget's wall-clock ceiling, returning a Halted
+    /// outcome on timeout. Partial progress isn't reported once the run
+    /// future is dropped. This is the entry point for the control API /
+    /// peer (the pure `run` carries no clock so it stays unit-testable).
+    pub async fn run_bounded(&self, goal: &str) -> OrchestrationOutcome {
+        match tokio::time::timeout(self.budget.wall_clock(), self.run(goal)).await {
+            Ok(outcome) => outcome,
+            Err(_) => OrchestrationOutcome {
+                goal: goal.to_string(),
+                phase: OrchestratorPhase::Halted,
+                succeeded: false,
+                rounds: 0,
+                reason: Some(format!(
+                    "wall-clock budget exhausted ({}s)",
+                    self.budget.wall_clock_secs
+                )),
+                accepted: Vec::new(),
+                failed: Vec::new(),
+            },
         }
     }
 
@@ -410,5 +433,32 @@ mod tests {
         assert!(!out.succeeded);
         assert_eq!(out.failed.len(), 1, "only 'a' failed; 'b' stayed blocked");
         assert!(out.accepted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_bounded_halts_on_wall_clock() {
+        struct SlowRunner;
+        #[async_trait::async_trait]
+        impl SubagentRunner for SlowRunner {
+            async fn run_subtask(&self, subtask: Subtask) -> SubtaskResult {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                SubtaskResult::ok(subtask.id, "done")
+            }
+        }
+        let budget = OrchestratorBudget {
+            max_concurrent: 1,
+            max_rounds: 10,
+            max_attempts_per_task: 2,
+            wall_clock_secs: 0, // force an immediate wall-clock timeout
+        };
+        let o = Orchestrator::new(
+            Arc::new(StubPlanner(chain(1))),
+            Arc::new(SlowRunner),
+            None,
+            budget,
+        );
+        let out = o.run_bounded("g").await;
+        assert_eq!(out.phase, OrchestratorPhase::Halted);
+        assert!(out.reason.unwrap().contains("wall-clock"));
     }
 }

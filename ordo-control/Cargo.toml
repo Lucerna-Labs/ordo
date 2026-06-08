@@ -23,6 +23,7 @@ ordo-connections = { path = "../ordo-connections" }
 ordo-automation = { path = "../ordo-automation" }
 ordo-automation-primitives = { path = "../ordo-automation-primitives" }
 ordo-build-planner = { path = "../ordo-build-planner" }
+ordo-orchestrator = { path = "../ordo-orchestrator" }
 ordo-protocol = { path = "../ordo-protocol" }
 axum = { workspace = true, features = ["macros"] }
 parking_lot.workspace = true

@@ -526,3 +526,43 @@ triggered anywhere, so none were live).
 **Next:** Stage 5b-wire — construct the `Orchestrator` in `ordo-runtime` boot behind a
 `RuntimeConfig` flag (+ originating-session taint seeding + a wall-clock `tokio::timeout` around
 `run`), then **Stage 6** (a thin control-API endpoint to submit a goal and read the outcome).
+
+### Stage 5b-wire + Stage 6 — Runnable v1 ✅ (2026-06-08)
+
+The orchestrator is now invokable end-to-end via the control API. **v1 is complete.**
+
+**Done:**
+- `ordo-orchestrator`: `OrchestrationOutcome` / `AcceptedTask` / `FailedTask` are now
+  Serialize/Deserialize (API-returnable); `Orchestrator::run_bounded(goal)` wraps `run` in the
+  budget's wall-clock `tokio::timeout` (returns a Halted outcome on timeout).
+- `ordo-control`: `ControlApiState` gains an optional `orchestrator`, built inside
+  `run_control_api_with_plugins` from the already-wired `assistant` service + the glue
+  (`AssistantOrchestration`), gated behind `ORDO_ENABLE_ORCHESTRATOR` (default off). New route
+  `POST /api/orchestrate { "goal": "..." }` → `run_bounded` → the outcome JSON; 503 when disabled.
+
+**Deviation from the plan (simpler, lower-risk):** wired in `ordo-control` via an env gate rather
+than a `RuntimeConfig` flag + a bus `OrchestratorPeer`. The control API already holds the assistant
+service and calls `service.turn` directly, so constructing the orchestrator there needs **zero
+changes to `ordo-runtime`**. A bus-peer (subscribe `GOAL_SUBMIT`, stream `Task*`/`Goal*` events for
+a live UI) is a clean future enhancement; v1's direct call is sufficient and minimal.
+
+**Verified:** `cargo test -p ordo-orchestrator` 24 pass (incl. `run_bounded_halts_on_wall_clock`);
+full `cargo build` (ordo-cli tree, incl. `ordo-control`) clean under `-D warnings`. A live
+end-to-end run (real model) is the operator smoke test: `ORDO_ENABLE_ORCHESTRATOR=1`, launch,
+`POST 127.0.0.1:4141/api/orchestrate {"goal":"..."}`.
+
+## 12. v1 status: COMPLETE
+
+All stages 0–6 landed (9 commits, `d4145ab → <this>`). The MiniMax-style loop is real:
+operator goal → LLM splits into a task DAG → parallel scoped subagents (isolated memory/lanes/taint)
+→ adversarial verifier gate → bounded re-dispatch → aggregate, all under hard budgets and an
+adversarial security review.
+
+**Tracked follow-ups (none blocking v1):**
+- Runner: seed `inherit_taint` from the originating operator session + re-scan/re-taint aggregated
+  subagent outputs (laundering hardening — currently subagents start clean/isolated).
+- A bus `OrchestratorPeer` (subscribe `GOAL_SUBMIT`) + live `Task*`/`Goal*` event streaming for a
+  studio progress UI.
+- Agent-registry-based mode routing (the planner currently runs subtasks in the default mode).
+- No-registry recall fail-close (not exploitable — the runtime always attaches a mode registry).
+- The pre-existing `assistant.turn` auth gap follow-up (separate spawned task).

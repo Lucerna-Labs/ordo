@@ -1,4 +1,4 @@
-//! Deterministic multi-agent orchestrator (Stage 0 skeleton).
+//! Deterministic multi-agent orchestrator.
 //!
 //! This crate owns the MiniMax-style loop: split a goal -> dispatch
 //! PARALLEL scoped subagents -> run adversarial quality gates ->
@@ -7,11 +7,12 @@
 //! subprocess or separate service.
 //!
 //! See `docs/agent-orchestration.md` for the full architecture and the
-//! staged build plan. Stages landed: the crate + budget + phase enum
-//! (Stage 0); parallel scoped dispatch (Stage 2, `dispatch`); planner
-//! split (Stage 3, `plan`); adversarial verifier gate (Stage 4,
-//! `verify`); the deterministic driver loop (Stage 5a, `driver`). Still
-//! to come — the runtime glue + `OrchestratorPeer` (Stage 5b).
+//! staged build plan. All stages landed: budget + phase enum (Stage 0);
+//! parallel scoped dispatch (Stage 2, `dispatch`); planner split
+//! (Stage 3, `plan`); adversarial verifier gate (Stage 4, `verify`); the
+//! deterministic driver loop (Stage 5a, `driver`). The live-assistant
+//! glue lives in `ordo-assistant::orchestration` (Stage 5b) and the
+//! `POST /api/orchestrate` endpoint in `ordo-control` (Stage 6).
 
 pub mod dispatch;
 pub mod driver;

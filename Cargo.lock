@@ -2905,6 +2905,7 @@ dependencies = [
  "ordo-mcp-registry",
  "ordo-mcp-sandbox",
  "ordo-memory",
+ "ordo-orchestrator",
  "ordo-plugins",
  "ordo-protocol",
  "ordo-rag",

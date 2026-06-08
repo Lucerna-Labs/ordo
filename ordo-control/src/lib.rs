@@ -67,6 +67,10 @@ struct ControlApiState {
     automation: Arc<Mutex<AutomationOrchestrator>>,
     automation_path: Option<PathBuf>,
     build_planner: Arc<AsyncMutex<ordo_build_planner::BuildPlannerPeer>>,
+    /// MiniMax-style multi-agent orchestrator. `Some` only when
+    /// `ORDO_ENABLE_ORCHESTRATOR` is set AND an assistant service is wired;
+    /// the `/api/orchestrate` route returns 503 otherwise.
+    orchestrator: Option<Arc<ordo_orchestrator::Orchestrator>>,
 }
 
 #[derive(Debug)]
@@ -310,6 +314,7 @@ pub fn build_router_with_plugins(
     };
 
     let build_planner = build_planner_from_plugins(bus.clone(), &plugins_path);
+    let orchestrator = build_orchestrator(&assistant);
 
     let state = ControlApiState {
         brain: Arc::new(Brain::new(bus)),
@@ -329,6 +334,7 @@ pub fn build_router_with_plugins(
         automation: Arc::new(Mutex::new(automation)),
         automation_path,
         build_planner: Arc::new(AsyncMutex::new(build_planner)),
+        orchestrator,
     };
 
     Router::new()
@@ -414,6 +420,7 @@ pub fn build_router_with_plugins(
         )
         .route("/api/assistant/sessions/:id", get(get_assistant_session))
         .route("/api/assistant/turn", post(post_assistant_turn))
+        .route("/api/orchestrate", post(orchestrate_route))
         .route(
             "/api/assistant/facts",
             get(list_assistant_facts).post(remember_assistant_fact),
@@ -1360,6 +1367,63 @@ async fn get_assistant_session(
         .map_err(map_assistant_error)?
         .ok_or_else(|| ControlApiError::bad_request(format!("session '{id}' not found")))?;
     Ok(Json(serde_json::to_value(session).unwrap_or(Value::Null)))
+}
+
+fn orchestrator_enabled() -> bool {
+    matches!(
+        std::env::var("ORDO_ENABLE_ORCHESTRATOR").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE")
+    )
+}
+
+/// Build the multi-agent orchestrator from the wired assistant service,
+/// gated behind `ORDO_ENABLE_ORCHESTRATOR` (default off). Returns `None`
+/// when disabled or when no assistant service is wired.
+fn build_orchestrator(
+    assistant: &Option<ordo_assistant::AssistantService>,
+) -> Option<Arc<ordo_orchestrator::Orchestrator>> {
+    if !orchestrator_enabled() {
+        return None;
+    }
+    let service = assistant.as_ref()?;
+    let glue = Arc::new(ordo_assistant::AssistantOrchestration::new(service.clone()));
+    let planner: Arc<dyn ordo_orchestrator::GoalPlanner> = glue.clone();
+    let runner: Arc<dyn ordo_orchestrator::SubagentRunner> = glue.clone();
+    let critic: Arc<dyn ordo_orchestrator::Critic> = glue;
+    Some(Arc::new(ordo_orchestrator::Orchestrator::new(
+        planner,
+        runner,
+        Some(critic),
+        ordo_orchestrator::OrchestratorBudget::default(),
+    )))
+}
+
+#[derive(Deserialize)]
+struct OrchestrateRequest {
+    goal: String,
+}
+
+/// `POST /api/orchestrate` — submit a goal to the multi-agent orchestrator
+/// and return the outcome (accepted/failed subtasks, rounds, terminal
+/// phase). Bounded by the orchestrator's wall-clock budget. Returns 503
+/// when the orchestrator is disabled.
+async fn orchestrate_route(
+    State(state): State<ControlApiState>,
+    Json(body): Json<OrchestrateRequest>,
+) -> Result<Json<ordo_orchestrator::OrchestrationOutcome>, ControlApiError> {
+    let Some(orchestrator) = state.orchestrator.clone() else {
+        return Err(ControlApiError {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: "orchestrator is disabled (set ORDO_ENABLE_ORCHESTRATOR=1 and wire an assistant)"
+                .into(),
+        });
+    };
+    let goal = body.goal.trim();
+    if goal.is_empty() {
+        return Err(ControlApiError::bad_request("goal must not be empty"));
+    }
+    let outcome = orchestrator.run_bounded(goal).await;
+    Ok(Json(outcome))
 }
 
 async fn post_assistant_turn(
