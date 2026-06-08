@@ -3313,6 +3313,7 @@ dependencies = [
 name = "ordo-modes"
 version = "0.1.0"
 dependencies = [
+ "ordo-skills",
  "parking_lot",
  "serde",
  "serde_json",
@@ -3621,6 +3622,13 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "ordo-skills"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

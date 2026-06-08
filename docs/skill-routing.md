@@ -126,9 +126,10 @@ tag-allow > per-mode default**. Isolation modes set `default_skill_admission:
 - **Stage 2 — mode-side routing.** Add `allowed_skill_tags`,
   `blocked_skill_tags`, `blocked_skills`, `max_skill_risk`,
   `default_skill_admission` to `ModeManifest` (all `#[serde(default)]`) and an
-  `allows_skill(...)` method implementing the rule above (takes primitives, so
-  `ordo-modes` need not depend on `ordo-skills`). Unit-tested; defaults are
-  backward-compatible. _Status: pending._
+  `allows_skill(&SkillManifest)` method implementing the rule above.
+  `ordo-modes` now depends on the `ordo-skills` leaf crate (keeps risk-rank
+  semantics single-sourced). Unit-tested; defaults backward-compatible.
+  _Status: **DONE.**_
 - **Stage 3 — surface to the general assistant.** Ingest discovered markdown
   skills into the self-knowledge RAG (real description + declared modes/tags),
   and filter what a mode sees by `allows_skill`. Custom skills become
@@ -153,3 +154,13 @@ tag-allow > per-mode default**. Isolation modes set `default_skill_admission:
   skills yield their declared `available_to_modes`/`category`; the build-pipeline
   + `rust-vibe-coder`/`spiderweb-bus` skills are correctly undeclared (empty
   modes/tags → per-mode default at routing time). No wiring yet — pure model.
+- **Stage 2 (done).** `ModeManifest` gains five `#[serde(default)]` skill-routing
+  fields + `allows_skill(&SkillManifest)` (veto > self-declaration > tag-allow >
+  per-mode default), plus `normalize_and_validate` checks for `max_skill_risk`
+  and `default_skill_admission`. `ordo-modes` → `ordo-skills` dep added. Fixed
+  the five pre-existing `ModeManifest { … }` test literals in built crates
+  (`registry.rs` ×2, `ordo-assistant` `service.rs` + `prompt.rs`) to set the new
+  fields (orphaned `ordo-mode-planners` is not in the workspace — left alone).
+  `ordo-modes` 51 tests pass; `ordo-assistant` tests compile; `-D warnings`
+  clean. Existing mode JSON loads unchanged (new fields default empty/None ⇒
+  today's behavior preserved).

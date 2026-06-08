@@ -49,6 +49,10 @@ pub enum ModeManifestError {
     InvalidBorrowPolicy { value: String },
     #[error("cross_mode_consult_policy '{value}' is not one of allow/deny")]
     InvalidConsultPolicy { value: String },
+    #[error("max_skill_risk '{value}' is not one of low/medium/high")]
+    InvalidSkillRisk { value: String },
+    #[error("default_skill_admission '{value}' is not one of permissive/restrictive")]
+    InvalidSkillAdmission { value: String },
     #[error("invalid JSON: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -158,6 +162,37 @@ pub struct ModeManifest {
     /// `None` is treated as `"allow"`.
     #[serde(default)]
     pub cross_mode_consult_policy: Option<String>,
+
+    // ── Skill routing (hybrid: skills self-declare; modes can veto/broaden).
+    // See docs/skill-routing.md. These gate which markdown SKILL.md playbooks
+    // are SURFACED in this mode — discovery only, never execution authority
+    // (tool calls remain gated by `allowed_tool_lanes`).
+    /// Skill tags this mode admits even when a skill did not self-declare this
+    /// mode. Lets an operator broaden a mode by tag (e.g. `["rust"]`). Empty =
+    /// no tag-based broadening.
+    #[serde(default)]
+    pub allowed_skill_tags: Vec<String>,
+
+    /// Skill tags this mode vetoes. A skill carrying any of these tags is never
+    /// surfaced here, regardless of its self-declaration. Safety backstop.
+    #[serde(default)]
+    pub blocked_skill_tags: Vec<String>,
+
+    /// Skill ids this mode vetoes outright.
+    #[serde(default)]
+    pub blocked_skills: Vec<String>,
+
+    /// Risk ceiling: skills above this level are vetoed. One of
+    /// `"low"`/`"medium"`/`"high"`. `None` = no ceiling. Set `"low"` on
+    /// high-isolation modes to keep risky community skills out by default.
+    #[serde(default)]
+    pub max_skill_risk: Option<String>,
+
+    /// How to treat a skill that declares NO modes and matches no allowed tag.
+    /// `"permissive"` (default) surfaces it; `"restrictive"` hides it. Isolation
+    /// modes should set `"restrictive"`. `None` = permissive.
+    #[serde(default)]
+    pub default_skill_admission: Option<String>,
 }
 
 impl ModeManifest {
@@ -225,6 +260,24 @@ impl ModeManifest {
             ModeManifestError::InvalidConsultPolicy { value }
         })?;
 
+        if let Some(risk) = &self.max_skill_risk {
+            if ordo_skills::RiskLevel::parse(risk).is_none() {
+                return Err(ModeManifestError::InvalidSkillRisk {
+                    value: risk.clone(),
+                });
+            }
+        }
+        if let Some(admission) = &self.default_skill_admission {
+            match admission.as_str() {
+                "permissive" | "restrictive" => {}
+                other => {
+                    return Err(ModeManifestError::InvalidSkillAdmission {
+                        value: other.to_string(),
+                    });
+                }
+            }
+        }
+
         // Dedupe vec fields — operators sometimes copy lines and
         // it's harmless but ugly. Stable order preserved.
         dedupe_preserve_order(&mut self.memory_scope);
@@ -232,6 +285,9 @@ impl ModeManifest {
         dedupe_preserve_order(&mut self.allowed_tool_lanes);
         dedupe_preserve_order(&mut self.blocked_tool_capabilities);
         dedupe_preserve_order(&mut self.policies);
+        dedupe_preserve_order(&mut self.allowed_skill_tags);
+        dedupe_preserve_order(&mut self.blocked_skill_tags);
+        dedupe_preserve_order(&mut self.blocked_skills);
         // planner_bias and persona are free-text — duplicates there
         // could be intentional (operator says it twice for emphasis).
         // Don't dedupe.
@@ -264,6 +320,53 @@ impl ModeManifest {
         self.allowed_tool_lanes
             .iter()
             .any(|prefix| capability.starts_with(prefix.as_str()))
+    }
+
+    /// Hybrid skill routing: should this mode SURFACE the given skill?
+    ///
+    /// Precedence (see `docs/skill-routing.md`): **veto > self-declaration >
+    /// tag-allow > per-mode default**. Discovery only — a surfaced skill grants
+    /// no capability; tool calls remain gated by [`allows_capability`].
+    pub fn allows_skill(&self, skill: &ordo_skills::SkillManifest) -> bool {
+        // ── veto first; safety always wins ──
+        if self.blocked_skills.iter().any(|id| id == &skill.id) {
+            return false;
+        }
+        if skill
+            .tags
+            .iter()
+            .any(|t| self.blocked_skill_tags.iter().any(|b| b == t))
+        {
+            return false;
+        }
+        if let Some(ceiling) = self
+            .max_skill_risk
+            .as_deref()
+            .and_then(ordo_skills::RiskLevel::parse)
+        {
+            if skill.risk_level.rank() > ceiling.rank() {
+                return false;
+            }
+        }
+
+        // ── admission ──
+        let tag_allowed = || {
+            skill
+                .tags
+                .iter()
+                .any(|t| self.allowed_skill_tags.iter().any(|a| a == t))
+        };
+        if !skill.modes.is_empty() {
+            // Skill self-declared its modes. Admit if this mode is named, or if
+            // the operator broadened by allowing one of the skill's tags.
+            return skill.modes.iter().any(|m| m == &self.id) || tag_allowed();
+        }
+        if tag_allowed() {
+            return true;
+        }
+        // Undeclared + no tag match → per-mode default (permissive unless the
+        // mode opts into restrictive).
+        !matches!(self.default_skill_admission.as_deref(), Some("restrictive"))
     }
 }
 
@@ -303,7 +406,93 @@ mod tests {
             default_credential: None,
             cross_mode_borrow_policy: None,
             cross_mode_consult_policy: None,
+            allowed_skill_tags: vec![],
+            blocked_skill_tags: vec![],
+            blocked_skills: vec![],
+            max_skill_risk: None,
+            default_skill_admission: None,
         }
+    }
+
+    fn skill(id: &str, modes: &[&str], tags: &[&str], risk: ordo_skills::RiskLevel) -> ordo_skills::SkillManifest {
+        ordo_skills::SkillManifest {
+            id: id.into(),
+            name: id.into(),
+            description: String::new(),
+            tags: tags.iter().map(|s| s.to_string()).collect(),
+            modes: modes.iter().map(|s| s.to_string()).collect(),
+            risk_level: risk,
+            requires_tools: false,
+            lane_label: "Installed Skills".into(),
+            path: None,
+        }
+    }
+
+    #[test]
+    fn skill_self_declared_for_this_mode_is_allowed() {
+        let m = minimal_manifest(); // id = "test"
+        assert!(m.allows_skill(&skill("s", &["test"], &[], ordo_skills::RiskLevel::Medium)));
+        assert!(!m.allows_skill(&skill("s", &["other"], &[], ordo_skills::RiskLevel::Medium)));
+    }
+
+    #[test]
+    fn undeclared_skill_follows_mode_default() {
+        let mut m = minimal_manifest();
+        // permissive by default
+        assert!(m.allows_skill(&skill("s", &[], &[], ordo_skills::RiskLevel::Medium)));
+        // restrictive hides undeclared skills
+        m.default_skill_admission = Some("restrictive".into());
+        assert!(!m.allows_skill(&skill("s", &[], &[], ordo_skills::RiskLevel::Medium)));
+    }
+
+    #[test]
+    fn tag_allow_broadens_admission() {
+        let mut m = minimal_manifest();
+        m.default_skill_admission = Some("restrictive".into());
+        m.allowed_skill_tags = vec!["rust".into()];
+        // undeclared but tagged rust → admitted despite restrictive default
+        assert!(m.allows_skill(&skill("s", &[], &["rust"], ordo_skills::RiskLevel::Medium)));
+        // a skill declared for another mode is broadened in here via its tag
+        assert!(m.allows_skill(&skill("s", &["other"], &["rust"], ordo_skills::RiskLevel::Medium)));
+    }
+
+    #[test]
+    fn veto_overrides_everything() {
+        let mut m = minimal_manifest();
+        // blocked by id even though self-declared for this mode
+        m.blocked_skills = vec!["danger".into()];
+        assert!(!m.allows_skill(&skill("danger", &["test"], &[], ordo_skills::RiskLevel::Low)));
+        // blocked by tag even though self-declared + allowed by tag
+        let mut m2 = minimal_manifest();
+        m2.blocked_skill_tags = vec!["exploit".into()];
+        m2.allowed_skill_tags = vec!["exploit".into()];
+        assert!(!m2.allows_skill(&skill("s", &["test"], &["exploit"], ordo_skills::RiskLevel::Low)));
+    }
+
+    #[test]
+    fn risk_ceiling_vetoes_above_level() {
+        let mut m = minimal_manifest();
+        m.max_skill_risk = Some("low".into());
+        // high-risk skill blocked even when self-declared for this mode
+        assert!(!m.allows_skill(&skill("s", &["test"], &[], ordo_skills::RiskLevel::High)));
+        // low-risk skill still allowed
+        assert!(m.allows_skill(&skill("s", &["test"], &[], ordo_skills::RiskLevel::Low)));
+    }
+
+    #[test]
+    fn invalid_skill_risk_and_admission_rejected() {
+        let mut m = minimal_manifest();
+        m.max_skill_risk = Some("extreme".into());
+        assert!(matches!(
+            m.normalize_and_validate(),
+            Err(ModeManifestError::InvalidSkillRisk { .. })
+        ));
+        let mut m2 = minimal_manifest();
+        m2.default_skill_admission = Some("loose".into());
+        assert!(matches!(
+            m2.normalize_and_validate(),
+            Err(ModeManifestError::InvalidSkillAdmission { .. })
+        ));
     }
 
     #[test]

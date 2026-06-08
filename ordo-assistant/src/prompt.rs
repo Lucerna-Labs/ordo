@@ -1011,6 +1011,11 @@ mod tests {
             default_credential: None,
             cross_mode_borrow_policy: None,
             cross_mode_consult_policy: None,
+            allowed_skill_tags: vec![],
+            blocked_skill_tags: vec![],
+            blocked_skills: vec![],
+            max_skill_risk: None,
+            default_skill_admission: None,
         };
         m.normalize_and_validate().unwrap();
         m

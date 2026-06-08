@@ -9,6 +9,7 @@ name = "ordo_modes"
 path = "src/lib.rs"
 
 [dependencies]
+ordo-skills = { path = "../ordo-skills" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

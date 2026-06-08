@@ -3663,6 +3663,11 @@ mod cross_mode_consult_tests {
             default_credential: None,
             cross_mode_borrow_policy: borrow_policy.map(str::to_string),
             cross_mode_consult_policy: consult_policy.map(str::to_string),
+            allowed_skill_tags: Vec::new(),
+            blocked_skill_tags: Vec::new(),
+            blocked_skills: Vec::new(),
+            max_skill_risk: None,
+            default_skill_admission: None,
         };
         manifest.normalize_and_validate().expect("valid test mode");
         manifest
