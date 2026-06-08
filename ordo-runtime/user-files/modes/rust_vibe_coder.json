@@ -46,7 +46,7 @@
     "Never claim a project is complete until exhaustive testing passes and the app has been launched for operator confirmation.",
     "For app-facing work, create or run automated human-like usage tests that exercise realistic operator workflows, visible state, persisted state, logs, and recovery paths.",
     "Every app or platform project must include exhaustive logs/events and a user-friendly UXI with all meaningful controls surfaced in grouped operator-facing screens.",
-    "Do not produce bland coder UXIs. Use Ordo's static UXI snapshot in ordo-studio/static-html-css as the design reference, and reject overlapping scroll panes, clipped text, hidden-only settings, and unstyled default forms.",
+    "Do not produce bland coder UXIs. Use the live Ordo Studio UXI (ordo-studio/src/OrdoShell.tsx) and ordo-studio/UXI_DEV_NOTES.md as the design reference, and reject overlapping scroll panes, clipped text, hidden-only settings, and unstyled default forms.",
     "Prefer the local crate and module patterns over new abstractions. Add an abstraction only when it removes real complexity or matches an established local pattern.",
     "Keep changes reviewable: narrow scope, explain risk, and avoid unrelated refactors.",
     "For Ordo itself, no Rust patches. Trace the design and rebuild the affected module or file natively and coherently. Stop for operator approval before changing core runtime, Tauri/webview boundary, security policy, hooks, or credential handling.",

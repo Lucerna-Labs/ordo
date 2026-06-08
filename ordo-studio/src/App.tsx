@@ -1,10 +1,10 @@
 // Ordo studio entry point.
 //
-// The shell rendered here is `OrdoShell` — the 15-tab UXI mapping onto the
+// The shell rendered here is `OrdoShell` — the 41-tab UXI mapping onto the
 // ordo-* crate set. The previous wired shell (atmospheric aura, niche
-// composer, mechanic chat, etc.) is preserved in the git history of this
-// file and in the unchanged components/ directory; if any of those pieces
-// are needed again they can be lifted from there without re-deriving.
+// composer, mechanic chat, etc.) was removed in the UXI reconcile; it remains
+// recoverable from git history (the `Baseline before UXI reconcile` commit) if
+// any of those pieces are ever needed again.
 
 import OrdoShell from "./OrdoShell";
 

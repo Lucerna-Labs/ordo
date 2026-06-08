@@ -290,8 +290,10 @@ The UXI should:
 - include readable status, error, recovery, and refresh/test/inspect paths
 - include exhaustive logs/events for app and platform workflows
 - expose logs in the UXI when they explain normal operator-facing behavior
-- use `ordo-studio/static-html-css/` as the static snapshot reference for
-  user-friendly Ordo surfaces
+- use the live Ordo Studio UXI (`ordo-studio/src/OrdoShell.tsx`) and
+  `ordo-studio/UXI_DEV_NOTES.md` as the design reference for user-friendly Ordo
+  surfaces (the `ordo-studio/static-html-css/` snapshot is stale legacy — not a
+  baseline)
 - reject bland coder UI: unstyled forms, hidden-only settings, giant empty
   tables, clipped text, and missing empty/error states are not acceptable final
   UXI

@@ -15,9 +15,11 @@ starts in backend code. Ordo treats the UXI as part of the feature contract.
 2. Surface every meaningful control in the UXI. If a feature has toggles,
    install/delete/edit/pause actions, limits, trust state, logs, modes, providers,
    uploads, or routing choices, expose them in a grouped and understandable way.
-3. Use the Ordo static snapshot as the baseline for user-friendly Ordo design:
-   `ordo-studio/static-html-css/index.html` and
-   `ordo-studio/static-html-css/styles.css`.
+3. Use the LIVE Ordo Studio UXI as the baseline for user-friendly Ordo design:
+   the running shell `ordo-studio/src/OrdoShell.tsx` (41 tabs) and the rules in
+   `ordo-studio/UXI_DEV_NOTES.md`. The old `ordo-studio/static-html-css/`
+   snapshot is a stale legacy copy of the previous shell — do not use it as a
+   baseline.
 4. Keep one unified screen per tab. Avoid overlapping scroll regions, nested
    scroll traps, duplicate panes, hidden buttons, clipped text, and controls that
    require guessing.

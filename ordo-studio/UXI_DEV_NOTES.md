@@ -106,14 +106,16 @@ load JS/CSS assets, producing a blank dark window.
 
 ### 3. Keep The Known-Good React Plugin Stack
 
-The working build uses:
+The working build uses (current shipped stack — see `package.json`):
 
 ```json
-"@vitejs/plugin-react": "^4.3.3"
+"@vitejs/plugin-react": "^6.0.2",
+"vite": "^8.0.9"
 ```
 
-Do not replace the React plugin stack casually while repairing the UXI. The
-current stack may print Vite deprecation warnings, but it builds and paints.
+Do not replace the React plugin stack casually while repairing the UXI. (This
+note previously pinned plugin-react ^4.3.3 / older Vite; it has since been
+upgraded to the rolldown-based Vite 8 stack above, which builds and paints.)
 Treat a working UXI as more important than chasing cosmetic build warnings
 during emergency recovery.
 

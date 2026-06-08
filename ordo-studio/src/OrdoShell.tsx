@@ -1,6 +1,6 @@
 // Ordo by Lucerna Labs — main studio shell.
 //
-// 15-tab UXI mapping one-to-one onto the ordo-* crate set, plus Bus as
+// 41-tab UXI mapping one-to-one onto the ordo-* crate set, plus Bus as
 // cross-cutting telemetry. All controls are stubbed; wiring notes:
 //
 //   - Light signals subscribe to /api/runtime/profile, /api/runtime/storage,
