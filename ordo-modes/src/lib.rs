@@ -44,11 +44,13 @@
 //! RAG domain scoping in the retrieval layer, mode advanced-view
 //! exposure on the control API.
 
+pub mod audit;
 pub mod defaults;
 pub mod manifest;
 pub mod registry;
 
-pub use manifest::{ModeManifest, ModeManifestError};
+pub use audit::{audit_skill_routing, RoutingAnomaly, RoutingAudit, SkillRoutingHealth};
+pub use manifest::{ModeManifest, ModeManifestError, SkillDecision};
 pub use registry::{ModeRegistry, ModeRegistryError, RegistryStats};
 
 /// Canonical id for the General Assistant mode. The runtime defaults

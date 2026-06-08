@@ -117,6 +117,57 @@ tag-allow > per-mode default**. Isolation modes set `default_skill_admission:
   capability skill-cards is preserved; markdown skills become *visible* where
   previously invisible, which is the intended fix).
 
+## Diagnostics: daily routing audit + bounded self-repair
+
+The diagnostic mode (`id: "diagnostic"`, `ordo-modes/src/defaults.rs`) is the
+runtime's bounded self-healing authority — read-wide, write-narrow, its memory
+private (`cross_mode_borrow/consult = deny`), and its doctrine already says it
+"may maintain peripheral configuration such as … skills … through approved
+maintenance tools" and must "classify every finding as symptom, evidence,
+likely cause, safe repair, risky repair, or deferred operator decision." Skill
+routing is exactly the kind of config that drifts as custom skills are added, so
+the diagnostic mode gets a routing audit on its recurring scan.
+
+### What "routed correctly" means (audit anomaly taxonomy)
+
+For every (skill, mode) pair the audit computes `mode.allows_skill(skill)` and
+classifies:
+
+- **orphaned** — admitted by *no* mode (dead skill: vetoed/undeclared everywhere
+  under restrictive defaults). _safe-repair candidate_ (skill-side).
+- **declared-but-vetoed** — the skill self-declares a mode that then vetoes it
+  (`blocked_skill[_tags]` / `max_skill_risk`). A real contradiction.
+  _deferred_ (mode-side).
+- **phantom-mode** — `available_to_modes` names a mode id that does not exist
+  (typo). _safe-repair candidate_ (skill-side).
+- **undeclared** — no `available_to_modes`, no tag match: relies on each mode's
+  default admission. _informational._
+
+### Repair scope (what the diagnostic mode may actually do)
+
+- **Safe, auto-applyable (skill-side):** rewrite a skill's own `skill.md`
+  frontmatter via `skills.install` (overwrite) — e.g. correct a `phantom-mode`
+  typo to the unambiguous real mode id. The diagnostic mode is granted a
+  `skills.` lane for this (and `skills.audit_routing` / `skills.list`), but
+  `skills.delete` stays blocked — deletion is destructive, defer it.
+- **Risky / deferred (mode-side):** anything that edits a *mode* manifest
+  (loosen a veto, add an `allowed_skill_tag`, raise `max_skill_risk`). There is
+  **no runtime mode-edit capability** (modes are file-only), so these are
+  *structurally* impossible to auto-apply — the audit records them as deferred
+  operator decisions, never touching mode policy itself. This is a feature: the
+  isolation boundary cannot be self-modified.
+
+### Audit trail + scheduling
+
+- Findings + applied repairs are recorded to the self-heal store
+  (`ordo-heal`, `heal_cases`) with a `skill-routing` source, into the
+  diagnostic mode's private scope — same machinery the medbay already uses.
+- A **daily automation** (`AutomationTrigger::Heartbeat(86400)` /  Cron) with a
+  new `AutomationIntent::SkillRoutingAudit`, `scope: Diagnostic`, runs the audit
+  capability as `mode:"diagnostic"`. Read-only audit auto-runs
+  (`ApprovalPolicy::Never`); safe skill-side repairs are applied within the
+  diagnostic sandbox; deferred items surface for the operator.
+
 ## Staged plan
 
 - **Stage 1 — `ordo-skills` crate (foundational, no behavior change).**
@@ -130,19 +181,33 @@ tag-allow > per-mode default**. Isolation modes set `default_skill_admission:
   `ordo-modes` now depends on the `ordo-skills` leaf crate (keeps risk-rank
   semantics single-sourced). Unit-tested; defaults backward-compatible.
   _Status: **DONE.**_
-- **Stage 3 — surface to the general assistant.** Ingest discovered markdown
-  skills into the self-knowledge RAG (real description + declared modes/tags),
-  and filter what a mode sees by `allows_skill`. Custom skills become
-  discoverable and mode-scoped. _Status: pending._
-- **Stage 4 — build pipeline.** Make `ordo-build-planner` consume the registry:
-  select step skills by metadata (a `pipeline-step` tag + ordering) rather than
-  hardcoded names, honoring the veto, so a custom build-step skill can slot in.
-  _Status: pending._
-- **Stage 5 — Studio UI.** Show each skill's modes/tags/risk and an editor that
-  writes the frontmatter; de-dupe the studio's ad-hoc parser onto `ordo-skills`.
-  _Status: pending._
+- **Stage 3 — `SkillRegistry` + surface to the general assistant.** A registry
+  that discovers skills and answers `skills_for_mode` (filter via
+  `allows_skill`). Ingest discovered markdown skills into the self-knowledge RAG
+  (real description + declared modes/tags) and filter what a mode sees. Custom
+  skills become discoverable and mode-scoped. _Status: pending._
+- **Stage 4 — `skills.audit_routing` (read-only).** A pure function over the
+  registry + all mode manifests producing the anomaly report (orphaned /
+  declared-but-vetoed / phantom-mode / undeclared) with per-(skill,mode)
+  verdicts + veto reasons. New capability in the maintenance surface. The
+  diagnostic mode's "verify routing is correct" tool.
+  _Status: **core logic DONE** (`ordo-modes::audit`); capability wiring pending._
+- **Stage 5 — diagnostic authority + bounded skill-side repair.** Grant the
+  diagnostic mode a `skills.` lane (keep `skills.delete` blocked); add
+  `skills.repair_routing` applying ONLY safe skill-frontmatter fixes
+  (phantom-mode typo correction) via overwrite, recording to the self-heal
+  store; mode-side issues recorded as deferred. _Status: pending._
+- **Stage 6 — daily-scan automation.** New `AutomationIntent::SkillRoutingAudit`
+  → audit capability, `scope: Diagnostic`, daily trigger, run as
+  `mode:"diagnostic"`; seed a default automation. _Status: pending._
+- **Stage 7 — build pipeline (Gap A).** Make `ordo-build-planner` consume the
+  registry: select step skills by metadata (a `pipeline-step` tag + ordering)
+  rather than hardcoded names, honoring the veto. _Status: pending._
+- **Stage 8 — Studio UI.** Show each skill's modes/tags/risk + the audit report;
+  an editor that writes frontmatter; de-dupe the studio's ad-hoc parser onto
+  `ordo-skills`. _Status: pending._
 - **Each stage:** build with `RUSTFLAGS=-D warnings`, unit tests, and an
-  adversarial review for the isolation-sensitive stages (2–4).
+  adversarial review for the isolation-sensitive stages (2–6).
 
 ## Build log
 
@@ -164,3 +229,11 @@ tag-allow > per-mode default**. Isolation modes set `default_skill_admission:
   `ordo-modes` 51 tests pass; `ordo-assistant` tests compile; `-D warnings`
   clean. Existing mode JSON loads unchanged (new fields default empty/None ⇒
   today's behavior preserved).
+- **Stage 4 core (done).** `ModeManifest::allows_skill` refactored to delegate to
+  a new `skill_verdict(&SkillManifest) -> SkillDecision` (Admitted{Declared,Tag,
+  Default} / Vetoed{ById,ByTag,ByRisk} / Rejected{NotDeclared,Restrictive}) with
+  a `.reason()` — same behavior, now explainable. New `ordo-modes::audit` module:
+  `audit_skill_routing(modes, skills) -> RoutingAudit` flags Orphaned /
+  DeclaredButVetoed / PhantomMode / Undeclared per skill, read-only. `ordo-modes`
+  56 tests pass (5 new); `-D warnings` clean. This is the engine the diagnostic
+  daily scan + the `skills.audit_routing` capability will call.

@@ -195,6 +195,69 @@ pub struct ModeManifest {
     pub default_skill_admission: Option<String>,
 }
 
+/// The outcome of routing a skill to a mode, with the reason — produced by
+/// [`ModeManifest::skill_verdict`] and consumed by the routing audit
+/// (`crate::audit`). `allows_skill` is just `skill_verdict(...).admitted()`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillDecision {
+    /// Admitted: the skill self-declared this mode in `available_to_modes`.
+    AdmittedDeclared,
+    /// Admitted: the mode opted into one of the skill's tags.
+    AdmittedTag,
+    /// Admitted: undeclared skill, mode's default admission is permissive.
+    AdmittedDefault,
+    /// Vetoed: the skill id is in the mode's `blocked_skills`.
+    VetoedById,
+    /// Vetoed: the skill carries a tag in the mode's `blocked_skill_tags`.
+    VetoedByTag(String),
+    /// Vetoed: the skill's risk exceeds the mode's `max_skill_risk` ceiling.
+    VetoedByRisk,
+    /// Rejected: the skill self-declared OTHER modes (not this one) and no tag
+    /// broadened it here. Not an anomaly — the skill author scoped it out.
+    RejectedNotDeclared,
+    /// Rejected: undeclared skill, mode's default admission is restrictive.
+    RejectedRestrictive,
+}
+
+impl SkillDecision {
+    /// Was the skill surfaced in the mode?
+    pub fn admitted(&self) -> bool {
+        matches!(
+            self,
+            SkillDecision::AdmittedDeclared
+                | SkillDecision::AdmittedTag
+                | SkillDecision::AdmittedDefault
+        )
+    }
+
+    /// Was the skill actively vetoed (as opposed to merely not admitted)?
+    pub fn is_veto(&self) -> bool {
+        matches!(
+            self,
+            SkillDecision::VetoedById | SkillDecision::VetoedByTag(_) | SkillDecision::VetoedByRisk
+        )
+    }
+
+    /// A short human-readable reason, for audit reports.
+    pub fn reason(&self) -> String {
+        match self {
+            SkillDecision::AdmittedDeclared => "admitted: self-declared this mode".into(),
+            SkillDecision::AdmittedTag => "admitted: mode allows a skill tag".into(),
+            SkillDecision::AdmittedDefault => "admitted: permissive default".into(),
+            SkillDecision::VetoedById => "vetoed: skill id is blocked".into(),
+            SkillDecision::VetoedByTag(tag) => format!("vetoed: blocked tag '{tag}'"),
+            SkillDecision::VetoedByRisk => "vetoed: risk above mode ceiling".into(),
+            SkillDecision::RejectedNotDeclared => {
+                "rejected: skill declared other modes, not this one".into()
+            }
+            SkillDecision::RejectedRestrictive => {
+                "rejected: undeclared + restrictive default".into()
+            }
+        }
+    }
+}
+
 impl ModeManifest {
     /// Parse a manifest from a JSON string and validate it.
     pub fn from_json(input: &str) -> Result<Self, ModeManifestError> {
@@ -328,16 +391,21 @@ impl ModeManifest {
     /// tag-allow > per-mode default**. Discovery only — a surfaced skill grants
     /// no capability; tool calls remain gated by [`allows_capability`].
     pub fn allows_skill(&self, skill: &ordo_skills::SkillManifest) -> bool {
+        self.skill_verdict(skill).admitted()
+    }
+
+    /// Like [`allows_skill`] but returns WHY. The routing audit uses this to
+    /// explain orphaned skills and declared-but-vetoed contradictions. Encodes
+    /// the precedence: veto > self-declaration > tag-allow > per-mode default.
+    pub fn skill_verdict(&self, skill: &ordo_skills::SkillManifest) -> SkillDecision {
         // ── veto first; safety always wins ──
         if self.blocked_skills.iter().any(|id| id == &skill.id) {
-            return false;
+            return SkillDecision::VetoedById;
         }
-        if skill
-            .tags
-            .iter()
-            .any(|t| self.blocked_skill_tags.iter().any(|b| b == t))
-        {
-            return false;
+        for tag in &skill.tags {
+            if self.blocked_skill_tags.iter().any(|b| b == tag) {
+                return SkillDecision::VetoedByTag(tag.clone());
+            }
         }
         if let Some(ceiling) = self
             .max_skill_risk
@@ -345,28 +413,35 @@ impl ModeManifest {
             .and_then(ordo_skills::RiskLevel::parse)
         {
             if skill.risk_level.rank() > ceiling.rank() {
-                return false;
+                return SkillDecision::VetoedByRisk;
             }
         }
 
         // ── admission ──
-        let tag_allowed = || {
-            skill
-                .tags
-                .iter()
-                .any(|t| self.allowed_skill_tags.iter().any(|a| a == t))
-        };
+        let tag_allowed = skill
+            .tags
+            .iter()
+            .any(|t| self.allowed_skill_tags.iter().any(|a| a == t));
         if !skill.modes.is_empty() {
             // Skill self-declared its modes. Admit if this mode is named, or if
             // the operator broadened by allowing one of the skill's tags.
-            return skill.modes.iter().any(|m| m == &self.id) || tag_allowed();
+            if skill.modes.iter().any(|m| m == &self.id) {
+                return SkillDecision::AdmittedDeclared;
+            }
+            if tag_allowed {
+                return SkillDecision::AdmittedTag;
+            }
+            return SkillDecision::RejectedNotDeclared;
         }
-        if tag_allowed() {
-            return true;
+        if tag_allowed {
+            return SkillDecision::AdmittedTag;
         }
-        // Undeclared + no tag match → per-mode default (permissive unless the
-        // mode opts into restrictive).
-        !matches!(self.default_skill_admission.as_deref(), Some("restrictive"))
+        // Undeclared + no tag match → per-mode default.
+        if matches!(self.default_skill_admission.as_deref(), Some("restrictive")) {
+            SkillDecision::RejectedRestrictive
+        } else {
+            SkillDecision::AdmittedDefault
+        }
     }
 }
 
