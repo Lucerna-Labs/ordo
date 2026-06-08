@@ -1,0 +1,9 @@
+[package]
+name = "ordo-skills"
+version = "0.1.0"
+edition = "2021"
+
+# Leaf crate: parse + model + discover `SKILL.md` playbooks. No bus, no async,
+# no runtime deps — just the metadata layer other crates route on.
+[dependencies]
+serde.workspace = true

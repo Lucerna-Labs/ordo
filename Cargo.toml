@@ -57,6 +57,7 @@ members = [
     "ordo-build-planner",
     "ordo-operator-sim",
     "ordo-orchestrator",
+    "ordo-skills",
 ]
 default-members = ["ordo-cli"]
 exclude = [
