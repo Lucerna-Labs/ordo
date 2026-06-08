@@ -3331,6 +3331,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordo-orchestrator"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ordo-planner"
 version = "0.1.0"
 dependencies = [

@@ -429,6 +429,7 @@ fn message_kind(message: &OrdoMessage) -> String {
         OrdoMessage::PolicyCheckRequired { .. } => "policy_check_required",
         OrdoMessage::UserApprovalRequired { .. } => "user_approval_required",
         OrdoMessage::GoalCompleted { .. } => "goal_completed",
+        OrdoMessage::TaskVerified { .. } => "task_verified",
         OrdoMessage::JobScheduled { .. } => "job_scheduled",
         OrdoMessage::JobTriggered { .. } => "job_triggered",
         OrdoMessage::JobCompleted { .. } => "job_completed",

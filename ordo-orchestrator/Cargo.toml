@@ -1,0 +1,13 @@
+[package]
+name = "ordo-orchestrator"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic multi-agent orchestrator: splits a goal, dispatches parallel scoped subagents, runs adversarial quality gates, and drives the loop until done. Runs in-process as a Tokio peer on the ordo bus. See docs/agent-orchestration.md."
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "warn"

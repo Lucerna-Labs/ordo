@@ -46,6 +46,10 @@ pub mod topics {
     pub const CAPABILITY_INVENTORY_RESPONSE: &str = "ordo.capability.inventory.response";
     pub const RUN_REQUEST: &str = "ordo.run.request";
     pub const RUN_EVENT: &str = "ordo.run.event";
+    /// Operator/API submits a goal for the multi-agent orchestrator.
+    pub const GOAL_SUBMIT: &str = "ordo.goal.submit";
+    /// Orchestrator publishes Task*/Goal* lifecycle events here.
+    pub const ORCH_EVENT: &str = "ordo.orchestration.event";
     pub const BUILD_STEP_COMPLETED: &str = crate::build_topics::STEP_COMPLETED;
     pub const BUILD_GATE_RESULT: &str = crate::build_topics::GATE_RESULT;
     pub const BUILD_PLANNER_EVENT: &str = crate::build_topics::PLANNER_EVENT;
@@ -148,6 +152,17 @@ impl<T> Envelope<T> {
         self.correlation_id = Some(cid);
         self
     }
+}
+
+/// Verdict from the orchestration verifier on a single subtask's
+/// output (Stage 4). `Pass` accepts the output; `Revise` rejects it
+/// but allows a bounded re-dispatch with feedback; `Fail` is a hard
+/// rejection. Carried on `OrdoMessage::TaskVerified`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TaskVerdict {
+    Pass { evidence: String },
+    Revise { feedback: String },
+    Fail { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,6 +325,12 @@ pub enum OrdoMessage {
         goal_id: Uuid,
         succeeded: bool,
         task_count: usize,
+    },
+    /// Verifier verdict on one subtask's output (orchestration loop).
+    TaskVerified {
+        goal_id: Uuid,
+        task_id: Uuid,
+        verdict: TaskVerdict,
     },
 
     // Autonomous Jobs
