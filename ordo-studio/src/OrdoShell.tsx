@@ -155,6 +155,7 @@ import {
   type AssistantMode,
   type TurnEvent,
 } from "./api";
+import { ExtensionsSurface } from "./extensions/ExtensionsSurface";
 import {
   Send,
   MessageSquare,
@@ -214,6 +215,7 @@ import {
   Monitor,
   Globe,
   Laptop,
+  Puzzle,
 } from "lucide-react";
 
 const FRAUNCES = "'Fraunces', 'Iowan Old Style', Georgia, serif";
@@ -285,6 +287,7 @@ const TABS: TabDef[] = [
   // rather than in a generic "connectivity" group.
   { id: "plugins", label: "Plugins", glyph: Plug, group: "agent" },
   { id: "mcp", label: "MCP", glyph: Server, group: "agent" },
+  { id: "extensions", label: "Extensions", glyph: Puzzle, group: "agent" },
   { id: "automation", label: "Automation", glyph: Zap, group: "agent" },
   { id: "builds", label: "Builds", glyph: Wrench, group: "agent" },
   { id: "dreaming", label: "Dreaming", glyph: Brain, group: "agent" },
@@ -339,6 +342,7 @@ const LEFT_RAIL_TAB_IDS = new Set([
   "skills",
   "plugins",
   "mcp",
+  "extensions",
   "automation",
   "builds",
   "dreaming",
@@ -15132,6 +15136,8 @@ export default function OrdoShell() {
         return <EnhancedPluginsSurface onOpenDirectoryTab={navigateToTab} />;
       case "mcp":
         return <McpSurface />;
+      case "extensions":
+        return <ExtensionsSurface />;
       case "settings-mcp":
         return <CustomMcpSettingsSurface />;
       case "remote-communication":

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { UiExtension, UiExtensionSurface } from "../hooks/useUiExtensions";
+import type { UiExtension, UiExtensionSurface } from "./useUiExtensions";
 
 interface ExtensionHostProps {
   extension: UiExtension;
