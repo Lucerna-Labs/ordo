@@ -1,0 +1,43 @@
+{
+  "id": "special_projects_1",
+  "label": "Special Projects 1",
+  "description": "Codec adapter, avatar enhancement, signal processing experiments. Manual selection only; not auto-routable.",
+  "memory_scope": [
+    "global",
+    "mode:special_projects_1"
+  ],
+  "rag_domains": [
+    "research_sp1",
+    "codec_notes",
+    "avatar_tech"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "ssh.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_file_writes",
+    "no_secret_exposure"
+  ],
+  "planner_bias": [
+    "Codec-agnostic toolkit approach: take the best injection point from each codec.",
+    "Modifications inside encode/decode pipeline. Not a filter, not a deepfake."
+  ],
+  "persona": [
+    "signal_processor",
+    "codec_engineer"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

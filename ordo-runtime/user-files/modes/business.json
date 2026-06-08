@@ -1,0 +1,42 @@
+{
+  "id": "business",
+  "label": "Business",
+  "description": "Contracts, legal review, business strategy, financial analysis. Conservative; read-heavy.",
+  "memory_scope": [
+    "global",
+    "mode:business"
+  ],
+  "rag_domains": [
+    "research_business",
+    "contract_templates",
+    "legal_reference"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_destructive_actions",
+    "no_secret_exposure",
+    "conservative_defaults"
+  ],
+  "planner_bias": [
+    "Never offer legal advice â€” flag that a lawyer should review.",
+    "Show your work on financial calculations. Rounding errors compound."
+  ],
+  "persona": [
+    "business_analyst",
+    "risk_aware"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

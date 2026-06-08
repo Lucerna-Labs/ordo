@@ -1,0 +1,76 @@
+[package]
+name = "ordo-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-brain = { path = "../ordo-brain" }
+ordo-heal = { path = "../ordo-heal" }
+ordo-rag = { path = "../ordo-rag" }
+ordo-mcp-host = { path = "../ordo-mcp-host" }
+ordo-control = { path = "../ordo-control" }
+ordo-memory = { path = "../ordo-memory" }
+ordo-models = { path = "../ordo-models" }
+ordo-store = { path = "../ordo-store" }
+ordo-cloud = { path = "../ordo-cloud" }
+ordo-plugins = { path = "../ordo-plugins" }
+ordo-review = { path = "../ordo-review" }
+ordo-assistant = { path = "../ordo-assistant" }
+ordo-apps = { path = "../ordo-apps" }
+ordo-files = { path = "../ordo-files" }
+ordo-code = { path = "../ordo-code" }
+ordo-sandbox = { path = "../ordo-sandbox" }
+ordo-logic = { path = "../ordo-logic" }
+ordo-strainer = { path = "../ordo-strainer" }
+ordo-webhooks = { path = "../ordo-webhooks" }
+ordo-memory-log = { path = "../ordo-memory-log" }
+ordo-memory-router = { path = "../ordo-memory-router" }
+ordo-memory-projection = { path = "../ordo-memory-projection" }
+ordo-security = { path = "../ordo-security" }
+ordo-ui-extensions = { path = "../ordo-ui-extensions" }
+ordo-secrets-vault = { path = "../ordo-secrets-vault" }
+ordo-secrets-broker = { path = "../ordo-secrets-broker" }
+ordo-secrets-audit = { path = "../ordo-secrets-audit" }
+ordo-secrets-threshold = { path = "../ordo-secrets-threshold" }
+ordo-mcp-worker = { path = "../ordo-mcp-worker" }
+ordo-mcp-sandbox = { path = "../ordo-mcp-sandbox" }
+ordo-mcp-client = { path = "../ordo-mcp-client" }
+ordo-mcp-registry = { path = "../ordo-mcp-registry" }
+ordo-mcp-provenance = { path = "../ordo-mcp-provenance" }
+ordo-connections = { path = "../ordo-connections" }
+ordo-modes = { path = "../ordo-modes" }
+ed25519-dalek.workspace = true
+rand.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Opt-in OpenTelemetry export. Turning on the `otel` feature adds an
+# OTLP trace layer to the tracing subscriber when
+# OTEL_EXPORTER_OTLP_ENDPOINT is set. Default build stays local-only.
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = []
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+# Light up the in-process WASM runner for `code.run`. Off by default
+# (NullSandbox -> `code.run` returns an actionable "unavailable").
+sandbox-wasm = ["ordo-sandbox/wasmtime", "ordo-code/wasm"]
+# Compile in the native subprocess runner for `code.run_native`. Off by
+# default. Requires ORDO_CODE_ALLOW_NATIVE=true at runtime as well.
+native-exec = ["ordo-sandbox/subprocess", "ordo-code/native"]
+
+[dev-dependencies]
+reqwest.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,45 @@
+{
+  "id": "security_lab",
+  "label": "Security Lab",
+  "description": "Exploit development, reverse engineering, penetration testing. Sandboxed; cross-mode borrows denied.",
+  "memory_scope": [
+    "global",
+    "mode:security_lab"
+  ],
+  "rag_domains": [
+    "research_securitylab",
+    "exploit_notes",
+    "binary_analysis"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "logic.",
+    "web.",
+    "ssh.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "sandbox_all_actions",
+    "no_secret_exposure",
+    "confirm_destructive_actions"
+  ],
+  "planner_bias": [
+    "Everything is sandboxed. Assume the target binary is hostile.",
+    "Document every step; reproducibility is the standard."
+  ],
+  "persona": [
+    "exploit_developer",
+    "reverse_engineer"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": "deny",
+  "cross_mode_consult_policy": "deny"
+}

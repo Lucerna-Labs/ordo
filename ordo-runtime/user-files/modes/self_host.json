@@ -1,0 +1,44 @@
+{
+  "id": "self_host",
+  "label": "Self-Host",
+  "description": "VPS, Docker, nginx, Cloudflare, infrastructure management. Read-write on infrastructure configs.",
+  "memory_scope": [
+    "global",
+    "mode:self_host"
+  ],
+  "rag_domains": [
+    "research_selfhost",
+    "infra_configs",
+    "cloudflare_docs"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "ssh.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_destructive_actions",
+    "no_secret_exposure"
+  ],
+  "planner_bias": [
+    "For Cloudflare DNS changes: DELETE old record then CREATE new one. PUT/UPDATE returns 403.",
+    "Proxy must stay OFF - VPS nginx handles SSL directly.",
+    "Test connectivity after every change. Ping the endpoint before declaring success."
+  ],
+  "persona": [
+    "infrastructure_operator",
+    "cloudflare_aware"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

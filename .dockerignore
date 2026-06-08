@@ -1,0 +1,8 @@
+target/
+data/
+user-files/
+.git/
+.gitignore
+**/*.db
+**/*.db-wal
+**/*.db-shm

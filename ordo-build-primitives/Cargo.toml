@@ -1,0 +1,11 @@
+﻿[package]
+name = "ordo-build-primitives"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

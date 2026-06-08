@@ -1,0 +1,18 @@
+[package]
+name = "ordo-bus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+tokio = { version = "1", features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+tracing.workspace = true
+async-stream = "0.3"
+parking_lot.workspace = true
+uuid.workspace = true
+chrono.workspace = true

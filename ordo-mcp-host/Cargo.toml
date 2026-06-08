@@ -1,0 +1,46 @@
+[package]
+name = "ordo-mcp-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-heal = { path = "../ordo-heal" }
+ordo-store = { path = "../ordo-store" }
+ordo-cloud = { path = "../ordo-cloud" }
+ordo-review = { path = "../ordo-review" }
+ordo-assistant = { path = "../ordo-assistant" }
+ordo-apps = { path = "../ordo-apps" }
+ordo-files = { path = "../ordo-files" }
+ordo-code = { path = "../ordo-code" }
+ordo-logic = { path = "../ordo-logic" }
+ordo-strainer = { path = "../ordo-strainer" }
+ordo-mcp-registry = { path = "../ordo-mcp-registry" }
+ordo-mcp-sandbox = { path = "../ordo-mcp-sandbox" }
+ordo-mcp-client = { path = "../ordo-mcp-client" }
+ordo-mcp-worker = { path = "../ordo-mcp-worker" }
+ordo-automation = { path = "../ordo-automation" }
+ordo-automation-primitives = { path = "../ordo-automation-primitives" }
+ulid.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+futures.workspace = true
+uuid.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+# ExternalMcpProvider (Phase 2.4) â€” JSON-RPC over HTTP against
+# third-party MCP servers.
+reqwest.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ordo-sandbox = { path = "../ordo-sandbox" }
+wiremock.workspace = true
+tempfile = "3"
+wat = "1"
+ed25519-dalek.workspace = true
+rand.workspace = true

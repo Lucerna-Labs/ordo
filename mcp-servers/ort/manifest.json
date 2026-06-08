@@ -1,0 +1,76 @@
+{
+  "identity": {
+    "name": "ordo-ort-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [111, 114, 116, 115],
+    "identity_hash": [
+      111, 110, 110, 120, 45, 105, 110, 102, 101, 114, 101, 110, 99, 101, 45, 108,
+      111, 99, 97, 108, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "ort.classify",
+      "description": "Run inference on text with a local ONNX model. Embedding output is returned as a float vector. Useful for text classification, sentiment analysis, and content moderation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_path": { "type": "string", "description": "Path to the ONNX model file" },
+          "text": { "type": "string", "description": "Input text for inference" },
+          "max_length": { "type": "integer", "description": "Maximum token length. Defaults to 512.", "default": 512 }
+        },
+        "required": ["model_path", "text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "embedding": { "type": "array", "items": { "type": "number" } },
+          "shape": { "type": "array", "items": { "type": "integer" } },
+          "model_path": { "type": "string" }
+        },
+        "required": ["embedding", "model_path"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "ort.embed",
+      "description": "Generate embeddings from text using a local ONNX model. Returns float vectors for similarity search, clustering, and classification.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model_path": { "type": "string", "description": "Path to ONNX embedding model" },
+          "text": { "type": "string", "description": "Text to embed" }
+        },
+        "required": ["model_path", "text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "embedding": { "type": "array", "items": { "type": "number" } },
+          "dimensions": { "type": "integer" }
+        },
+        "required": ["embedding", "dimensions"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 500000000,
+    "memory_bytes": 134217728,
+    "max_response_size_bytes": 16777216,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 30
+  }
+}

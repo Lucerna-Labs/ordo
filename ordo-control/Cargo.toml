@@ -1,0 +1,42 @@
+[package]
+name = "ordo-control"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-brain = { path = "../ordo-brain" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-mcp-host = { path = "../ordo-mcp-host" }
+ordo-memory = { path = "../ordo-memory" }
+ordo-plugins = { path = "../ordo-plugins" }
+ordo-review = { path = "../ordo-review" }
+ordo-assistant = { path = "../ordo-assistant" }
+ordo-apps = { path = "../ordo-apps" }
+ordo-files = { path = "../ordo-files" }
+ordo-webhooks = { path = "../ordo-webhooks" }
+ordo-security = { path = "../ordo-security" }
+ordo-ui-extensions = { path = "../ordo-ui-extensions" }
+ordo-mcp-registry = { path = "../ordo-mcp-registry" }
+ordo-mcp-sandbox = { path = "../ordo-mcp-sandbox" }
+ordo-mcp-client = { path = "../ordo-mcp-client" }
+ordo-connections = { path = "../ordo-connections" }
+ordo-automation = { path = "../ordo-automation" }
+ordo-automation-primitives = { path = "../ordo-automation-primitives" }
+ordo-build-planner = { path = "../ordo-build-planner" }
+ordo-protocol = { path = "../ordo-protocol" }
+axum = { workspace = true, features = ["macros"] }
+parking_lot.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tower.workspace = true
+futures.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+ordo-cloud = { path = "../ordo-cloud" }
+ordo-heal = { path = "../ordo-heal" }
+ordo-rag = { path = "../ordo-rag" }
+uuid.workspace = true

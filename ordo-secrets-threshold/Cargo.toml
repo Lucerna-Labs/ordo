@@ -1,0 +1,27 @@
+[package]
+name = "ordo-secrets-threshold"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-store = { path = "../ordo-store" }
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+rusqlite.workspace = true
+async-trait.workspace = true
+frost-ed25519.workspace = true
+rand.workspace = true
+rand_core.workspace = true
+blake3.workspace = true
+sha2.workspace = true
+ulid.workspace = true
+zeroize.workspace = true
+data-encoding.workspace = true
+qrcode.workspace = true

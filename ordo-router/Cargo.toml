@@ -1,0 +1,10 @@
+[package]
+name = "ordo-router"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-handshake = { path = "../ordo-handshake" }
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-transport = { path = "../ordo-transport" }
+thiserror.workspace = true

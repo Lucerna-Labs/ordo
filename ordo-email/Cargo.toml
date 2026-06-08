@@ -1,0 +1,39 @@
+[package]
+name = "ordo-email"
+version = "0.1.0"
+edition = "2021"
+
+# Email remote-control channel for Ordo.
+# Polls an IMAP inbox for commands from authorized senders,
+# publishes them onto the Ordo bus, and sends SMTP replies.
+# Native crate — NOT a WASM MCP server. IMAP + SMTP need
+# real TLS and persistent connections.
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+
+imap = { version = "3.0.0-alpha.15", features = ["native-tls"] }
+native-tls = "0.2"
+async-native-tls = { version = "0.5", features = ["tokio"] }
+# SMTP
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "rustls-tls", "tokio1", "tokio1-rustls-tls", "hostname"] }
+# HTML to text extraction
+html2text = "0.6"
+# Futures for stream combinators
+futures = { workspace = true }
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "warn"

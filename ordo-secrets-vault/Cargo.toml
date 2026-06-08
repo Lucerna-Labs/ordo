@@ -1,0 +1,47 @@
+[package]
+name = "ordo-secrets-vault"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-store = { path = "../ordo-store" }
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+rusqlite.workspace = true
+async-trait.workspace = true
+# Secret material handling.
+zeroize.workspace = true
+chacha20poly1305.workspace = true
+argon2.workspace = true
+sha2.workspace = true
+blake3.workspace = true
+hex.workspace = true
+rand.workspace = true
+rand_core.workspace = true
+ulid.workspace = true
+# Tier-3 OS keychain.
+keyring.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# Tier-1 Windows: TBS via Microsoft's `windows` crate. TBS lives
+# under System::TpmBaseServices (the Security::Tpm module wraps
+# TBC â€” a different API). The System feature gate is required for
+# the submodule to compile.
+windows = { version = "0.59", features = ["Win32_System_TpmBaseServices", "Win32_System", "Win32_Foundation"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Tier-2 Apple Secure Enclave + Tier-3 Keychain (duplicated by
+# keyring but richer here for SEP-specific operations).
+security-framework = "3"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Tier-1 Linux: TSS 2.0 Enhanced System API. 7.x is stable; 8.x
+# is alpha. Audit verdict: pin to "7".
+tss-esapi = "7"

@@ -1,0 +1,79 @@
+{
+  "identity": {
+    "name": "ordo-exe-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [101, 120, 101, 115],
+    "identity_hash": [
+      101, 120, 101, 45, 105, 110, 115, 112, 101, 99, 116, 45, 109, 111, 100, 105,
+      102, 121, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_fs_write",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "exe.inspect",
+      "description": "Inspect an executable file: format detection, architecture, entry point, sections, symbols. Combines goblin parsing with additional verification checks.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the executable to inspect" }
+        },
+        "required": ["path"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "format": { "type": "string" },
+          "architecture": { "type": "string" },
+          "entry_point": { "type": "string" },
+          "section_count": { "type": "integer" },
+          "import_count": { "type": "integer" },
+          "export_count": { "type": "integer" },
+          "file_size": { "type": "integer" }
+        },
+        "required": ["format", "architecture", "entry_point"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "exe.verify",
+      "description": "Verify a binary's headers are valid and the file isn't truncated or corrupted. Useful as a build step after compilation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the binary to verify" }
+        },
+        "required": ["path"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "valid": { "type": "boolean" },
+          "format": { "type": "string" },
+          "issue": { "type": "string" }
+        },
+        "required": ["valid", "format"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 200000000,
+    "memory_bytes": 33554432,
+    "max_response_size_bytes": 8388608,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 120
+  }
+}

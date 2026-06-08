@@ -1,0 +1,102 @@
+{
+  "identity": {
+    "name": "ordo-mitre-atlas-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [109, 116, 114, 101],
+    "identity_hash": [
+      109, 105, 116, 114, 101, 45, 97, 116, 108, 97, 115, 45, 112, 114, 111, 98,
+      101, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "mitre-atlas.detect",
+      "description": "Detect AI-specific attacks using MITRE ATLAS framework techniques. Covers 90+ attack patterns: prompt injection, jailbreaking, credential exfiltration, model extraction, training data poisoning, supply chain attacks.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "User input or LLM interaction to analyze" },
+          "context": { "type": "string", "description": "Optional: system prompt or conversation context" }
+        },
+        "required": ["text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "matched": { "type": "boolean" },
+          "techniques": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "tactic": { "type": "string" },
+                "confidence": { "type": "number" },
+                "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] }
+              }
+            }
+          },
+          "summary": { "type": "string" }
+        },
+        "required": ["matched", "techniques"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "mitre-atlas.audit",
+      "description": "Full security audit of an LLM interaction. Runs all ATLAS technique detections and returns a comprehensive threat assessment.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "LLM conversation or interaction to audit" },
+          "context": { "type": "string", "description": "System context for the conversation" }
+        },
+        "required": ["text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "risk_score": { "type": "number" },
+          "risk_level": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "techniques_detected": { "type": "integer" },
+          "techniques_total": { "type": "integer" },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "tactic": { "type": "string" },
+                "confidence": { "type": "number" }
+              }
+            }
+          },
+          "summary": { "type": "string" }
+        },
+        "required": ["risk_score", "risk_level", "techniques_detected", "techniques_total"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 300000000,
+    "memory_bytes": 67108864,
+    "max_response_size_bytes": 8388608,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 60
+  }
+}

@@ -1,0 +1,150 @@
+[workspace]
+members = [
+    "ordo-protocol",
+    "ordo-bus",
+    "ordo-classify",
+    "ordo-discovery",
+    "ordo-heal",
+    "ordo-handshake",
+    "ordo-logic",
+    "ordo-logic-mcp",
+    "ordo-planner",
+    "ordo-strainer",
+    "ordo-rag",
+    "ordo-mcp-host",
+    "ordo-brain",
+    "ordo-memory",
+    "ordo-store",
+    "ordo-models",
+    "ordo-router",
+    "ordo-transport",
+    "ordo-control",
+    "ordo-cloud",
+    "ordo-plugins",
+    "ordo-review",
+    "ordo-security",
+    "ordo-ui-extensions",
+    "ordo-assistant",
+    "ordo-apps",
+    "ordo-email",
+    "ordo-files",
+    "ordo-webhooks",
+    "ordo-sandbox",
+    "ordo-code",
+    "ordo-memory-log",
+    "ordo-memory-router",
+    "ordo-memory-projection",
+    "ordo-secrets-vault",
+    "ordo-secrets-threshold",
+    "ordo-secrets-broker",
+    "ordo-secrets-audit",
+    "ordo-mcp-worker",
+    "ordo-mcp-sandbox",
+    "ordo-mcp-client",
+    "ordo-mcp-registry",
+    "ordo-mcp-provenance",
+    "ordo-runtime",
+    "ordo-cli",
+    "ordo-mcp",
+    "ordo-connections",
+    "ordo-modes",
+    "ordo-tasks",
+    "ordo-agents",
+    "ordo-jobs",
+    "ordo-automation-primitives",
+    "ordo-automation",
+    "ordo-build-primitives",
+    "ordo-build-planner",
+    "ordo-operator-sim",
+]
+default-members = ["ordo-cli"]
+exclude = [
+    "mcp-servers/capstone",
+    "mcp-servers/exe",
+    "mcp-servers/fasttext",
+    "mcp-servers/goblin",
+    "mcp-servers/mitre-atlas",
+    "mcp-servers/ort",
+    "mcp-servers/syara-x",
+    "mcp-servers/tooluniverse",
+]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+futures = "0.3"
+rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite_migration = "2.5"
+axum = { version = "0.7", features = ["json", "ws", "multipart"] }
+tower = { version = "0.5", features = ["util"] }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+rustls = { version = "0.23", features = ["ring"] }
+rcgen = "0.14"
+ring = "0.17"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+wiremock = "0.6"
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
+regex = "1"
+parking_lot = "0.12"
+# OpenTelemetry â€” opt-in via the `otel` feature on ordo-runtime.
+# Version-matched as of the 0.27/0.28 series. See
+# docs/architecture-contract.md â€” OTel is additive, not load-bearing.
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
+tracing-opentelemetry = "0.28"
+# schemars â€” descriptive JSON Schema generation for capability args.
+# Used at provider boundaries for tool advertisement; NEVER wired into
+# runtime-enforced typed decoding. See Rule 9 in
+# docs/architecture-contract.md.
+schemars = { version = "0.8", features = ["preserve_order"] }
+# SHA-256 for file content-hash dedupe + integrity checks.
+sha2 = "0.10"
+# WebAssembly sandbox (Phase 3.2) â€” optional via ordo-sandbox/wasmtime
+# feature. Heavy dep; default build skips it.
+wasmtime = { version = "36", default-features = false, features = ["cranelift", "runtime"] }
+# Hex encoding for SHA digests + HMAC signatures (Phase 3.1).
+hex = "0.4"
+# Blake3 for payload_hash on memory events + projection output_hash.
+blake3 = "1"
+# ULID for memory event ids (time-sortable, globally unique).
+ulid = { version = "1", features = ["serde"] }
+# Secrets (blueprint v2). All four core crates verified via the
+# dependency audit (docs/secrets-dependency-audit.md).
+# Per-use zeroization of plaintext buffers.
+zeroize = { version = "1", features = ["zeroize_derive"] }
+# AEAD â€” XChaCha20-Poly1305 for wrapped secret material.
+chacha20poly1305 = "0.10"
+# Argon2id software-fallback KDF (Tier-4 sealer).
+argon2 = "0.5"
+# FROST threshold signatures (ordo-secrets-threshold).
+frost-ed25519 = "3"
+# COSE for SCITT-shaped anchor statements (ordo-secrets-audit).
+coset = "0.4"
+# Base32 for threshold share encoding + QR payloads.
+data-encoding = "2"
+# QR code generator for threshold share distribution UX.
+qrcode = "0.14"
+# rand_core + OsRng â€” nonce + canary generation.
+# rand pinned to 0.8 because frost-ed25519 v3 depends on rand_core 0.6;
+# rand 0.9 ships rand_core 0.9 and the two RngCore traits don't unify
+# (different crate versions = different traits). Revisit when
+# frost-ed25519 publishes a release against rand_core 0.9.
+rand_core = { version = "0.6", features = ["std"] }
+rand = "0.8"
+# MCP security architecture (blueprint). ed25519-dalek for
+# DPoP + runtime-signed lockfiles; jsonwebtoken for DPoP JWT
+# issuance + verification; petgraph for causal graph reachability
+# queries in ordo-mcp-provenance (rustworkx is Python-only;
+# petgraph is the Rust-native equivalent).
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["use_pem", "rust_crypto"] }
+petgraph = "0.6"

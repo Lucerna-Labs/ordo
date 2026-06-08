@@ -1,0 +1,19 @@
+[package]
+name = "ordo-supervisor"
+version = "0.1.0"
+edition = "2021"
+description = "Supervisor — derives system-wide HealthState + ActivityState from bus signals (heartbeats, *.degraded events, self-heal urgency, run lifecycle) and publishes OrdoMessage::SystemStateChanged on transitions."
+publish = false
+
+[dependencies]
+ordo-bus = { path = "../ordo-bus" }
+ordo-protocol = { path = "../ordo-protocol" }
+
+tokio = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "warn"

@@ -1,0 +1,14 @@
+[package]
+name = "ordo-models"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+async-trait.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+# Pure-sync HTTP client for the Ollama embedder. `EmbeddingClient::embed`
+# is synchronous and may run on a Tokio worker — `reqwest::blocking`
+# panics inside a runtime, `ureq` does not.
+ureq = "2"

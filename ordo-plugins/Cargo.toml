@@ -1,0 +1,26 @@
+[package]
+name = "ordo-plugins"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-mcp-host = { path = "../ordo-mcp-host" }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+ordo-mcp-host = { path = "../ordo-mcp-host" }
+
+[[bin]]
+name = "example-echo-plugin"
+path = "src/bin/example-echo-plugin.rs"
+
+[[bin]]
+name = "example-brand-voice-plugin"
+path = "src/bin/example-brand-voice-plugin.rs"

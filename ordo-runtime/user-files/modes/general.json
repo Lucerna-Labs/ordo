@@ -1,0 +1,37 @@
+{
+  "id": "general",
+  "label": "General",
+  "description": "Everyday questions, quick tasks, cross-domain lookups, default catch-all for new sessions.",
+  "memory_scope": [
+    "global",
+    "mode:general"
+  ],
+  "rag_domains": [
+    "general_notes"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "conservative_defaults"
+  ],
+  "planner_bias": [
+    "Prefer recall over inference. If memory comes up empty, say so rather than invent.",
+    "Stay short; expand only when asked."
+  ],
+  "persona": [
+    "helpful_generalist"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

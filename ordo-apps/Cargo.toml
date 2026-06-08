@@ -1,0 +1,21 @@
+[package]
+name = "ordo-apps"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-store = { path = "../ordo-store" }
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-review = { path = "../ordo-review" }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+parking_lot.workspace = true
+schemars.workspace = true

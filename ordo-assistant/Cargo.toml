@@ -1,0 +1,29 @@
+[package]
+name = "ordo-assistant"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-store = { path = "../ordo-store" }
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-models = { path = "../ordo-models" }
+ordo-cloud = { path = "../ordo-cloud" }
+ordo-review = { path = "../ordo-review" }
+ordo-memory-log = { path = "../ordo-memory-log" }
+ordo-modes = { path = "../ordo-modes" }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+parking_lot.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+ordo-memory-log = { path = "../ordo-memory-log" }

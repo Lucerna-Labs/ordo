@@ -1,0 +1,20 @@
+[package]
+name = "ordo-brain"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-planner = { path = "../ordo-planner" }
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+ordo-memory = { path = "../ordo-memory" }
+ordo-mcp-host = { path = "../ordo-mcp-host" }
+ordo-rag = { path = "../ordo-rag" }

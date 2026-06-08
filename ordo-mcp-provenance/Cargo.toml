@@ -1,0 +1,20 @@
+[package]
+name = "ordo-mcp-provenance"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-memory-log = { path = "../ordo-memory-log" }
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+async-trait.workspace = true
+petgraph.workspace = true
+blake3.workspace = true
+ulid.workspace = true

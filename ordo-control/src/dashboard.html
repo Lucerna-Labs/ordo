@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ordo Control</title>
+  <style>
+    :root {
+      --bg: #0f1720;
+      --panel: rgba(12, 23, 34, 0.82);
+      --panel-strong: rgba(18, 32, 46, 0.95);
+      --ink: #ecf4ef;
+      --muted: #9eb4b0;
+      --accent: #6fd1b4;
+      --accent-strong: #2f8f7a;
+      --warm: #d4a258;
+      --danger: #d86a63;
+      --edge: rgba(143, 187, 176, 0.18);
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Aptos", "Trebuchet MS", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(111, 209, 180, 0.18), transparent 34%),
+        radial-gradient(circle at right 18%, rgba(212, 162, 88, 0.15), transparent 28%),
+        linear-gradient(160deg, #081018 0%, #111b26 45%, #0b141d 100%);
+      color: var(--ink);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), transparent 92%);
+    }
+
+    .shell {
+      width: min(1220px, calc(100vw - 28px));
+      margin: 24px auto 40px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 26px;
+      border: 1px solid var(--edge);
+      border-radius: 24px;
+      background:
+        linear-gradient(145deg, rgba(9, 24, 35, 0.96), rgba(19, 36, 49, 0.9)),
+        rgba(14, 23, 34, 0.9);
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -10% -40% 40%;
+      height: 220px;
+      background: radial-gradient(circle, rgba(111, 209, 180, 0.22), transparent 68%);
+      filter: blur(12px);
+    }
+
+    .hero-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1.45fr 0.95fr;
+      gap: 18px;
+      align-items: end;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border: 1px solid rgba(111, 209, 180, 0.34);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 0.79rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    h1 {
+      margin: 14px 0 10px;
+      font-family: "Georgia", "Palatino Linotype", serif;
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 0.96;
+      letter-spacing: -0.03em;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 58ch;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.6;
+    }
+
+    .hero-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stat {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid var(--edge);
+      background: rgba(7, 16, 23, 0.62);
+      backdrop-filter: blur(8px);
+    }
+
+    .stat-label {
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .stat-value {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      padding: 20px;
+      border: 1px solid var(--edge);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-family: "Georgia", "Palatino Linotype", serif;
+      font-size: 1.45rem;
+    }
+
+    .subtle {
+      margin: 0 0 16px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .span-7 { grid-column: span 7; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-12 { grid-column: span 12; }
+
+    .pill-row,
+    .lane-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill,
+    .lane {
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(9, 19, 29, 0.92);
+      border: 1px solid rgba(158, 180, 176, 0.16);
+      color: var(--ink);
+      font-size: 0.9rem;
+    }
+
+    .lane strong {
+      color: var(--accent);
+    }
+
+    form {
+      display: grid;
+      gap: 14px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    input,
+    textarea,
+    select,
+    button {
+      font: inherit;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(143, 187, 176, 0.22);
+      background: rgba(6, 14, 21, 0.72);
+      color: var(--ink);
+      transition: border-color 180ms ease, transform 180ms ease;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: rgba(111, 209, 180, 0.76);
+      transform: translateY(-1px);
+    }
+
+    textarea {
+      min-height: 104px;
+      resize: vertical;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    button {
+      padding: 12px 16px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #0d181a;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+      box-shadow: 0 10px 24px rgba(24, 124, 106, 0.28);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.04);
+    }
+
+    button.ghost {
+      background: rgba(9, 19, 29, 0.8);
+      color: var(--ink);
+      border: 1px solid rgba(143, 187, 176, 0.22);
+      box-shadow: none;
+    }
+
+    button.row-action {
+      padding: 8px 11px;
+      font-size: 0.84rem;
+      border-radius: 10px;
+      box-shadow: none;
+    }
+
+    .status {
+      min-height: 1.4rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .status.success {
+      color: var(--accent);
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .entry {
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(143, 187, 176, 0.12);
+      background: rgba(7, 15, 23, 0.72);
+    }
+
+    .entry-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .entry small {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+    }
+
+    .entry pre {
+      margin: 12px 0 0;
+      padding: 12px;
+      border-radius: 12px;
+      background: rgba(4, 11, 17, 0.72);
+      border: 1px solid rgba(143, 187, 176, 0.12);
+      color: var(--ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+
+    .capability-list {
+      display: grid;
+      gap: 10px;
+      max-height: 420px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .lane-overview,
+    .capability-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .check-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .check-option {
+      display: grid;
+      gap: 6px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(143, 187, 176, 0.12);
+      background: rgba(7, 15, 23, 0.72);
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .check-option input {
+      width: auto;
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    .check-option small {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .lane-summary,
+    .lane-cluster {
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(143, 187, 176, 0.12);
+      background: rgba(7, 15, 23, 0.72);
+    }
+
+    .lane-summary header,
+    .lane-cluster-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    .lane-summary strong,
+    .lane-cluster strong {
+      font-size: 1rem;
+    }
+
+    .lane-summary small,
+    .lane-cluster small {
+      display: block;
+      color: var(--muted);
+    }
+
+    .capability {
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(143, 187, 176, 0.12);
+      background: rgba(7, 15, 23, 0.72);
+    }
+
+    .capability header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: baseline;
+      margin-bottom: 6px;
+    }
+
+    .capability code {
+      color: var(--warm);
+      font-size: 0.96rem;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .loading {
+      opacity: 0.65;
+    }
+
+    @media (max-width: 980px) {
+      .hero-grid,
+      .field-grid,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .span-7,
+      .span-5,
+      .span-6,
+      .span-12 {
+        grid-column: span 1;
+      }
+
+      .shell {
+        width: min(100vw - 18px, 100%);
+        margin: 12px auto 28px;
+      }
+
+      .hero,
+      .card {
+        padding: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">Ordo Local Operator Surface</div>
+          <h1>Run creative ops without turning the runtime into a gateway.</h1>
+          <p>
+            This dashboard sits on top of the local control API, so teams can tune
+            storage, switch profiles, and manage memory lanes while coordinating
+            briefs, SEO context, CMS metadata, and creative workflow knowledge.
+          </p>
+        </div>
+        <div class="hero-stats">
+          <article class="stat">
+            <div class="stat-label">Runtime Profile</div>
+            <div class="stat-value" id="hero-profile">Loading...</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Control API</div>
+            <div class="stat-value" id="hero-bind">Loading...</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Capabilities / Lanes</div>
+            <div class="stat-value" id="hero-capabilities">Loading...</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Pinned Memory Lane</div>
+            <div class="stat-value" id="hero-pinned-budget">Loading...</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Self-Heal Cases</div>
+            <div class="stat-value" id="hero-heal-cases">Loading...</div>
+          </article>
+          <article class="stat">
+            <div class="stat-label">Repair Model</div>
+            <div class="stat-value" id="hero-model-status">Loading...</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card span-7">
+        <h2>Runtime Settings</h2>
+        <p class="subtle">
+          Persist profile and storage budgets for the next restart. Environment
+          variables still win if they are explicitly set.
+        </p>
+        <form id="settings-form">
+          <div class="field-grid">
+            <label>
+              Runtime profile
+              <select id="profile" name="profile">
+                <option value="minimal">minimal</option>
+                <option value="standard">standard</option>
+                <option value="full">full</option>
+              </select>
+            </label>
+            <label>
+              Control API bind
+              <input id="control-bind" name="control-bind" type="text" readonly>
+            </label>
+            <label>
+              RAG budget (GB)
+              <input id="rag-budget" name="rag-budget" type="number" min="1" step="1">
+            </label>
+            <label>
+              Working memory budget (GB)
+              <input id="memory-budget" name="memory-budget" type="number" min="1" step="1">
+            </label>
+            <label>
+              Pinned memory budget (GB)
+              <input id="pinned-budget" name="pinned-budget" type="number" min="1" step="1">
+            </label>
+            <label>
+              Self-heal history budget (GB)
+              <input id="heal-budget" name="heal-budget" type="number" min="1" step="1">
+            </label>
+            <label>
+              Self-heal llama.cpp binary
+              <input id="heal-binary" name="heal-binary" type="text" placeholder="C:\\llama\\llama-cli.exe">
+            </label>
+            <label>
+              Self-heal model path
+              <input id="heal-model-path" name="heal-model-path" type="text" placeholder="C:\\models\\repair.gguf">
+            </label>
+            <label>
+              Self-heal context size
+              <input id="heal-context-size" name="heal-context-size" type="number" min="1" step="1">
+            </label>
+            <label>
+              Self-heal max tokens
+              <input id="heal-max-tokens" name="heal-max-tokens" type="number" min="1" step="1">
+            </label>
+            <label>
+              Self-heal temperature
+              <input id="heal-temperature" name="heal-temperature" type="number" min="0" step="0.05">
+            </label>
+          </div>
+          <div class="lane-row">
+            <span class="lane"><strong>RAG</strong> can be trimmed independently.</span>
+            <span class="lane"><strong>Pinned memory</strong> stays reserved for official and user-important notes.</span>
+            <span class="lane"><strong>Self-heal</strong> can keep a local model configured without making it mandatory.</span>
+            <span class="lane"><strong>Restart required</strong> after persisted setting changes.</span>
+          </div>
+          <div class="action-row">
+            <button type="submit">Save persisted settings</button>
+            <button class="ghost" type="button" id="refresh-button">Refresh live state</button>
+          </div>
+          <div class="status" id="settings-status"></div>
+        </form>
+      </article>
+
+      <article class="card span-5">
+        <h2>Lane Overview</h2>
+        <p class="subtle">
+          Keep domain, interface, and system lanes visibly separate so routing,
+          capability gaps, and failures are easy to localize.
+        </p>
+        <div class="hint">Runtime posture</div>
+        <div class="pill-row" id="runtime-pills"></div>
+        <div class="hint">Capability lanes</div>
+        <div class="lane-overview" id="capability-lanes"></div>
+        <div class="hint" id="settings-hint"></div>
+      </article>
+
+      <article class="card span-7">
+        <h2>RAG Collections</h2>
+        <p class="subtle">
+          Keep shared guidance and focused domain/interface retrieval visibly split
+          so it is obvious where context is coming from before you run a task.
+        </p>
+        <div class="lane-overview" id="rag-collections"></div>
+      </article>
+
+      <article class="card span-5">
+        <h2>RAG Preview</h2>
+        <p class="subtle">
+          Preview retrieval routing for a query. Leave collection filters empty to
+          let Ordo infer the right lanes automatically.
+        </p>
+        <form id="rag-preview-form">
+          <label>
+            Preview query
+            <input id="rag-preview-query" name="rag-preview-query" type="text" placeholder="Example: package SEO metadata and CMS entry for campaign launch">
+          </label>
+          <div>
+            <div class="hint">Force collections (optional)</div>
+            <div class="check-grid" id="rag-collection-filters"></div>
+          </div>
+          <div class="action-row">
+            <button type="submit">Run preview</button>
+            <button class="ghost" type="button" id="rag-preview-auto">Use inferred routing</button>
+          </div>
+          <div class="status" id="rag-preview-status"></div>
+        </form>
+        <div class="hint">Effective collections</div>
+        <div class="pill-row" id="rag-preview-collections"></div>
+        <div class="list" id="rag-preview-results"></div>
+      </article>
+
+      <article class="card span-6">
+        <h2>Pinned Memory</h2>
+        <p class="subtle">
+          Use this for memories that should stay available to the platform and the
+          self-heal lane even when working memory gets pruned.
+        </p>
+        <form id="pin-form">
+          <label>
+            Pin a note
+            <textarea id="pin-content" name="pin-content" placeholder="Example: Product pages must ship with SEO title, meta description, slug, and CMS taxonomy before publish approval."></textarea>
+          </label>
+          <div class="action-row">
+            <button type="submit">Pin memory</button>
+          </div>
+          <div class="status" id="pin-status"></div>
+        </form>
+        <div class="list" id="pinned-list"></div>
+      </article>
+
+      <article class="card span-6">
+        <h2>Working Memory</h2>
+        <p class="subtle">
+          Store recent operator notes without promoting everything into the always-on lane.
+        </p>
+        <form id="working-form">
+          <label>
+            Remember a note
+            <textarea id="working-content" name="working-content" placeholder="Example: Campaign briefs should move from concept to review before SEO packaging and CMS entry prep."></textarea>
+          </label>
+          <div class="action-row">
+            <button type="submit">Remember note</button>
+          </div>
+          <div class="status" id="working-status"></div>
+        </form>
+        <div class="list" id="working-list"></div>
+      </article>
+
+      <article class="card span-12">
+        <h2>Self-Heal Memory</h2>
+        <p class="subtle">
+          Review the remembered repair fingerprints that help the platform stop solving the same incident from scratch.
+        </p>
+        <div class="status" id="self-heal-status"></div>
+        <div class="list" id="self-heal-list"></div>
+        <div class="entry" id="self-heal-detail">
+          <strong>Operator detail</strong>
+          <small>Exported repair packs and replay results will appear here.</small>
+        </div>
+      </article>
+
+      <article class="card span-12">
+        <h2>Cloud Credentials</h2>
+        <p class="subtle">
+          Ordo is local-first, not local-only. Stored credentials stay on this machine in
+          the shared SQLite store and are only used to authenticate outbound requests to the service
+          you configure. Remove a credential to instantly disable the matching <code>cloud.*</code>
+          lane capability.
+        </p>
+        <form id="cloud-cred-form">
+          <label>
+            Service
+            <input id="cloud-cred-service" name="cloud-cred-service" type="text" placeholder="openai, anthropic, gemini, acme-search" required>
+          </label>
+          <label>
+            Label
+            <input id="cloud-cred-label" name="cloud-cred-label" type="text" placeholder="OpenAI (prod)">
+          </label>
+          <label>
+            Auth style
+            <select id="cloud-cred-auth-style" name="cloud-cred-auth-style">
+              <option value="bearer">bearer (Authorization: Bearer ...)</option>
+              <option value="basic">basic (user:pass)</option>
+              <option value="api_key_header">api_key_header (custom header)</option>
+              <option value="api_key_query">api_key_query (URL parameter)</option>
+              <option value="anthropic">anthropic (x-api-key + anthropic-version)</option>
+            </select>
+          </label>
+          <label>
+            Base URL (optional)
+            <input id="cloud-cred-base-url" name="cloud-cred-base-url" type="text" placeholder="https://api.openai.com/v1">
+          </label>
+          <label>
+            Secret
+            <input id="cloud-cred-secret" name="cloud-cred-secret" type="password" placeholder="sk-... / api-key / user:pass" autocomplete="off">
+          </label>
+          <div class="hint">Never echoed back to the dashboard. Paste once, stored locally.</div>
+          <label>
+            Extras (key=value, one per line)
+            <textarea id="cloud-cred-extras" name="cloud-cred-extras" placeholder="header_name=x-api-key&#10;param_name=key"></textarea>
+          </label>
+          <div class="hint">For <code>api_key_header</code> set <code>header_name</code>. For <code>api_key_query</code> set <code>param_name</code>. For <code>anthropic</code> optionally override <code>anthropic-version</code>.</div>
+          <div class="action-row">
+            <button type="submit">Save credential</button>
+            <button class="ghost" type="button" id="cloud-cred-reset">Reset form</button>
+          </div>
+          <div class="status" id="cloud-cred-status"></div>
+        </form>
+        <div class="list" id="cloud-cred-list"></div>
+      </article>
+
+      <article class="card span-12">
+        <h2>Capability Inventory</h2>
+        <p class="subtle">
+          Live capability descriptors come straight from the host and stay grouped
+          by lane so the runtime surface stays readable as it grows.
+        </p>
+        <div class="capability-list loading" id="capability-list"></div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const GB = 1024 * 1024 * 1024;
+
+    const heroProfile = document.getElementById("hero-profile");
+    const heroBind = document.getElementById("hero-bind");
+    const heroCapabilities = document.getElementById("hero-capabilities");
+    const heroPinnedBudget = document.getElementById("hero-pinned-budget");
+    const heroHealCases = document.getElementById("hero-heal-cases");
+    const heroModelStatus = document.getElementById("hero-model-status");
+    const runtimePills = document.getElementById("runtime-pills");
+    const capabilityLanes = document.getElementById("capability-lanes");
+    const settingsHint = document.getElementById("settings-hint");
+    const capabilityList = document.getElementById("capability-list");
+    const ragCollections = document.getElementById("rag-collections");
+    const ragCollectionFilters = document.getElementById("rag-collection-filters");
+    const ragPreviewCollections = document.getElementById("rag-preview-collections");
+    const ragPreviewResults = document.getElementById("rag-preview-results");
+    const pinnedList = document.getElementById("pinned-list");
+    const workingList = document.getElementById("working-list");
+    const selfHealList = document.getElementById("self-heal-list");
+    const selfHealDetail = document.getElementById("self-heal-detail");
+    const cloudCredList = document.getElementById("cloud-cred-list");
+
+    function bytesToGb(bytes) {
+      if (!bytes || Number.isNaN(bytes)) {
+        return "";
+      }
+      return Math.max(1, Math.round(bytes / GB)).toString();
+    }
+
+    function gbToBytes(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        throw new Error("Budget values must be positive whole numbers.");
+      }
+      return Math.round(numeric * GB);
+    }
+
+    function setStatus(id, text, kind) {
+      const node = document.getElementById(id);
+      node.textContent = text || "";
+      node.className = "status" + (kind ? " " + kind : "");
+    }
+
+    async function loadJson(url, options) {
+      const response = await fetch(url, options);
+      const body = await response.json();
+      if (!response.ok) {
+        throw new Error(body.error || "Request failed.");
+      }
+      return body;
+    }
+
+    function renderMemoryList(container, entries, emptyText, options) {
+      container.innerHTML = "";
+      if (!entries || entries.length === 0) {
+        const node = document.createElement("div");
+        node.className = "entry";
+        node.innerHTML = "<strong>" + emptyText + "</strong><small>Nothing stored in this lane yet.</small>";
+        container.appendChild(node);
+        return;
+      }
+
+      entries.forEach((entry, index) => {
+        const node = document.createElement("article");
+        node.className = "entry";
+        let actions = "";
+        if (options && options.allowRemove) {
+          actions =
+            "<button class=\"ghost row-action\" type=\"button\" data-remove-pinned=\"" +
+            encodeURIComponent(entry) +
+            "\">Unpin</button>";
+        }
+        node.innerHTML =
+          "<div class=\"entry-head\"><strong>Note " + (index + 1) + "</strong>" + actions + "</div>" +
+          "<div>" + escapeHtml(entry) + "</div>";
+        container.appendChild(node);
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;");
+    }
+
+    function humanizeLaneGroup(group) {
+      if (group === "domain") {
+        return "Domain";
+      }
+      if (group === "interface") {
+        return "Interface";
+      }
+      return "System";
+    }
+
+    function humanizeRagCollectionGroup(group) {
+      if (group === "shared") {
+        return "Shared";
+      }
+      if (group === "domain") {
+        return "Domain";
+      }
+      if (group === "interface") {
+        return "Interface";
+      }
+      return "Custom";
+    }
+
+    function humanizeRagCollectionName(name) {
+      if (name === "main") {
+        return "Main";
+      }
+      if (name === "seo") {
+        return "SEO";
+      }
+      if (name === "cms") {
+        return "CMS";
+      }
+      if (name === "ssh") {
+        return "SSH";
+      }
+      if (name === "api") {
+        return "API";
+      }
+      if (name === "rest") {
+        return "REST API";
+      }
+      return String(name || "")
+        .split("-")
+        .filter(Boolean)
+        .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+        .join(" ");
+    }
+
+    function laneKey(lane) {
+      return lane.group + ":" + lane.name;
+    }
+
+    function summarizeLaneCapabilities(capabilities) {
+      const preview = capabilities.slice(0, 3).join(", ");
+      if (capabilities.length <= 3) {
+        return preview;
+      }
+      return preview + ", +" + String(capabilities.length - 3) + " more";
+    }
+
+    function summarizeCollectionTitles(titles) {
+      if (!titles || titles.length === 0) {
+        return "No sampled documents reported yet.";
+      }
+      return titles.join(", ");
+    }
+
+    function currentSelectedRagCollections() {
+      return Array.from(
+        ragCollectionFilters.querySelectorAll("input[data-rag-filter]:checked")
+      ).map((input) => input.value);
+    }
+
+    function buildCapabilityNode(descriptor) {
+      const node = document.createElement("article");
+      node.className = "capability";
+      node.innerHTML =
+        "<header><code>" + escapeHtml(descriptor.capability) + "</code>" +
+        "<span>" + escapeHtml(descriptor.tier) + " / " + escapeHtml(descriptor.activation) + "</span></header>" +
+        "<div>" + escapeHtml(descriptor.description) + "</div>" +
+        "<small>" + escapeHtml(humanizeLaneGroup(descriptor.lane.group)) +
+        " lane | provider: " + escapeHtml(descriptor.provider) + "</small>";
+      return node;
+    }
+
+    function renderCapabilityLaneOverview(lanes) {
+      capabilityLanes.innerHTML = "";
+      if (!lanes || lanes.length === 0) {
+        const node = document.createElement("div");
+        node.className = "lane-summary";
+        node.innerHTML = "<strong>No live lanes reported yet</strong><small>Lane summaries appear here once providers publish descriptors.</small>";
+        capabilityLanes.appendChild(node);
+        return;
+      }
+
+      lanes.forEach((lane) => {
+        const node = document.createElement("article");
+        node.className = "lane-summary";
+        node.innerHTML =
+          "<header><div><strong>" + escapeHtml(lane.label) + "</strong>" +
+          "<small>" + escapeHtml(humanizeLaneGroup(lane.group)) + " lane</small></div>" +
+          "<span>" + escapeHtml(String(lane.count)) + "</span></header>" +
+          "<small>" + escapeHtml(summarizeLaneCapabilities(lane.capabilities)) + "</small>";
+        capabilityLanes.appendChild(node);
+      });
+    }
+
+    function renderRagCollections(payload) {
+      const collections = (payload && payload.results) || [];
+      const selected = new Set(currentSelectedRagCollections());
+
+      ragCollections.innerHTML = "";
+      ragCollectionFilters.innerHTML = "";
+
+      if (!payload || payload.available === false) {
+        const node = document.createElement("div");
+        node.className = "lane-summary";
+        node.innerHTML =
+          "<strong>RAG collections unavailable</strong><small>" +
+          escapeHtml((payload && payload.error) || "Retrieval is disabled or not ready in this profile.") +
+          "</small>";
+        ragCollections.appendChild(node);
+
+        const filterNode = document.createElement("div");
+        filterNode.className = "entry";
+        filterNode.innerHTML =
+          "<strong>No collection filters available</strong><small>Enable or activate the retrieval lane to inspect knowledge collections here.</small>";
+        ragCollectionFilters.appendChild(filterNode);
+        return;
+      }
+
+      if (collections.length === 0) {
+        const node = document.createElement("div");
+        node.className = "lane-summary";
+        node.innerHTML =
+          "<strong>No RAG collections loaded yet</strong><small>Collection summaries will appear here once the retrieval lane has indexed documents.</small>";
+        ragCollections.appendChild(node);
+        return;
+      }
+
+      collections.forEach((collection) => {
+        const summary = document.createElement("article");
+        summary.className = "lane-summary";
+        summary.innerHTML =
+          "<header><div><strong>" + escapeHtml(collection.label || humanizeRagCollectionName(collection.name)) + "</strong>" +
+          "<small>" + escapeHtml(humanizeRagCollectionGroup(collection.group)) + " collection</small></div>" +
+          "<span>" + escapeHtml(String(collection.document_count || 0)) + " docs</span></header>" +
+          "<small>" + escapeHtml(String(collection.chunk_count || 0)) + " chunks | " +
+          escapeHtml(summarizeCollectionTitles(collection.sample_titles)) + "</small>";
+        ragCollections.appendChild(summary);
+
+        const option = document.createElement("label");
+        option.className = "check-option";
+        option.innerHTML =
+          "<div><input data-rag-filter type=\"checkbox\" value=\"" + escapeHtml(collection.name) + "\"" +
+          (selected.has(collection.name) ? " checked" : "") +
+          "> <strong>" + escapeHtml(collection.label || humanizeRagCollectionName(collection.name)) + "</strong></div>" +
+          "<small>" + escapeHtml(humanizeRagCollectionGroup(collection.group)) + " collection | " +
+          escapeHtml(String(collection.document_count || 0)) + " docs | " +
+          escapeHtml(String(collection.chunk_count || 0)) + " chunks</small>";
+        ragCollectionFilters.appendChild(option);
+      });
+    }
+
+    function renderCapabilities(descriptors, lanes) {
+      capabilityList.classList.remove("loading");
+      capabilityList.innerHTML = "";
+      const groupedDescriptors = new Map();
+      descriptors.forEach((descriptor) => {
+        const key = laneKey(descriptor.lane);
+        const existing = groupedDescriptors.get(key) || [];
+        existing.push(descriptor);
+        groupedDescriptors.set(key, existing);
+      });
+
+      (lanes || []).forEach((lane) => {
+        const items = (groupedDescriptors.get(laneKey(lane)) || [])
+          .slice()
+          .sort((left, right) => left.capability.localeCompare(right.capability));
+        const cluster = document.createElement("section");
+        cluster.className = "lane-cluster";
+        cluster.innerHTML =
+          "<div class=\"lane-cluster-head\"><div><strong>" + escapeHtml(lane.label) + "</strong>" +
+          "<small>" + escapeHtml(humanizeLaneGroup(lane.group)) + " lane</small></div>" +
+          "<span>" + escapeHtml(String(items.length)) + " capability" + (items.length === 1 ? "" : "ies") + "</span></div>";
+        const stack = document.createElement("div");
+        stack.className = "capability-stack";
+        items.forEach((descriptor) => {
+          stack.appendChild(buildCapabilityNode(descriptor));
+        });
+        cluster.appendChild(stack);
+        capabilityList.appendChild(cluster);
+      });
+    }
+
+    function renderSelfHealCases(cases) {
+      selfHealList.innerHTML = "";
+      if (!cases || cases.length === 0) {
+        const node = document.createElement("div");
+        node.className = "entry";
+        node.innerHTML = "<strong>No remembered repair cases yet</strong><small>The self-heal lane will start filling this once incidents are recorded.</small>";
+        selfHealList.appendChild(node);
+        return;
+      }
+
+        cases.forEach((entry) => {
+          const actions = (entry.actions || [])
+          .map((action) => "<small>" + escapeHtml(action) + "</small>")
+          .join("");
+        const node = document.createElement("article");
+        node.className = "entry";
+        node.innerHTML =
+          "<div class=\"entry-head\"><strong>" + escapeHtml(entry.summary) + "</strong>" +
+          "<div class=\"action-row\">" +
+          "<button class=\"ghost row-action\" type=\"button\" data-pin-case=\"" +
+          escapeHtml(entry.fingerprint) +
+          "\">Pin Fix</button>" +
+          "<button class=\"ghost row-action\" type=\"button\" data-replay-case=\"" +
+          escapeHtml(entry.fingerprint) +
+          "\">Replay</button>" +
+          "<button class=\"ghost row-action\" type=\"button\" data-export-case=\"" +
+          escapeHtml(entry.fingerprint) +
+          "\">Export</button>" +
+          "<button class=\"ghost row-action\" type=\"button\" data-forget-case=\"" +
+          escapeHtml(entry.fingerprint) +
+          "\">Forget</button></div></div>" +
+          "<div>" + escapeHtml(entry.why) + "</div>" +
+          "<small>fingerprint: " + escapeHtml(entry.fingerprint) + "</small>" +
+          "<small>component: " + escapeHtml(entry.component) + " | source: " + escapeHtml(entry.source) + " | occurrences: " + escapeHtml(String(entry.occurrence_count)) + "</small>" +
+          actions;
+        selfHealList.appendChild(node);
+      });
+    }
+
+    function renderCloudCredentials(credentials) {
+      cloudCredList.innerHTML = "";
+      if (!credentials || credentials.length === 0) {
+        const node = document.createElement("div");
+        node.className = "entry";
+        node.innerHTML = "<strong>No cloud credentials saved yet</strong><small>Add one above to enable an outbound <code>cloud.*</code> service. Nothing leaves this machine until a credential is configured.</small>";
+        cloudCredList.appendChild(node);
+        return;
+      }
+      credentials.forEach((entry) => {
+        const extrasKeys = entry.extras && typeof entry.extras === "object"
+          ? Object.keys(entry.extras)
+          : [];
+        const extrasLine = extrasKeys.length === 0
+          ? "extras: (none)"
+          : "extras: " + extrasKeys.join(", ");
+        const node = document.createElement("article");
+        node.className = "entry";
+        node.innerHTML =
+          "<div class=\"entry-head\"><strong>" + escapeHtml(entry.label || entry.service) + "</strong>" +
+          "<div class=\"action-row\">" +
+          "<button class=\"ghost row-action\" type=\"button\" data-delete-cred=\"" + escapeHtml(entry.service) + "\">Delete</button>" +
+          "</div></div>" +
+          "<small>service: " + escapeHtml(entry.service) + " | auth: " + escapeHtml(entry.auth_style) +
+          " | secret: " + (entry.has_secret ? "stored" : "missing") + "</small>" +
+          "<small>base_url: " + escapeHtml(entry.base_url || "(default for service)") + "</small>" +
+          "<small>" + escapeHtml(extrasLine) + "</small>" +
+          "<small>updated: " + escapeHtml(entry.updated_at || "") + "</small>";
+        cloudCredList.appendChild(node);
+      });
+    }
+
+    function renderRuntimePills(profile, storage, settings) {
+      runtimePills.innerHTML = "";
+      [
+        "Profile: " + profile.profile,
+        "RAG: " + profile.rag_activation_mode,
+        "Knowledge: " + profile.knowledge_activation_mode,
+        "Pinned: " + bytesToGb(storage.memory_pinned_budget_bytes) + " GB",
+        "Working: " + bytesToGb(storage.memory_working_budget_bytes) + " GB",
+        "Self-heal: " + bytesToGb(storage.self_heal_history_budget_bytes) + " GB"
+      ].forEach((label) => {
+        const node = document.createElement("span");
+        node.className = "pill";
+        node.textContent = label;
+        runtimePills.appendChild(node);
+      });
+
+      settingsHint.textContent = settings.restart_required_for_changes
+        ? "Persisted changes apply on the next restart. Live state shown here is the effective runtime."
+        : "";
+    }
+
+    function renderRagPreview(result) {
+      ragPreviewCollections.innerHTML = "";
+      ragPreviewResults.innerHTML = "";
+
+      const modePill = document.createElement("span");
+      modePill.className = "pill";
+      modePill.textContent = result.using_inferred_collections
+        ? "Routing: inferred"
+        : "Routing: manual";
+      ragPreviewCollections.appendChild(modePill);
+
+      (result.effective_collection_labels || []).forEach((label) => {
+        const node = document.createElement("span");
+        node.className = "pill";
+        node.textContent = label;
+        ragPreviewCollections.appendChild(node);
+      });
+
+      if (!result.hits || result.hits.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "entry";
+        empty.innerHTML =
+          "<strong>No preview hits</strong><small>Try a more specific query or adjust the forced collection filters.</small>";
+        ragPreviewResults.appendChild(empty);
+        return;
+      }
+
+      result.hits.forEach((hit) => {
+        const node = document.createElement("article");
+        node.className = "entry";
+        node.innerHTML =
+          "<div class=\"entry-head\"><strong>" + escapeHtml(hit.title || hit.document_id) + "</strong>" +
+          "<small>" + escapeHtml(humanizeRagCollectionName(hit.collection)) + " | score " +
+          escapeHtml(Number(hit.score || 0).toFixed(2)) + "</small></div>" +
+          "<div>" + escapeHtml(hit.snippet || "") + "</div>" +
+          "<small>document: " + escapeHtml(hit.document_id) + " | chunk " + escapeHtml(String(hit.chunk_index)) + "</small>";
+        ragPreviewResults.appendChild(node);
+      });
+    }
+
+    async function refreshDashboard() {
+      const [profile, storage, settings, pinned, working, capabilities, ragInventory, selfHealCases, cloudCredentials] = await Promise.all([
+        loadJson("/api/runtime/profile"),
+        loadJson("/api/runtime/storage"),
+        loadJson("/api/runtime/settings"),
+        loadJson("/api/memory/pinned?limit=8"),
+        loadJson("/api/memory/working?limit=8"),
+        loadJson("/api/capabilities"),
+        loadJson("/api/rag/collections"),
+        loadJson("/api/self-heal/cases?limit=8"),
+        loadJson("/api/cloud/credentials")
+      ]);
+
+      heroProfile.textContent = profile.profile;
+      heroBind.textContent = profile.control_api_bind || "disabled";
+      heroCapabilities.textContent =
+        String(capabilities.count) + " across " + String(capabilities.lane_count || 0) + " lanes";
+      heroPinnedBudget.textContent = bytesToGb(storage.memory_pinned_budget_bytes) + " GB";
+      heroHealCases.textContent = String(selfHealCases.count || 0);
+      heroModelStatus.textContent = settings.effective.llama_cpp_configured ? "configured" : "fallback";
+
+      document.getElementById("profile").value = settings.persisted.profile || settings.effective.profile;
+      document.getElementById("control-bind").value = settings.effective.control_api_bind || "disabled";
+      document.getElementById("rag-budget").value = bytesToGb(settings.persisted.rag_budget_bytes || settings.effective.rag_budget_bytes);
+      document.getElementById("memory-budget").value = bytesToGb(settings.persisted.memory_working_budget_bytes || settings.effective.memory_working_budget_bytes);
+      document.getElementById("pinned-budget").value = bytesToGb(settings.persisted.memory_pinned_budget_bytes || settings.effective.memory_pinned_budget_bytes);
+      document.getElementById("heal-budget").value = bytesToGb(settings.persisted.self_heal_history_budget_bytes || settings.effective.self_heal_history_budget_bytes);
+      document.getElementById("heal-binary").value = settings.persisted.self_heal_llama_cpp_binary ?? settings.effective.self_heal_llama_cpp_binary ?? "";
+      document.getElementById("heal-model-path").value = settings.persisted.self_heal_model_path ?? settings.effective.self_heal_model_path ?? "";
+      document.getElementById("heal-context-size").value = String(settings.persisted.self_heal_model_context_size ?? settings.effective.self_heal_model_context_size ?? 4096);
+      document.getElementById("heal-max-tokens").value = String(settings.persisted.self_heal_model_max_tokens ?? settings.effective.self_heal_model_max_tokens ?? 384);
+      document.getElementById("heal-temperature").value = String(settings.persisted.self_heal_model_temperature ?? settings.effective.self_heal_model_temperature ?? 0.1);
+
+      renderRuntimePills(profile, storage, settings);
+      renderCapabilityLaneOverview(capabilities.lanes);
+      renderRagCollections(ragInventory);
+      renderMemoryList(pinnedList, pinned.results, "No pinned memories yet", { allowRemove: true });
+      renderMemoryList(workingList, working.results, "No working-memory notes yet");
+      renderSelfHealCases(selfHealCases.results);
+      renderCloudCredentials(cloudCredentials.credentials);
+      renderCapabilities(capabilities.descriptors, capabilities.lanes);
+
+      cloudCredList.querySelectorAll("[data-delete-cred]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const service = button.getAttribute("data-delete-cred");
+          await deleteCloudCredential(service);
+        });
+      });
+
+      pinnedList.querySelectorAll("[data-remove-pinned]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const content = decodeURIComponent(button.getAttribute("data-remove-pinned"));
+          await unpinMemory(content);
+        });
+      });
+
+      selfHealList.querySelectorAll("[data-forget-case]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const fingerprint = button.getAttribute("data-forget-case");
+          await forgetSelfHealCase(fingerprint);
+        });
+      });
+
+      selfHealList.querySelectorAll("[data-pin-case]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const fingerprint = button.getAttribute("data-pin-case");
+          await pinSelfHealCase(fingerprint);
+        });
+      });
+
+      selfHealList.querySelectorAll("[data-replay-case]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const fingerprint = button.getAttribute("data-replay-case");
+          await replaySelfHealCase(fingerprint);
+        });
+      });
+
+      selfHealList.querySelectorAll("[data-export-case]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const fingerprint = button.getAttribute("data-export-case");
+          await exportSelfHealCase(fingerprint);
+        });
+      });
+    }
+
+    async function runRagPreview() {
+      const query = document.getElementById("rag-preview-query").value.trim();
+      if (!query) {
+        setStatus("rag-preview-status", "Enter a query to preview retrieval routing.", "error");
+        return;
+      }
+
+      setStatus("rag-preview-status", "Running retrieval preview...", "");
+      try {
+        const params = new URLSearchParams();
+        params.set("query", query);
+        params.set("top_k", "5");
+        const selected = currentSelectedRagCollections();
+        if (selected.length > 0) {
+          params.set("collections", selected.join(","));
+        }
+        const result = await loadJson("/api/rag/preview?" + params.toString());
+        renderRagPreview(result);
+        setStatus(
+          "rag-preview-status",
+          result.using_inferred_collections
+            ? "Preview complete using inferred retrieval lanes."
+            : "Preview complete using manually selected retrieval lanes.",
+          "success"
+        );
+      } catch (error) {
+        setStatus("rag-preview-status", error.message, "error");
+      }
+    }
+
+    async function unpinMemory(content) {
+      setStatus("pin-status", "Removing pinned memory...", "");
+      try {
+        await loadJson("/api/memory/pinned", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content })
+        });
+        setStatus("pin-status", "Pinned memory removed.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("pin-status", error.message, "error");
+      }
+    }
+
+    async function forgetSelfHealCase(fingerprint) {
+      setStatus("self-heal-status", "Removing remembered repair case...", "");
+      try {
+        await loadJson("/api/self-heal/cases", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fingerprint })
+        });
+        setStatus("self-heal-status", "Remembered repair case removed.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("self-heal-status", error.message, "error");
+      }
+    }
+
+    async function pinSelfHealCase(fingerprint) {
+      setStatus("self-heal-status", "Pinning remembered repair into always-available memory...", "");
+      try {
+        const result = await loadJson("/api/self-heal/cases/pin", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fingerprint })
+        });
+        const message = result.stored
+          ? "Remembered repair pinned into always-available memory."
+          : "Remembered repair was already pinned.";
+        setStatus("self-heal-status", message, "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("self-heal-status", error.message, "error");
+      }
+    }
+
+    async function replaySelfHealCase(fingerprint) {
+      setStatus("self-heal-status", "Replaying remembered repair through the self-heal lane...", "");
+      try {
+        const result = await loadJson("/api/self-heal/cases/replay", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fingerprint })
+        });
+        const plan = result.plan || {};
+        selfHealDetail.innerHTML =
+          "<strong>Replay result</strong>" +
+          "<small>Fingerprint: " + escapeHtml(fingerprint) + "</small>" +
+          "<small>Source: " + escapeHtml(String(plan.source || "unknown")) + " | Reused previous fix: " + escapeHtml(String(Boolean(plan.reused_previous_fix))) + "</small>" +
+          "<pre>" + escapeHtml(
+            "Summary: " + String(plan.summary || "") + "\n\n" +
+            "Why: " + String(plan.why || "") + "\n\n" +
+            "Actions:\n" + ((plan.actions || []).map((action) => "- " + action).join("\n"))
+          ) + "</pre>";
+        setStatus("self-heal-status", "Remembered repair replayed through the live self-heal lane.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("self-heal-status", error.message, "error");
+      }
+    }
+
+    async function exportSelfHealCase(fingerprint) {
+      setStatus("self-heal-status", "Exporting remembered repair pack...", "");
+      try {
+        const result = await loadJson("/api/self-heal/cases/export", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ fingerprint })
+        });
+        selfHealDetail.innerHTML =
+          "<strong>Exported repair pack</strong>" +
+          "<small>Filename: " + escapeHtml(String(result.filename || "self-heal-case.md")) + "</small>" +
+          "<small>Fingerprint: " + escapeHtml(fingerprint) + "</small>" +
+          "<pre>" + escapeHtml(String(result.markdown || "")) + "</pre>";
+        setStatus("self-heal-status", "Remembered repair exported into an operator-friendly pack.", "success");
+      } catch (error) {
+        setStatus("self-heal-status", error.message, "error");
+      }
+    }
+
+    document.getElementById("settings-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus("settings-status", "Saving persisted settings...", "");
+      try {
+        const payload = {
+          profile: document.getElementById("profile").value,
+          rag_budget_bytes: gbToBytes(document.getElementById("rag-budget").value),
+          memory_working_budget_bytes: gbToBytes(document.getElementById("memory-budget").value),
+          memory_pinned_budget_bytes: gbToBytes(document.getElementById("pinned-budget").value),
+          self_heal_history_budget_bytes: gbToBytes(document.getElementById("heal-budget").value),
+          self_heal_llama_cpp_binary: document.getElementById("heal-binary").value,
+          self_heal_model_path: document.getElementById("heal-model-path").value,
+          self_heal_model_context_size: Number(document.getElementById("heal-context-size").value),
+          self_heal_model_max_tokens: Number(document.getElementById("heal-max-tokens").value),
+          self_heal_model_temperature: Number(document.getElementById("heal-temperature").value)
+        };
+        await loadJson("/api/runtime/settings", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        setStatus("settings-status", "Persisted settings saved. Restart the runtime to apply them.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("settings-status", error.message, "error");
+      }
+    });
+
+    document.getElementById("refresh-button").addEventListener("click", async () => {
+      setStatus("settings-status", "Refreshing live state...", "");
+      try {
+        await refreshDashboard();
+        setStatus("settings-status", "Live state refreshed.", "success");
+      } catch (error) {
+        setStatus("settings-status", error.message, "error");
+      }
+    });
+
+    document.getElementById("pin-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus("pin-status", "Pinning memory...", "");
+      try {
+        const field = document.getElementById("pin-content");
+        await loadJson("/api/memory/pinned", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content: field.value })
+        });
+        field.value = "";
+        setStatus("pin-status", "Pinned memory stored.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("pin-status", error.message, "error");
+      }
+    });
+
+    document.getElementById("working-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus("working-status", "Storing working-memory note...", "");
+      try {
+        const field = document.getElementById("working-content");
+        await loadJson("/api/memory/working", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content: field.value })
+        });
+        field.value = "";
+        setStatus("working-status", "Working-memory note stored.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("working-status", error.message, "error");
+      }
+    });
+
+    document.getElementById("rag-preview-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await runRagPreview();
+    });
+
+    document.getElementById("rag-preview-auto").addEventListener("click", () => {
+      ragCollectionFilters.querySelectorAll("input[data-rag-filter]").forEach((input) => {
+        input.checked = false;
+      });
+      setStatus(
+        "rag-preview-status",
+        "Manual collection filters cleared. The next preview will use inferred routing.",
+        "success"
+      );
+    });
+
+    function parseCloudExtras(raw) {
+      const extras = {};
+      if (!raw) {
+        return extras;
+      }
+      raw.split(/\r?\n/).forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return;
+        }
+        const separator = trimmed.indexOf("=");
+        if (separator < 0) {
+          return;
+        }
+        const key = trimmed.slice(0, separator).trim();
+        const value = trimmed.slice(separator + 1).trim();
+        if (key) {
+          extras[key] = value;
+        }
+      });
+      return extras;
+    }
+
+    async function deleteCloudCredential(service) {
+      setStatus("cloud-cred-status", "Deleting credential...", "");
+      try {
+        await loadJson("/api/cloud/credentials", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ service })
+        });
+        setStatus("cloud-cred-status", "Credential removed.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("cloud-cred-status", error.message, "error");
+      }
+    }
+
+    document.getElementById("cloud-cred-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setStatus("cloud-cred-status", "Saving credential...", "");
+      const service = document.getElementById("cloud-cred-service").value.trim();
+      if (!service) {
+        setStatus("cloud-cred-status", "Service name is required.", "error");
+        return;
+      }
+      const payload = { service };
+      const label = document.getElementById("cloud-cred-label").value.trim();
+      if (label) {
+        payload.label = label;
+      }
+      const authStyle = document.getElementById("cloud-cred-auth-style").value;
+      if (authStyle) {
+        payload.auth_style = authStyle;
+      }
+      const baseUrl = document.getElementById("cloud-cred-base-url").value.trim();
+      if (baseUrl) {
+        payload.base_url = baseUrl;
+      }
+      const secret = document.getElementById("cloud-cred-secret").value;
+      if (secret) {
+        payload.secret = secret;
+      }
+      const extras = parseCloudExtras(document.getElementById("cloud-cred-extras").value);
+      if (Object.keys(extras).length > 0) {
+        payload.extras = extras;
+      }
+      try {
+        await loadJson("/api/cloud/credentials", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        document.getElementById("cloud-cred-secret").value = "";
+        setStatus("cloud-cred-status", "Credential saved locally.", "success");
+        await refreshDashboard();
+      } catch (error) {
+        setStatus("cloud-cred-status", error.message, "error");
+      }
+    });
+
+    document.getElementById("cloud-cred-reset").addEventListener("click", () => {
+      document.getElementById("cloud-cred-form").reset();
+      setStatus("cloud-cred-status", "Form cleared.", "");
+    });
+
+    refreshDashboard().catch((error) => {
+      setStatus("settings-status", error.message, "error");
+      capabilityList.classList.remove("loading");
+      capabilityList.innerHTML = "<article class=\"entry\"><strong>Dashboard load failed</strong><small>" + escapeHtml(error.message) + "</small></article>";
+    });
+  </script>
+</body>
+</html>

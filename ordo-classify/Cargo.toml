@@ -1,0 +1,7 @@
+[package]
+name = "ordo-classify"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }

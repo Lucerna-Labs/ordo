@@ -1,0 +1,16 @@
+[package]
+name = "ordo-store"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chrono.workspace = true
+rusqlite.workspace = true
+rusqlite_migration.workspace = true
+tokio.workspace = true
+# Embedding store trait (Phase 4.3).
+async-trait.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

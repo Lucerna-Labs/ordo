@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --space: #020617;
+    --teal: #0d9488;
+    --blue: #3b82f6;
+    --amber: #78350f;
+    --crimson: #991b1b;
+    --ordo-ink: #0a0c10;
+    --ordo-ink-2: #0e1117;
+    --ordo-control-ink: #0a0c10;
+    --ordo-parchment: #f4ecd8;
+    --ordo-card-bg: #13161c;
+    --ordo-card-bg-raised: #181c24;
+    --ordo-card-border: rgba(255, 255, 255, 0.06);
+    --ordo-card-border-strong: rgba(255, 255, 255, 0.1);
+    --ordo-input-bg: rgba(0, 0, 0, 0.35);
+    --ordo-input-border: rgba(255, 255, 255, 0.08);
+    --ordo-text-muted: rgba(244, 236, 216, 0.6);
+    --ordo-text-dim: rgba(244, 236, 216, 0.4);
+    --ordo-primary-soft: #f4c95d22;
+    --ordo-primary-soft-hover: #f4c95d33;
+    --ordo-primary-border: #f4c95d55;
+    --ordo-shell-top-bg: rgba(10, 12, 16, 0.6);
+    --ordo-shell-rail-bg: rgba(10, 12, 16, 0.4);
+    --ordo-shell-border: rgba(255, 255, 255, 0.05);
+    --ordo-scroll-thumb: rgba(255, 255, 255, 0.12);
+    --ordo-select-bg: #0e131f;
+    --ordo-select-fg: rgba(255, 255, 255, 0.9);
+  }
+
+  .ordo-theme-bright {
+    color-scheme: light;
+    --ordo-ink: #f7f4ec;
+    --ordo-ink-2: #fffaf0;
+    --ordo-control-ink: #15120b;
+    --ordo-parchment: #15120b;
+    --ordo-card-bg: #fffaf0;
+    --ordo-card-bg-raised: #f2eadb;
+    --ordo-card-border: rgba(42, 34, 21, 0.12);
+    --ordo-card-border-strong: rgba(42, 34, 21, 0.18);
+    --ordo-input-bg: rgba(255, 255, 255, 0.72);
+    --ordo-input-border: rgba(42, 34, 21, 0.16);
+    --ordo-text-muted: rgba(21, 18, 11, 0.66);
+    --ordo-text-dim: rgba(21, 18, 11, 0.45);
+    --ordo-primary-soft: rgba(244, 201, 93, 0.26);
+    --ordo-primary-soft-hover: rgba(244, 201, 93, 0.36);
+    --ordo-primary-border: rgba(190, 135, 28, 0.46);
+    --ordo-shell-top-bg: rgba(255, 250, 240, 0.78);
+    --ordo-shell-rail-bg: rgba(255, 250, 240, 0.58);
+    --ordo-shell-border: rgba(42, 34, 21, 0.12);
+    --ordo-scroll-thumb: rgba(42, 34, 21, 0.22);
+    --ordo-select-bg: #fffaf0;
+    --ordo-select-fg: #15120b;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply overflow-hidden bg-[#020617] text-slate-100 antialiased;
+    font-family: "Sora", "Inter", "Segoe UI Variable", "Segoe UI", sans-serif;
+  }
+
+  button,
+  input,
+  textarea {
+    @apply outline-none;
+  }
+}
+
+@layer components {
+  .liquid-panel {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.03)),
+      rgba(2, 6, 23, 0.58);
+    backdrop-filter: blur(60px) saturate(180%);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 24px 80px rgba(2, 6, 23, 0.32);
+  }
+}
+
+.backdrop-blur-3xl {
+  backdrop-filter: blur(60px) saturate(180%);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ordo-scroll-thumb);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(45, 212, 191, 0.35);
+}
+
+/* Fix white-on-white dropdown options in WebView2 */
+select,
+select option {
+  background-color: var(--ordo-select-bg);
+  color: var(--ordo-select-fg);
+}
+
+select option:hover,
+select option:checked {
+  background-color: rgba(45, 212, 191, 0.2);
+}

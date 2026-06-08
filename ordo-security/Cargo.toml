@@ -1,0 +1,17 @@
+[package]
+name = "ordo-security"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-mcp-host = { path = "../ordo-mcp-host" }
+ordo-protocol = { path = "../ordo-protocol" }
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+regex.workspace = true
+parking_lot.workspace = true
+tokio = { workspace = true, features = ["sync"] }

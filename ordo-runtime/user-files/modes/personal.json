@@ -1,0 +1,43 @@
+{
+  "id": "personal",
+  "label": "Personal",
+  "description": "Private notes, health, life admin, personal journaling. Private; cross-mode borrows denied.",
+  "memory_scope": [
+    "global",
+    "mode:personal"
+  ],
+  "rag_domains": [
+    "research_personal",
+    "health_notes",
+    "journal"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "private_workspace",
+    "confirm_file_writes",
+    "no_secret_exposure"
+  ],
+  "planner_bias": [
+    "Private means private. Never surface personal content in other modes.",
+    "Health notes are sensitive â€” do not summarize for the planner."
+  ],
+  "persona": [
+    "personal_assistant",
+    "privacy_first"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": "deny",
+  "cross_mode_consult_policy": "deny"
+}

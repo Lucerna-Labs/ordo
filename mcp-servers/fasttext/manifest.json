@@ -1,0 +1,92 @@
+{
+  "identity": {
+    "name": "ordo-fasttext-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [102, 116, 120, 116],
+    "identity_hash": [
+      102, 97, 115, 116, 116, 101, 120, 116, 45, 99, 108, 97, 115, 115, 105, 102,
+      105, 101, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "fasttext.detect_language",
+      "description": "Detect the language of input text. Returns the most likely language with confidence scores.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Text to detect language for" }
+        },
+        "required": ["text"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string" },
+          "confidence": { "type": "number" },
+          "top_languages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "language": { "type": "string" },
+                "score": { "type": "number" }
+              }
+            }
+          }
+        },
+        "required": ["language", "confidence"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "fasttext.classify",
+      "description": "Classify text using a pre-trained fastText model. Useful for topic detection, spam filtering, and content categorization.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Text to classify" },
+          "model_path": { "type": "string", "description": "Path to fastText .bin model file" }
+        },
+        "required": ["text", "model_path"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": { "type": "string" },
+                "confidence": { "type": "number" }
+              }
+            }
+          },
+          "top_label": { "type": "string" }
+        },
+        "required": ["labels", "top_label"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 200000000,
+    "memory_bytes": 67108864,
+    "max_response_size_bytes": 8388608,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 120
+  }
+}

@@ -1,0 +1,345 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<!--
+  Copyright (C) 2017 Christopher R. Field.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<!--
+  The "cargo wix" subcommand provides a variety of predefined variables available
+  for customization of this template. The values for each variable are set at
+  installer creation time. The following variables are available:
+
+  TargetTriple      = The rustc target triple name.
+  TargetEnv         = The rustc target environment. This is typically either
+                      "msvc" or "gnu" depending on the toolchain downloaded and
+                      installed.
+  TargetVendor      = The rustc target vendor. This is typically "pc", but Rust
+                      does support other vendors, like "uwp".
+  CargoTargetBinDir = The complete path to the directory containing the
+                      binaries (exes) to include. The default would be
+                      "target\release\". If an explicit rustc target triple is
+                      used, i.e. cross-compiling, then the default path would
+                      be "target\<CARGO_TARGET>\<CARGO_PROFILE>",
+                      where "<CARGO_TARGET>" is replaced with the "CargoTarget"
+                      variable value and "<CARGO_PROFILE>" is replaced with the
+                      value from the "CargoProfile" variable. This can also
+                      be overridden manually with the "target-bin-dir" flag.
+  CargoTargetDir    = The path to the directory for the build artifacts, i.e.
+                      "target".
+  CargoProfile      = The cargo profile used to build the binaries
+                      (usually "debug" or "release").
+  Version           = The version for the installer. The default is the
+                      "Major.Minor.Fix" semantic versioning number of the Rust
+                      package.
+-->
+
+<!--
+  Please do not remove these pre-processor If-Else blocks. These are used with
+  the `cargo wix` subcommand to automatically determine the installation
+  destination for 32-bit versus 64-bit installers. Removal of these lines will
+  cause installation errors.
+-->
+<?if $(sys.BUILDARCH) = x64 or $(sys.BUILDARCH) = arm64 ?>
+    <?define PlatformProgramFilesFolder = "ProgramFiles64Folder" ?>
+<?else ?>
+    <?define PlatformProgramFilesFolder = "ProgramFilesFolder" ?>
+<?endif ?>
+
+<Wix xmlns='http://schemas.microsoft.com/wix/2006/wi'>
+
+    <Product
+        Id='*'
+        Name='Ordo (WebView Beta)'
+        UpgradeCode='3F2A8E1B-9C4D-4F7A-A1B5-7E2D8C9F0123'
+        Manufacturer='Lucerna Labs'
+        Language='1033'
+        Codepage='1252'
+        Version='$(var.Version)'>
+
+        <Package Id='*'
+            Keywords='Installer'
+            Description='Ordo — local-first AI runtime + WebView2 UI host.'
+            Manufacturer='Lucerna Labs'
+            InstallerVersion='500'
+            Languages='1033'
+            Compressed='yes'
+            InstallScope='perUser'
+            SummaryCodepage='1252'
+            />
+
+        <!--
+          Per-user install — no admin required. Installs to
+          %LOCALAPPDATA%\Programs\Ordo (WebView Beta)\, registers
+          in HKCU's Uninstall registry, writable working directory.
+          AllowSameVersionUpgrades lets iterative Beta rebuilds
+          replace the prior install cleanly even at the same
+          semantic version.
+        -->
+        <Property Id='ALLUSERS' Value='2'/>
+        <Property Id='MSIINSTALLPERUSER' Value='1'/>
+        <MajorUpgrade
+            AllowSameVersionUpgrades='yes'
+            Schedule='afterInstallInitialize'
+            DowngradeErrorMessage='A newer version of [ProductName] is already installed. Setup will now exit.'/>
+
+        <Media Id='1' Cabinet='media1.cab' EmbedCab='yes' DiskPrompt='CD-ROM #1'/>
+        <Property Id='DiskPrompt' Value='ordo-cli Installation'/>
+
+        <Directory Id='TARGETDIR' Name='SourceDir'>
+            <!--
+              Start Menu directory — used by the ApplicationShortcut
+              component below to drop a launcher tile into the
+              operator's Start Menu.
+            -->
+            <Directory Id='ProgramMenuFolder'>
+                <Directory Id='ApplicationProgramsFolder' Name='Ordo (WebView Beta)'/>
+            </Directory>
+            <!--
+              Desktop folder reference for the desktop shortcut.
+              No `Name` because DesktopFolder is a predefined
+              Windows-installer property mapping to the user's
+              Desktop path.
+            -->
+            <Directory Id='DesktopFolder' Name='Desktop'/>
+            <!--
+              Per-user install path: %LOCALAPPDATA%\Ordo (WebView Beta).
+              Writable by the operator without admin, separate from
+              other users on the machine. Switching off ProgramFiles
+              also dodged the perMachine-only WiX restriction.
+            -->
+            <Directory Id='LocalAppDataFolder'>
+                <Directory Id='APPLICATIONFOLDER' Name='Ordo (WebView Beta)'>
+                    
+                    <!--
+                      Enabling the license sidecar file in the installer is a four step process:
+
+                      1. Uncomment the `Component` tag and its contents.
+                      2. Change the value for the `Source` attribute in the `File` tag to a path
+                         to the file that should be included as the license sidecar file. The path
+                         can, and probably should be, relative to this file.
+                      3. Change the value for the `Name` attribute in the `File` tag to the
+                         desired name for the file when it is installed alongside the `bin` folder
+                         in the installation directory. This can be omitted if the desired name is
+                         the same as the file name.
+                      4. Uncomment the `ComponentRef` tag with the Id attribute value of "License"
+                         further down in this file.
+                    -->
+                    <!--
+                    <Component Id='License' Guid='*'>
+                        <File Id='LicenseFile' Name='ChangeMe' DiskId='1' Source='C:\Path\To\File' KeyPath='yes'/>
+                    </Component>
+                    -->
+
+                    <Directory Id='Bin' Name='bin'>
+                        <!--
+                          User-PATH integration. Per-user install
+                          uses System='no' (HKCU PATH); the Start
+                          Menu shortcut launches by absolute path
+                          regardless, so PATH is purely a convenience
+                          for `ordo` from a shell prompt.
+                        -->
+                        <Component Id='Path' Guid='4F3F74D2-B220-4A16-81A9-C745C4326FC8' KeyPath='yes'>
+                            <Environment
+                                Id='PATH'
+                                Name='PATH'
+                                Value='[Bin]'
+                                Permanent='no'
+                                Part='last'
+                                Action='set'
+                                System='no'/>
+                        </Component>
+                        <Component Id='binary0' Guid='*'>
+                            <File
+                                Id='exe0'
+                                Name='ordo.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\ordo.exe'
+                                KeyPath='yes'/>
+                        </Component>
+                        <!--
+                          Studio dist/ — bundled React UI. The runtime's
+                          static-file service (ordo-control) looks for
+                          `<exe-dir>/ordo-studio/dist/` so WebView2 can
+                          load the Studio shell from the install dir
+                          without needing the project source on disk.
+                          File components inside are harvested into
+                          `wix\studio-dist.wxs` by `heat.exe`.
+                        -->
+                        <Directory Id='StudioRoot' Name='ordo-studio'>
+                            <Directory Id='StudioDist' Name='dist' />
+                        </Directory>
+                    </Directory>
+                </Directory>
+            </Directory>
+        </Directory>
+
+        <!--
+          Start Menu shortcut. Points at `ordo.exe` with no args —
+          which (since the no-args dispatch defaults to `serve`)
+          boots the runtime + WebView2 UI. The tile name is
+          "Ordo (WebView Beta)" so operators see the brand, not
+          the binary filename. RegistryValue keeps the component
+          self-keypath'd (Windows installer convention for
+          shortcut-only components).
+        -->
+        <DirectoryRef Id='ApplicationProgramsFolder'>
+            <Component Id='ApplicationShortcut' Guid='9c1f8a7e-d2a1-4f4b-9c4a-1a2b3c4d5e6f'>
+                <Shortcut Id='OrdoStartMenuShortcut'
+                          Name='Ordo (WebView Beta)'
+                          Description='Local-first AI runtime with WebView2 UI'
+                          Target='[Bin]ordo.exe'
+                          WorkingDirectory='Bin'/>
+                <RemoveFolder Id='RemoveApplicationProgramsFolder'
+                              Directory='ApplicationProgramsFolder'
+                              On='uninstall'/>
+                <RegistryValue Root='HKCU'
+                               Key='Software\Lucerna Labs\Ordo'
+                               Name='installed'
+                               Type='integer'
+                               Value='1'
+                               KeyPath='yes'/>
+            </Component>
+        </DirectoryRef>
+
+        <!--
+          Desktop shortcut. Same target as the Start Menu shortcut
+          (no-args `ordo.exe`, which defaults to `serve` + opens
+          the WebView2 UI). Separate component so the operator can
+          delete the desktop tile via the installer without losing
+          the Start Menu entry, and vice versa.
+        -->
+        <DirectoryRef Id='DesktopFolder'>
+            <Component Id='DesktopShortcut' Guid='b8d3f0a2-1e5c-4a9f-9e7b-2c4d8e6f1a3b'>
+                <Shortcut Id='OrdoDesktopShortcut'
+                          Name='Ordo (WebView Beta)'
+                          Description='Local-first AI runtime with WebView2 UI'
+                          Target='[Bin]ordo.exe'
+                          WorkingDirectory='Bin'/>
+                <RegistryValue Root='HKCU'
+                               Key='Software\Lucerna Labs\Ordo'
+                               Name='desktop_shortcut_installed'
+                               Type='integer'
+                               Value='1'
+                               KeyPath='yes'/>
+            </Component>
+        </DirectoryRef>
+
+        <Feature
+            Id='Binaries'
+            Title='Application'
+            Description='Installs all binaries and the license.'
+            Level='1'
+            ConfigurableDirectory='APPLICATIONFOLDER'
+            AllowAdvertise='no'
+            Display='expand'
+            Absent='disallow'>
+
+            <!--
+              Uncomment the following `ComponentRef` tag to add the license
+              sidecar file to the installer.
+            -->
+            <!--<ComponentRef Id='License'/>-->
+
+            <ComponentRef Id='binary0'/>
+            <ComponentRef Id='ApplicationShortcut'/>
+            <ComponentRef Id='DesktopShortcut'/>
+
+            <!-- Studio dist components, harvested into studio-dist.wxs -->
+            <ComponentGroupRef Id='StudioDistGroup'/>
+
+            <Feature
+                Id='Environment'
+                Title='PATH Environment Variable'
+                Description='Add the install location of the [ProductName] executable to the PATH system environment variable. This allows the [ProductName] executable to be called from any location.'
+                Level='1'
+                Absent='allow'>
+                <ComponentRef Id='Path'/>
+            </Feature>
+        </Feature>
+
+        <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
+
+        
+        <!--
+          Uncomment the following `Icon` and `Property` tags to change the product icon.
+
+          The product icon is the graphic that appears in the Add/Remove
+          Programs control panel for the application.
+        -->
+        <!--<Icon Id='ProductICO' SourceFile='wix\Product.ico'/>-->
+        <!--<Property Id='ARPPRODUCTICON' Value='ProductICO' />-->
+
+        
+        <!--
+          Adding a URL to Add/Remove Programs control panel listing for the
+          application is a two step process:
+
+          1. Uncomment the following `Property` tag with the "ARPHELPLINK" Id
+             attribute value.
+          2. Change the value for `Value` attribute of the following
+             `Property` tag to a valid URL.
+        -->
+        <!--<Property Id='ARPHELPLINK' Value='ChangeMe'/>-->
+
+        <UI>
+            <UIRef Id='WixUI_FeatureTree'/>
+            
+            <!--
+              Enabling the EULA dialog in the installer is a three step process:
+
+                1. Comment out or remove the two `Publish` tags that follow the
+                   `WixVariable` tag.
+                2. Uncomment the `<WixVariable Id='WixUILicenseRtf' Value='Path\to\Eula.rft'>` tag further down
+                3. Replace the `Value` attribute of the `WixVariable` tag with
+                   the path to a RTF file that will be used as the EULA and
+                   displayed in the license agreement dialog.
+            -->
+            <Publish Dialog='WelcomeDlg' Control='Next' Event='NewDialog' Value='CustomizeDlg' Order='99'>1</Publish>
+            <Publish Dialog='CustomizeDlg' Control='Back' Event='NewDialog' Value='WelcomeDlg' Order='99'>1</Publish>
+
+        </UI>
+
+        
+        <!--
+          Enabling the EULA dialog in the installer requires uncommenting
+          the following `WixUILicenseRTF` tag and changing the `Value`
+          attribute.
+        -->
+        <!-- <WixVariable Id='WixUILicenseRtf' Value='Relative\Path\to\Eula.rtf'/> -->
+
+        
+        <!--
+          Uncomment the next `WixVariable` tag to customize the installer's
+          Graphical User Interface (GUI) and add a custom banner image across
+          the top of each screen. See the WiX Toolset documentation for details
+          about customization.
+
+          The banner BMP dimensions are 493 x 58 pixels.
+        -->
+        <!--<WixVariable Id='WixUIBannerBmp' Value='wix\Banner.bmp'/>-->
+
+        
+        <!--
+          Uncomment the next `WixVariable` tag to customize the installer's
+          Graphical User Interface (GUI) and add a custom image to the first
+          dialog, or screen. See the WiX Toolset documentation for details about
+          customization.
+
+          The dialog BMP dimensions are 493 x 312 pixels.
+        -->
+        <!--<WixVariable Id='WixUIDialogBmp' Value='wix\Dialog.bmp'/>-->
+
+    </Product>
+
+</Wix>

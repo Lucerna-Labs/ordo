@@ -1,0 +1,29 @@
+[package]
+name = "ordo-logic"
+version = "0.1.0"
+edition = "2021"
+description = "Core logic / reasoning module for Ordo. LLM-driven argument analysis, fallacy detection, premise validation, and decomposition. Loose-coupled trait with a default cloud-call implementation; future SAT/SMT extensions ride on top via MCP."
+
+[lib]
+name = "ordo_logic"
+path = "src/lib.rs"
+
+[dependencies]
+# ordo-cloud for the HTTP client + credential task. ordo-logic is
+# provider-neutral — it routes through the same cloud_service_call
+# walker every other LLM-using lane uses, so any configured
+# credential satisfies it.
+ordo-cloud = { path = "../ordo-cloud" }
+# ordo-protocol for CapabilityDescriptor / CapabilityTier — the
+# bus surface ordo-logic exposes to /api/capabilities.
+ordo-protocol = { path = "../ordo-protocol" }
+
+async-trait = "0.1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

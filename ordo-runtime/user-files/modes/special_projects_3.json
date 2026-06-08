@@ -1,0 +1,35 @@
+{
+  "id": "special_projects_3",
+  "label": "Special Projects 3",
+  "description": "Undecided reserve slot for future experimental work. Manual selection only; not auto-routable.",
+  "memory_scope": [
+    "global",
+    "mode:special_projects_3"
+  ],
+  "rag_domains": [
+    "research_sp3"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_file_writes"
+  ],
+  "planner_bias": [],
+  "persona": [
+    "experiment_runner"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

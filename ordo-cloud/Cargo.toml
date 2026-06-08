@@ -1,0 +1,25 @@
+[package]
+name = "ordo-cloud"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-bus = { path = "../ordo-bus" }
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-store = { path = "../ordo-store" }
+async-trait.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+keyring.workspace = true
+futures.workspace = true
+bytes = "1"
+async-stream = "0.3"
+
+[dev-dependencies]
+wiremock.workspace = true

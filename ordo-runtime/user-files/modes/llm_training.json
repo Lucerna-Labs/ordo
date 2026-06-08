@@ -1,0 +1,43 @@
+{
+  "id": "llm_training",
+  "label": "LLM Training",
+  "description": "Fine-tuning, datasets, evaluation, hyperparameter search. Long deep-context loops; research-grade RAG.",
+  "memory_scope": [
+    "global",
+    "mode:llm_training"
+  ],
+  "rag_domains": [
+    "research_llm",
+    "training_records"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "logic.",
+    "web.",
+    "ssh.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_file_writes",
+    "no_secret_exposure"
+  ],
+  "planner_bias": [
+    "Dataset quality before quantity. Inspect samples before training.",
+    "Track every hyperparameter choice; the training log IS the audit trail."
+  ],
+  "persona": [
+    "ml_engineer",
+    "data_conscious"
+  ],
+  "default_timeout_secs": 1800,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

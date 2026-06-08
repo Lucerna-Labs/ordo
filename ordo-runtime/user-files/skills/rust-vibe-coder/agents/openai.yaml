@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rust Vibe Coder"
+  short_description: "Rust-first Ordo coding workflow"
+  default_prompt: "Use the Rust Vibe Coder skill to inspect this Rust project, plan safe changes, satisfy warnings, and produce a verified implementation path."

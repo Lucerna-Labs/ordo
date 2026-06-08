@@ -1,0 +1,16 @@
+[package]
+name = "ordo-tasks"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-store = { path = "../ordo-store" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true
+parking_lot.workspace = true

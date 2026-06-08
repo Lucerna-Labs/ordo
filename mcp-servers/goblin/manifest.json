@@ -1,0 +1,105 @@
+{
+  "identity": {
+    "name": "ordo-goblin-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [103, 111, 98, 108],
+    "identity_hash": [
+      103, 111, 98, 108, 105, 110, 45, 112, 101, 102, 45, 109, 97, 99, 104, 111,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "goblin.parse",
+      "description": "Parse a PE, ELF, or Mach-O binary and return its header information. Detects the format automatically.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the binary to parse" }
+        },
+        "required": ["path"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "format": { "type": "string", "enum": ["pe", "elf", "mach"] },
+          "architecture": { "type": "string" },
+          "entry_point": { "type": "string" },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "size": { "type": "integer" },
+                "virtual_address": { "type": "string" }
+              }
+            }
+          },
+          "imports": { "type": "array", "items": { "type": "string" } },
+          "exports": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["format", "architecture"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "goblin.symbols",
+      "description": "List imported and exported symbols from a binary.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the binary" }
+        },
+        "required": ["path"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "imports": { "type": "array", "items": { "type": "string" } },
+          "exports": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["imports", "exports"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "goblin.libraries",
+      "description": "List dynamically-linked libraries referenced by a binary.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the binary" }
+        },
+        "required": ["path"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "libraries": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["libraries"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 200000000,
+    "memory_bytes": 33554432,
+    "max_response_size_bytes": 8388608,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 120
+  }
+}

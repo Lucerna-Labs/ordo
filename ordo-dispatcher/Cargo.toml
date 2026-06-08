@@ -1,0 +1,19 @@
+[package]
+name = "ordo-dispatcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-tasks = { path = "../ordo-tasks" }
+ordo-agents = { path = "../ordo-agents" }
+ordo-bus = { path = "../ordo-bus" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+parking_lot.workspace = true
+async-trait.workspace = true

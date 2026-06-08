@@ -1,0 +1,97 @@
+{
+  "identity": {
+    "name": "ordo-syara-x-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [115, 121, 97, 114],
+    "identity_hash": [
+      115, 121, 97, 114, 97, 45, 120, 45, 115, 101, 109, 97, 110, 116, 105, 99,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "syara-x.scan",
+      "description": "Scan content with semantic YARA rules. Detects prompt injection, jailbreaks, phishing, and other AI-specific attacks by meaning, not just byte patterns. Supports embeddings + ML classification.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Text content to scan" },
+          "rule": { "type": "string", "description": "Rule name to apply: prompt_injection, jailbreak, phishing, credential_leak, model_extraction, toxic_content" }
+        },
+        "required": ["text", "rule"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "rule": { "type": "string" },
+          "matched": { "type": "boolean" },
+          "confidence": { "type": "number" },
+          "reason": { "type": "string" },
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "offset": { "type": "integer" },
+                "length": { "type": "integer" },
+                "snippet": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required": ["rule", "matched", "confidence"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "syara-x.classify",
+      "description": "Zero-shot classification of text using embeddings + ML. Classifies content into threat categories without pre-compiled rules. Catches novel attacks.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Text to classify" },
+          "categories": { "type": "array", "items": { "type": "string" }, "description": "Categories to classify against" }
+        },
+        "required": ["text", "categories"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "category": { "type": "string" },
+                "score": { "type": "number" }
+              }
+            }
+          },
+          "top_hit": { "type": "string" },
+          "flagged": { "type": "boolean" }
+        },
+        "required": ["results", "top_hit", "flagged"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 300000000,
+    "memory_bytes": 67108864,
+    "max_response_size_bytes": 8388608,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 120
+  }
+}

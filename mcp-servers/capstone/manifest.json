@@ -1,0 +1,83 @@
+{
+  "identity": {
+    "name": "ordo-capstone-server",
+    "version": "0.1.0",
+    "publisher": "ordo.local",
+    "sigstore_cert": [99, 97, 112, 115],
+    "identity_hash": [
+      99, 97, 112, 115, 116, 111, 110, 101, 45, 100, 105, 115, 97, 115, 109, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    ]
+  },
+  "declaration": {
+    "host_functions": [
+      "host_log",
+      "host_fs_read",
+      "host_now_ms"
+    ],
+    "domains": [],
+    "filesystem_paths": [],
+    "bus_topics": [],
+    "secret_classes": []
+  },
+  "tool_catalog": [
+    {
+      "name": "capstone.disassemble",
+      "description": "Disassemble a binary file or raw bytes. Returns the disassembled instructions with addresses and mnemonics. Supports x86, x86_64, ARM, ARM64, MIPS, PowerPC, RISC-V.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Path to the binary to disassemble" },
+          "arch": { "type": "string", "description": "Target architecture", "enum": ["x86", "x86_64", "arm", "arm64", "mips", "ppc", "riscv"] },
+          "base_address": { "type": "string", "description": "Base address to start disassembly at, e.g. 0x0 or 0x1000. Defaults to 0x0." },
+          "count": { "type": "integer", "description": "Maximum instructions to disassemble. Defaults to 500. Capped at 5000." }
+        },
+        "required": ["path", "arch"]
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "arch": { "type": "string" },
+          "instructions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": { "type": "string" },
+                "bytes": { "type": "string" },
+                "mnemonic": { "type": "string" },
+                "operands": { "type": "string" }
+              }
+            }
+          },
+          "count": { "type": "integer" }
+        },
+        "required": ["arch", "instructions", "count"]
+      },
+      "risk_level": "read_only"
+    },
+    {
+      "name": "capstone.info",
+      "description": "Return information about capstone's supported architectures and modes.",
+      "input_schema": { "type": "object" },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "architectures": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["architectures"]
+      },
+      "risk_level": "read_only"
+    }
+  ],
+  "limits": {
+    "fuel_per_invocation": 300000000,
+    "memory_bytes": 67108864,
+    "max_response_size_bytes": 8388608,
+    "max_nesting_depth": 16,
+    "rate_limit_per_minute": 60
+  }
+}

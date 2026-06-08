@@ -1,0 +1,36 @@
+[package]
+name = "ordo-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone MCP server that bridges external MCP clients (Claude Desktop, Cursor, Cline) to a running Ordo instance over HTTP."
+
+[lib]
+name = "ordo_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ordo-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Zero dependency on Ordo internals â€” this binary talks to a
+# running runtime over its public HTTP surface. The only cross-crate
+# link is `ordo-protocol` for the wire-shared types that the runtime
+# already publishes (App, FileEntry, CapabilityDescriptor).
+ordo-protocol = { path = "../ordo-protocol" }
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+futures.workspace = true
+chrono.workspace = true
+# HTTP+SSE transport (Phase 2.3). Opt-in via the `--http` CLI flag â€”
+# not every embedder wants an open port, so default stays stdio-only.
+axum.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

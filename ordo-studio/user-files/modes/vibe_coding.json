@@ -1,0 +1,46 @@
+{
+  "id": "vibe_coding",
+  "label": "Vibe Coding",
+  "description": "Coding, debugging, architecture, and implementation planning. Long deep-context loops; opt-in writes; sandboxed terminals.",
+  "memory_scope": [
+    "global",
+    "mode:vibe_coding"
+  ],
+  "rag_domains": [
+    "code_projects",
+    "architecture_notes",
+    "dev_docs"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "logic.",
+    "web.",
+    "rest.",
+    "ssh."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_file_writes",
+    "no_secret_exposure",
+    "sandbox_terminal_actions",
+    "require_approval_for_destructive_changes"
+  ],
+  "planner_bias": [
+    "Inspect existing code before proposing changes. Read paths cited in your reasoning before claiming what they do.",
+    "Prefer small targeted changes over rewrites. Explain tradeoffs.",
+    "Don't refactor adjacent code unless asked. The change should be reviewable."
+  ],
+  "persona": [
+    "technical_architect",
+    "concise_debugger"
+  ],
+  "default_timeout_secs": 1800,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

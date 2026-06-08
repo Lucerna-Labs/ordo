@@ -1,0 +1,34 @@
+[package]
+name = "ordo-sandbox"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+tokio = { workspace = true, features = ["full"] }
+
+# Wasmtime is optional â€” enabling the `wasmtime` feature switches
+# from the NullSandbox (used in default builds + when the runtime has
+# no need for sandboxing yet) to the real wasmtime-backed
+# implementation. Heavy dep tree; opt-in.
+wasmtime = { workspace = true, optional = true }
+
+[features]
+default = []
+# Enables the real `WasmtimeSandbox` implementation.
+wasmtime = ["dep:wasmtime"]
+# Enables the native `SubprocessSandbox` — runs real commands
+# (cargo/rustc/python/node/pwsh/cmd) confined to a workspace dir.
+# Higher privilege than the WASM runner; opt-in, gated upstream.
+subprocess = []
+
+[dev-dependencies]
+# WAT parser â€” used in live sandbox tests to hand-roll minimal
+# WASM modules without a full Rust-to-wasm toolchain. Dev-only.
+wat = "1"

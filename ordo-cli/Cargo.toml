@@ -1,0 +1,25 @@
+[package]
+name = "ordo-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ordo"
+path = "src/main.rs"
+
+[dependencies]
+ordo-runtime = { path = "../ordo-runtime" }
+ordo-cloud = { path = "../ordo-cloud" }
+ordo-plugins = { path = "../ordo-plugins" }
+ordo-store = { path = "../ordo-store" }
+tokio.workspace = true
+tracing.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+
+[features]
+default = []
+# Passthrough to ordo-runtime: light up the code-execution runners.
+# `native-exec` also requires ORDO_CODE_ALLOW_NATIVE=true at runtime.
+sandbox-wasm = ["ordo-runtime/sandbox-wasm"]
+native-exec = ["ordo-runtime/native-exec"]

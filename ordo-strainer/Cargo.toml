@@ -1,0 +1,43 @@
+[package]
+name = "ordo-strainer"
+version = "0.1.0"
+edition = "2021"
+description = "Pre-LLM web content preprocessor — deterministic transforms over detection. Strips invisible content, normalizes structure, wraps in boundary tags. The assistant never reads raw web pages, only what survived the strainer."
+
+[lib]
+name = "ordo_strainer"
+path = "src/lib.rs"
+
+[dependencies]
+# scraper gives us a real HTML5 parser + DOM walking. We never use
+# regex on HTML in this crate — that's the doc's hard rule, and
+# regex against a parsed grammar always loses to encoding tricks.
+# Pulls in html5ever transitively; total ~1 MB compiled, acceptable
+# for the security-critical entry point.
+scraper = "0.20"
+# scraper exposes its DOM node-id type via the `ego_tree` crate;
+# we import it directly so we can store NodeId values in our drop
+# set during the walk.
+ego-tree = "0.6"
+# Unicode NFKC normalization for the encoding-attack defense layer.
+# Tiny dep (~30 KB), no transitive surface, MIT.
+unicode-normalization = "0.1"
+# Fetch primitive for `web.fetch_and_strain` — paired with the
+# strain pipeline so the operator can't accidentally invoke fetch
+# without the transforms running on the response.
+reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
+tokio = { workspace = true, features = ["macros"] }
+url = "2"
+futures = { workspace = true }
+
+# CapabilityDescriptor surface for /api/capabilities + the bus.
+ordo-protocol = { path = "../ordo-protocol" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+tracing.workspace = true
+async-trait = "0.1"

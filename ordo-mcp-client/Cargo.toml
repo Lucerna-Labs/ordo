@@ -1,0 +1,29 @@
+[package]
+name = "ordo-mcp-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-mcp-worker = { path = "../ordo-mcp-worker" }
+ordo-mcp-sandbox = { path = "../ordo-mcp-sandbox" }
+ordo-mcp-registry = { path = "../ordo-mcp-registry" }
+ordo-mcp-provenance = { path = "../ordo-mcp-provenance" }
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+async-trait.workspace = true
+ed25519-dalek.workspace = true
+jsonwebtoken.workspace = true
+blake3.workspace = true
+hex.workspace = true
+ulid.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+wat = "1"

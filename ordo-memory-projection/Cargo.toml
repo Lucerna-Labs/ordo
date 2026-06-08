@@ -1,0 +1,23 @@
+[package]
+name = "ordo-memory-projection"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+ordo-memory-router = { path = "../ordo-memory-router" }
+futures.workspace = true
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+ordo-memory-log = { path = "../ordo-memory-log" }
+tokio = { workspace = true, features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+async-trait.workspace = true
+blake3.workspace = true
+ulid.workspace = true

@@ -1,0 +1,39 @@
+[package]
+name = "ordo-connections"
+version = "0.1.0"
+edition = "2021"
+
+# The Connections layer â€” operator-facing concept that ties a
+# friendly name + a connection type (Bluesky, WordPress, SSH, etc.)
+# to the credential material in `ordo-secrets-vault` and a
+# per-type test handler that hits the live destination to verify
+# the credentials actually work.
+#
+# Design boundaries:
+#   - This crate owns the operator concept "I added my Bluesky
+#     account." The actual API work (creating posts, etc.) lives
+#     downstream in the destination MCP packages.
+#   - Credentials NEVER leave this crate's vault round-trip path
+#     except into a test handler that's about to fire one HTTPS
+#     request and discard the value.
+#   - Connection types are first-party + extensible. New named
+#     types ship with the platform; "Generic API Key" + "Custom
+#     MCP" cover everything else.
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-store = { path = "../ordo-store" }
+ordo-secrets-vault = { path = "../ordo-secrets-vault" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+rusqlite.workspace = true
+ulid.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
+hex.workspace = true

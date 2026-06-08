@@ -1,0 +1,19 @@
+[package]
+name = "ordo-code"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-sandbox = { path = "../ordo-sandbox" }
+tokio = { workspace = true, features = ["full"] }
+serde_json.workspace = true
+tracing.workspace = true
+
+[features]
+default = []
+# Passthrough: light up the real WASM runner for `code.run`.
+wasm = ["ordo-sandbox/wasmtime"]
+# Passthrough: compile in the native subprocess runner for
+# `code.run_native`.
+native = ["ordo-sandbox/subprocess"]

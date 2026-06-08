@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="StudioDist">
+            <Directory Id="dir4A6D46475460582510045ECDF27311C3" Name="assets" />
+        </DirectoryRef>
+    </Fragment>
+    <Fragment>
+        <ComponentGroup Id="StudioDistGroup">
+            <Component Id="cmp96F31089688F4FAAF38CE16EF0519117" Directory="StudioDist" Guid="{9E428050-B475-42CE-837E-2D6F6ADC2BA7}">
+                <File Id="fil8BBD93C9E161F78A2EC58AA06D5D7A02" KeyPath="yes" Source="$(var.StudioDistSourceDir)\index.html" />
+            </Component>
+            <Component Id="cmp3B70E6A0C4B6DEB98CAAE4B957EDF56B" Directory="dir4A6D46475460582510045ECDF27311C3" Guid="{81808E89-B421-4C18-81D6-5C019D6FE759}">
+                <File Id="fil40520D736C181BDA4B1D80CB8E9EDB03" KeyPath="yes" Source="$(var.StudioDistSourceDir)\assets\dist-js-DIBt_MEm.js" />
+            </Component>
+            <Component Id="cmp972B731A9FEE27131F9BBA0DACD68284" Directory="dir4A6D46475460582510045ECDF27311C3" Guid="{DADC4C53-C172-4B45-8182-8219B3C19440}">
+                <File Id="filB9F592191A1B509D404054A49DACD593" KeyPath="yes" Source="$(var.StudioDistSourceDir)\assets\index-BVruK5KZ.css" />
+            </Component>
+            <Component Id="cmp913E970D984C4F96444C6AE3A079A480" Directory="dir4A6D46475460582510045ECDF27311C3" Guid="{28BAC15D-19CA-49F6-B045-114AE886410D}">
+                <File Id="fil12E9047C2B37A37B67D635D23718710F" KeyPath="yes" Source="$(var.StudioDistSourceDir)\assets\index-CmdhAb-2.js" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+</Wix>

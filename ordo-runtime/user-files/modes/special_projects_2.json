@@ -1,0 +1,42 @@
+{
+  "id": "special_projects_2",
+  "label": "Special Projects 2",
+  "description": "3D mesh, geometry processing, rendering experiments. Manual selection only; not auto-routable.",
+  "memory_scope": [
+    "global",
+    "mode:special_projects_2"
+  ],
+  "rag_domains": [
+    "research_sp2",
+    "mesh_notes",
+    "render_archives"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "confirm_file_writes",
+    "no_secret_exposure"
+  ],
+  "planner_bias": [
+    "NURBS/B-spline surface modeling for smooth boundaries.",
+    "Boolean region operations for composition."
+  ],
+  "persona": [
+    "geometry_engineer",
+    "render_specialist"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

@@ -1,0 +1,44 @@
+{
+  "id": "investigations",
+  "label": "Investigations",
+  "description": "Journalism, documentary research, source tracking, timeline construction. Deep research with attribution.",
+  "memory_scope": [
+    "global",
+    "mode:investigations"
+  ],
+  "rag_domains": [
+    "research_investigations",
+    "source_archives",
+    "document_cache"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "logic.",
+    "web.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "source_verification_required",
+    "cite_every_claim",
+    "high_stakes_authoritative_only"
+  ],
+  "planner_bias": [
+    "Attribute every factual claim to a source. Untrusted-web-content claims must be hedged.",
+    "Build a timeline before drawing conclusions.",
+    "When sources conflict, surface the conflict."
+  ],
+  "persona": [
+    "investigative_journalist",
+    "source_tracker"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

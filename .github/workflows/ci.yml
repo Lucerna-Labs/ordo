@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+  ORDO_CLOUD_VAULT: memory
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo build
+        run: cargo build --workspace --all-targets
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo clippy (new crates)
+        # The shared ordo-protocol has a handful of preexisting new_without_default
+        # warnings we haven't wanted to churn through yet. Keep the strict
+        # check focused on the crates we actively rework.
+        run: cargo clippy -p ordo-cloud -p ordo-mcp-host -p ordo-control -p ordo-runtime -p ordo-cli --all-targets
+
+  studio:
+    name: studio (typecheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        working-directory: ordo-studio
+        run: npm ci || npm install
+
+      - name: Type-check
+        working-directory: ordo-studio
+        run: npx tsc --noEmit

@@ -1,0 +1,33 @@
+[package]
+name = "ordo-logic-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone MCP server that exposes full SAT / SMT logic capabilities to Ordo (and any other MCP client). Optional install — runtime ships with truth-table propositional reasoning baked in; install this when you need arbitrary-size SAT, SMT theories, or formal proofs over real data."
+
+[lib]
+name = "ordo_logic_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ordo-logic-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Reuse the same propositional AST + parser the runtime uses, so
+# operators get consistent syntax across the in-runtime prover and
+# the MCP-installed extension.
+ordo-logic = { path = "../ordo-logic" }
+
+# Real SAT solver. Pure Rust, MIT-licensed, ~500 KB compiled.
+# Adds full propositional SAT (CNF, DPLL, conflict-driven clause
+# learning) — handles formulas with thousands of variables, far past
+# the runtime's 16-variable cap.
+varisat = "0.2"
+
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+async-trait = "0.1"

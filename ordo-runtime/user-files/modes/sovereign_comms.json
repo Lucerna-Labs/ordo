@@ -1,0 +1,43 @@
+{
+  "id": "sovereign_comms",
+  "label": "Sovereign Comms",
+  "description": "Privacy, censorship resistance, encrypted channels, Nodus Social architecture. Privacy-maximal.",
+  "memory_scope": [
+    "global",
+    "mode:sovereign_comms"
+  ],
+  "rag_domains": [
+    "research_comms",
+    "protocol_docs",
+    "threat_models"
+  ],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "filesystem.write_",
+    "knowledge.",
+    "memory.list_",
+    "memory.remember_",
+    "web.",
+    "ssh.",
+    "code.",
+    "workspace."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": [
+    "no_secret_exposure",
+    "confirm_destructive_actions"
+  ],
+  "planner_bias": [
+    "Default to encrypted channels. Plaintext is the exception.",
+    "Nodus Social: constitutional caps, mandatory mesh contribution, ActivityPub federation."
+  ],
+  "persona": [
+    "privacy_engineer",
+    "protocol_conscious"
+  ],
+  "default_timeout_secs": null,
+  "default_strictness": null,
+  "default_credential": null,
+  "cross_mode_borrow_policy": null,
+  "cross_mode_consult_policy": null
+}

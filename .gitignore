@@ -1,0 +1,20 @@
+/target/
+/data/
+/user-files/
+/ordo-studio/node_modules/
+/ordo-studio/dist/
+/ordo-studio/src-tauri/target/
+
+# Editor / agent local state
+/.claude/
+/.idea/
+/.vscode/
+*.swp
+.DS_Store
+
+# Runtime logs left behind by `ordo serve` from the repo root
+/ordo-runtime.log
+/ordo-runtime.err.log
+
+# Tauri-generated schemas regenerated on every build
+/ordo-studio/src-tauri/gen/schemas/

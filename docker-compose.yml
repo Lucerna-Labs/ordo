@@ -1,0 +1,24 @@
+services:
+  ordo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: codex-ordo-project:latest
+    environment:
+      ORDO_DATABASE_PATH: /workspace/data/ordo.db
+      ORDO_CONTROL_API_BIND: 0.0.0.0:4141
+      ORDO_LEGACY_MEMORY_PATH: /workspace/data/memory.jsonl
+      ORDO_LEGACY_RAG_INDEX_PATH: /workspace/data/rag-index.jsonl
+      ORDO_RUNTIME_PROFILE: standard
+      ORDO_USER_FILES_PATH: /workspace/user-files
+      ORDO_SELF_HEAL_HISTORY_BUDGET_BYTES: 536870912
+    ports:
+      - "4141:4141"
+    volumes:
+      - ordo_state:/workspace/data
+      - ordo_user_files:/workspace/user-files
+    restart: unless-stopped
+
+volumes:
+  ordo_state:
+  ordo_user_files:

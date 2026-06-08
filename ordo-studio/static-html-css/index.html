@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ordo Studio UXI - Static HTML/CSS Copy</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="ordo-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="lamp" aria-hidden="true"></span>
+          <span class="brand-copy">
+            <span class="overline">Lucerna Labs</span>
+            <strong>Ordo</strong>
+          </span>
+        </div>
+
+        <nav class="signals" aria-label="Runtime signals">
+          <span class="signal ok"><i></i>Gateway</span>
+          <span class="signal ok"><i></i>Bus</span>
+          <span class="signal ok"><i></i>Vault</span>
+          <span class="signal warn"><i></i>MCP</span>
+          <span class="signal ok"><i></i>Embed</span>
+          <span class="signal ok"><i></i>Heal</span>
+          <span class="signal warn"><i></i>LLM</span>
+        </nav>
+
+        <div class="profile">
+          <span>standard</span>
+          <strong>.4141</strong>
+        </div>
+      </header>
+
+      <aside class="sidebar">
+        <section>
+          <h2>Primary</h2>
+          <a class="nav-item" href="#"><span class="icon cloud"></span>Provider</a>
+          <a class="nav-item active" href="#"><span class="icon chat"></span>Assistant</a>
+          <a class="nav-item" href="#"><span class="icon eye"></span>Review</a>
+        </section>
+
+        <section>
+          <h2>Agent</h2>
+          <a class="nav-item" href="#"><span class="icon spark"></span>Skills</a>
+          <a class="nav-item" href="#"><span class="icon user"></span>Persona</a>
+          <a class="nav-item" href="#"><span class="icon bot"></span>Agent Persona</a>
+          <a class="nav-item" href="#"><span class="icon book"></span>Agent Memory</a>
+          <a class="nav-item" href="#"><span class="icon boxes"></span>Apps</a>
+          <a class="nav-item" href="#"><span class="icon hook"></span>Webhooks</a>
+          <a class="nav-item" href="#"><span class="icon plug"></span>Plugins</a>
+          <a class="nav-item" href="#"><span class="icon server"></span>MCP</a>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <section class="hero">
+          <div>
+            <p class="breadcrumb">Ordo . Planner</p>
+            <h1>The conversation is the control surface</h1>
+            <p class="lede">
+              Everything Ordo does, you can ask for here. Tabs are persistent,
+              but this is the steering wheel.
+            </p>
+          </div>
+          <div class="status-card">
+            <span class="status-dot"></span>
+            <span>Ordo runtime online</span>
+          </div>
+        </section>
+
+        <section class="assistant-grid">
+          <article class="conversation-panel">
+            <div class="message-card">
+              <div class="message-meta">
+                <span>Assistant</span>
+                <span>16:08</span>
+              </div>
+              <p>
+                Ordo runtime online. Type a brief and I will route it to the
+                planner.
+              </p>
+              <span class="tag">ordo.assistant</span>
+            </div>
+
+            <div class="message-card operator">
+              <div class="message-meta">
+                <span>Operator</span>
+                <span>now</span>
+              </div>
+              <p>
+                Extract this UXI into a portable source package and keep the
+                Studio design as the only source of truth.
+              </p>
+              <span class="tag">uxi.extract</span>
+            </div>
+          </article>
+
+          <aside class="right-rail">
+            <article class="mini-card">
+              <span class="mini-label">Brief routing</span>
+              <strong>Planner</strong>
+              <p>Assistant requests resolve through the active runtime lane.</p>
+            </article>
+            <article class="mini-card">
+              <span class="mini-label">Persistent tabs</span>
+              <strong>15 surfaces</strong>
+              <p>Provider, review, memory, apps, plugins, MCP, and more.</p>
+            </article>
+            <article class="mini-card">
+              <span class="mini-label">Primary action</span>
+              <strong>Lamp gold</strong>
+              <p>Focused controls and active affordances use the Ordo lamp.</p>
+            </article>
+          </aside>
+        </section>
+
+        <section class="dock">
+          <div class="dock-summary">
+            <span class="dock-role">Assistant</span>
+            <p>Ordo runtime online. Type a brief and I will route it ...</p>
+            <button class="collapse" type="button" aria-label="Collapse">^</button>
+          </div>
+
+          <form class="composer">
+            <button type="button" aria-label="Add image"><span class="icon image"></span></button>
+            <button type="button" aria-label="Attach file"><span class="icon attach"></span></button>
+            <button type="button" aria-label="Open folder"><span class="icon folder"></span></button>
+            <button type="button" aria-label="Voice input"><span class="icon mic"></span></button>
+            <label class="visually-hidden" for="brief">Tell Ordo the brief</label>
+            <input id="brief" type="text" placeholder="Tell Ordo the brief..." />
+            <button class="send" type="submit" aria-label="Send"><span></span></button>
+          </form>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
