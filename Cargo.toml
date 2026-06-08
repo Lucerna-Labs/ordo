@@ -67,6 +67,8 @@ exclude = [
     "mcp-servers/ort",
     "mcp-servers/syara-x",
     "mcp-servers/tooluniverse",
+    # Archived/orphaned crates parked under _archive/ — never built; kept for possible revival.
+    "_archive/ordo-supervisor",
 ]
 resolver = "2"
 
