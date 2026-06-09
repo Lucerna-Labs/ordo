@@ -52,6 +52,28 @@ pub enum ModeRegistryError {
     BadDefault(#[from] ModeManifestError),
 }
 
+/// Errors from operator-driven mode lifecycle actions (create / delete /
+/// update). Distinct from load errors so the control layer can map them to
+/// precise HTTP statuses (see `docs/mode-lifecycle.md`): AlreadyExists → 409,
+/// NotFound → 404, Protected → 403, Invalid → 400, Persist → 500.
+#[derive(Debug, Error)]
+pub enum ModeMutationError {
+    #[error("a mode with id '{0}' already exists")]
+    AlreadyExists(String),
+    #[error("no mode with id '{0}'")]
+    NotFound(String),
+    #[error("mode '{0}' is protected and cannot be deleted")]
+    Protected(String),
+    #[error("invalid mode: {0}")]
+    Invalid(#[from] ModeManifestError),
+    #[error("failed to persist mode '{id}': {source}")]
+    Persist {
+        id: String,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
 /// Stats from a load pass — useful for the operator-facing
 /// "modes panel" and for log lines after startup.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -74,6 +96,10 @@ pub struct RegistryStats {
 pub struct ModeRegistry {
     inner: Arc<RwLock<HashMap<String, ModeManifest>>>,
     stats: Arc<RwLock<RegistryStats>>,
+    /// The on-disk modes directory, when the registry was loaded from one.
+    /// `None` for in-memory registries (`empty`/`from_defaults`) — those skip
+    /// persistence, so create/delete are in-memory only there.
+    modes_dir: Option<PathBuf>,
 }
 
 impl ModeRegistry {
@@ -83,6 +109,7 @@ impl ModeRegistry {
         Self {
             inner: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(RegistryStats::default())),
+            modes_dir: None,
         }
     }
 
@@ -118,7 +145,8 @@ impl ModeRegistry {
     /// without a modes directory is broken). On per-file errors it
     /// logs and skips, returning the partial registry.
     pub fn load_with_defaults(modes_dir: &Path) -> Result<Self, ModeRegistryError> {
-        let registry = Self::empty();
+        let mut registry = Self::empty();
+        registry.modes_dir = Some(modes_dir.to_path_buf());
 
         // Create the directory if missing — first-run flow.
         std::fs::create_dir_all(modes_dir).map_err(|err| ModeRegistryError::Io {
@@ -272,6 +300,91 @@ impl ModeRegistry {
         Ok(())
     }
 
+    /// Create a NEW mode (operator action). Fails if the id already exists.
+    /// Persists to `<modes_dir>/<id>.json` when the registry has a directory,
+    /// then registers it. Returns the validated manifest.
+    pub fn create(&self, mut manifest: ModeManifest) -> Result<ModeManifest, ModeMutationError> {
+        manifest.normalize_and_validate()?;
+        if self.inner.read().contains_key(&manifest.id) {
+            return Err(ModeMutationError::AlreadyExists(manifest.id.clone()));
+        }
+        self.persist(&manifest)?;
+        self.inner
+            .write()
+            .insert(manifest.id.clone(), manifest.clone());
+        self.refresh_count();
+        Ok(manifest)
+    }
+
+    /// Update an EXISTING mode's config. The `protected` flag is immutable
+    /// through update — you cannot un-protect a core mode and then delete it.
+    pub fn update(&self, mut manifest: ModeManifest) -> Result<ModeManifest, ModeMutationError> {
+        manifest.normalize_and_validate()?;
+        let existing = self
+            .inner
+            .read()
+            .get(&manifest.id)
+            .cloned()
+            .ok_or_else(|| ModeMutationError::NotFound(manifest.id.clone()))?;
+        manifest.protected = existing.protected; // protectedness is not editable
+        self.persist(&manifest)?;
+        self.inner
+            .write()
+            .insert(manifest.id.clone(), manifest.clone());
+        Ok(manifest)
+    }
+
+    /// Delete a mode (operator action). Refuses a `protected` mode unless
+    /// `force` is set — the guard behind "you can't casually delete a core
+    /// mode." Removes the on-disk file (if any) and the registry entry. Note:
+    /// this does NOT purge the mode's scoped memory/RAG partitions; that's a
+    /// separate, deliberate cleanup.
+    pub fn delete(&self, id: &str, force: bool) -> Result<(), ModeMutationError> {
+        let manifest = self
+            .inner
+            .read()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| ModeMutationError::NotFound(id.to_string()))?;
+        if manifest.protected && !force {
+            return Err(ModeMutationError::Protected(id.to_string()));
+        }
+        if let Some(dir) = &self.modes_dir {
+            let path = dir.join(format!("{id}.json"));
+            if path.exists() {
+                std::fs::remove_file(&path).map_err(|err| ModeMutationError::Persist {
+                    id: id.to_string(),
+                    source: err,
+                })?;
+            }
+        }
+        self.inner.write().remove(id);
+        self.refresh_count();
+        Ok(())
+    }
+
+    /// Whether the given mode id is a protected (built-in) mode.
+    pub fn is_protected(&self, id: &str) -> bool {
+        self.inner.read().get(id).map(|m| m.protected).unwrap_or(false)
+    }
+
+    fn persist(&self, manifest: &ModeManifest) -> Result<(), ModeMutationError> {
+        if let Some(dir) = &self.modes_dir {
+            let body = manifest.to_pretty_json()?;
+            let path = dir.join(format!("{}.json", manifest.id));
+            std::fs::write(&path, body).map_err(|err| ModeMutationError::Persist {
+                id: manifest.id.clone(),
+                source: err,
+            })?;
+        }
+        Ok(())
+    }
+
+    fn refresh_count(&self) {
+        let total = self.inner.read().len();
+        self.stats.write().modes_registered = total;
+    }
+
     /// Number of modes registered. Cheap.
     pub fn len(&self) -> usize {
         self.inner.read().len()
@@ -390,6 +503,90 @@ mod tests {
     fn unknown_mode_id_returns_none() {
         let r = ModeRegistry::from_defaults().unwrap();
         assert!(r.get("not_a_mode").is_none());
+    }
+
+    // ── mode lifecycle (M2) ──────────────────────────────────────────────────
+
+    #[test]
+    fn create_persists_and_registers_a_user_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
+        let m = ModeManifest::new_user_mode("My Cool Mode").unwrap();
+        assert_eq!(m.id, "my_cool_mode");
+        assert!(!m.protected);
+
+        r.create(m).unwrap();
+        assert!(r.get("my_cool_mode").is_some());
+        assert!(
+            tmp.path().join("my_cool_mode.json").exists(),
+            "create should persist to disk"
+        );
+        // survives a reload from disk
+        let r2 = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
+        assert!(r2.get("my_cool_mode").is_some());
+    }
+
+    #[test]
+    fn create_rejects_duplicate_id() {
+        let r = ModeRegistry::from_defaults().unwrap();
+        let dup = ModeManifest::new_user_mode("general").unwrap();
+        assert!(matches!(
+            r.create(dup),
+            Err(ModeMutationError::AlreadyExists(id)) if id == "general"
+        ));
+    }
+
+    #[test]
+    fn delete_removes_unprotected_mode_and_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
+        r.create(ModeManifest::new_user_mode("Scratch").unwrap()).unwrap();
+        assert!(tmp.path().join("scratch.json").exists());
+
+        r.delete("scratch", false).unwrap();
+        assert!(r.get("scratch").is_none());
+        assert!(!tmp.path().join("scratch.json").exists(), "delete should remove the file");
+    }
+
+    #[test]
+    fn delete_refuses_protected_mode_without_force() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
+        assert!(r.is_protected("general"));
+        assert!(matches!(
+            r.delete("general", false),
+            Err(ModeMutationError::Protected(id)) if id == "general"
+        ));
+        assert!(r.get("general").is_some(), "protected mode must survive a casual delete");
+        // force deletes it
+        r.delete("general", true).unwrap();
+        assert!(r.get("general").is_none());
+    }
+
+    #[test]
+    fn delete_missing_mode_is_not_found() {
+        let r = ModeRegistry::from_defaults().unwrap();
+        assert!(matches!(
+            r.delete("nope", false),
+            Err(ModeMutationError::NotFound(id)) if id == "nope"
+        ));
+    }
+
+    #[test]
+    fn update_cannot_unprotect_a_core_mode() {
+        let r = ModeRegistry::from_defaults().unwrap();
+        let mut edited = r.get("general").unwrap();
+        edited.protected = false; // attempt to un-protect
+        edited.label = "Edited".into();
+        let saved = r.update(edited).unwrap();
+        assert!(saved.protected, "update must preserve protectedness");
+        assert_eq!(saved.label, "Edited");
+    }
+
+    #[test]
+    fn new_user_mode_rejects_empty_name() {
+        assert!(ModeManifest::new_user_mode("   ").is_err());
+        assert!(ModeManifest::new_user_mode("!!! ???").is_err());
     }
 
     #[test]

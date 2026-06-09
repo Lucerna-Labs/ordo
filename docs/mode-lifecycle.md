@@ -52,9 +52,9 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
   `ModeManifest`; rewrite `defaults.rs` to the 7-mode protected core; fix
   ripple in tests/literals. _Status: **DONE.**_
 - **M2 — registry CRUD + persistence + delete-guard.** `ModeRegistry`
-  create/delete/rename that write/remove `user-files/modes/<id>.json` and refuse
-  to delete a `protected` mode (unless an explicit force). Hot-reload. Unit
-  tested. _Status: pending._
+  create/delete/update that write/remove `user-files/modes/<id>.json` and refuse
+  to delete a `protected` mode (unless an explicit force) +
+  `ModeManifest::new_user_mode(name)`. Unit tested. _Status: **DONE.**_
 - **M3 — `modes.*` capability + control routes.** `modes.create / rename /
   delete / list` via a provider + `POST/PATCH/DELETE /api/assistant/modes`.
   Wire into the lane allowlist (operator-facing, not assistant-autonomous).
@@ -84,3 +84,12 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
   test literals (+`protected: false`) and the registry tests that hard-coded 16
   modes / removed mode ids. `ordo-modes` 53 tests pass; `ordo-classify` 21 pass;
   `ordo-runtime`/`ordo-control` build; `-D warnings` clean.
+- **M2 (done).** `ModeRegistry` retains its `modes_dir` and gains
+  `create` / `update` / `delete(id, force)` + `is_protected`, persisting to /
+  removing from `<modes_dir>/<id>.json`. `delete` refuses a `protected` mode
+  unless `force`; `update` keeps `protected` immutable (no un-protect-then-delete
+  bypass); in-memory registries (`empty`/`from_defaults`) skip persistence.
+  `ModeManifest::new_user_mode(name)` slugifies an id and fills safe General-like
+  defaults (`protected: false`). New `ModeMutationError`
+  (AlreadyExists/NotFound/Protected/Invalid/Persist) for precise HTTP mapping in
+  M3. `ordo-modes` 60 tests pass; `-D warnings` clean.

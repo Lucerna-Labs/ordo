@@ -452,6 +452,75 @@ impl ModeManifest {
             SkillDecision::AdmittedDefault
         }
     }
+
+    /// Build a fresh, UNPROTECTED user mode from a display name, with safe
+    /// General-like defaults — the target of "Create mode" (see
+    /// `docs/mode-lifecycle.md`). The id is slugified from the name
+    /// (`[a-z0-9_]`); the operator tunes lanes / skills / persona afterward.
+    pub fn new_user_mode(name: &str) -> Result<Self, ModeManifestError> {
+        let label = name.trim();
+        if label.is_empty() {
+            return Err(ModeManifestError::MissingLabel);
+        }
+        let id = slugify_mode_id(label);
+        if id.is_empty() {
+            return Err(ModeManifestError::InvalidId {
+                id: name.to_string(),
+            });
+        }
+        let mut manifest = ModeManifest {
+            id: id.clone(),
+            label: label.to_string(),
+            description: format!("{label} workspace."),
+            memory_scope: vec!["global".to_string(), format!("mode:{id}")],
+            rag_domains: vec![format!("research_{id}")],
+            allowed_tool_lanes: vec![
+                "filesystem.read_".to_string(),
+                "knowledge.".to_string(),
+                "memory.list_".to_string(),
+                "memory.remember_".to_string(),
+                "web.".to_string(),
+                "code.".to_string(),
+                "workspace.".to_string(),
+            ],
+            blocked_tool_capabilities: Vec::new(),
+            policies: Vec::new(),
+            planner_bias: Vec::new(),
+            persona: Vec::new(),
+            default_timeout_secs: None,
+            default_strictness: None,
+            default_credential: None,
+            cross_mode_borrow_policy: None,
+            cross_mode_consult_policy: None,
+            allowed_skill_tags: Vec::new(),
+            blocked_skill_tags: Vec::new(),
+            blocked_skills: Vec::new(),
+            max_skill_risk: None,
+            default_skill_admission: None,
+            protected: false,
+        };
+        manifest.normalize_and_validate()?;
+        Ok(manifest)
+    }
+}
+
+/// Derive a valid mode id (`[a-z0-9_]`, no leading/trailing/doubled `_`) from a
+/// free-text display name. Runs of non-alphanumerics collapse to a single `_`.
+pub fn slugify_mode_id(name: &str) -> String {
+    let mut out = String::new();
+    let mut pending_sep = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_sep && !out.is_empty() {
+                out.push('_');
+            }
+            pending_sep = false;
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            pending_sep = true;
+        }
+    }
+    out
 }
 
 fn validate_policy(

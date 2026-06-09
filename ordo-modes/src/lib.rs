@@ -50,8 +50,8 @@ pub mod manifest;
 pub mod registry;
 
 pub use audit::{audit_skill_routing, RoutingAnomaly, RoutingAudit, SkillRoutingHealth};
-pub use manifest::{ModeManifest, ModeManifestError, SkillDecision};
-pub use registry::{ModeRegistry, ModeRegistryError, RegistryStats};
+pub use manifest::{slugify_mode_id, ModeManifest, ModeManifestError, SkillDecision};
+pub use registry::{ModeMutationError, ModeRegistry, ModeRegistryError, RegistryStats};
 
 /// Canonical id for the General Assistant mode. The runtime defaults
 /// new sessions to this when no explicit mode is requested.
