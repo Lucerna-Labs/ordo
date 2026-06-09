@@ -565,8 +565,5 @@ requires_tools: false
 persistent_memory_access: optional
 available_to_modes:
   - coding
-  - orchestration
-  - runtime
   - research
-  - security
 ```

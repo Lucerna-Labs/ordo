@@ -412,10 +412,7 @@ Recommended modes:
 ```yaml
 available_to_modes:
   - coding
-  - orchestration
-  - runtime
   - research
-  - legal_admin
 ```
 
 Do not attach this skill by default to casual assistant, writing, or document
@@ -437,8 +434,5 @@ requires_tools: false
 persistent_memory_access: optional
 available_to_modes:
   - coding
-  - orchestration
-  - runtime
   - research
-  - legal_admin
 ```
