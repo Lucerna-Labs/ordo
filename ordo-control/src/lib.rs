@@ -127,6 +127,44 @@ impl ControlApiError {
             message: message.into(),
         }
     }
+
+    /// The request conflicts with current state — e.g. creating a mode whose id
+    /// already exists.
+    fn conflict(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message: message.into(),
+        }
+    }
+
+    /// The action is refused by policy — e.g. deleting a protected core mode.
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message: message.into(),
+        }
+    }
+
+    /// A required subsystem isn't wired in (e.g. no mode registry attached).
+    fn service_unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: message.into(),
+        }
+    }
+}
+
+/// Map a mode-lifecycle error to the most honest HTTP status.
+fn map_mode_mutation_error(err: ordo_modes::ModeMutationError) -> ControlApiError {
+    use ordo_modes::ModeMutationError::*;
+    match err {
+        Unavailable => ControlApiError::service_unavailable(err.to_string()),
+        AlreadyExists(_) => ControlApiError::conflict(err.to_string()),
+        NotFound(_) => ControlApiError::not_found(err.to_string()),
+        Protected(_) => ControlApiError::forbidden(err.to_string()),
+        Invalid(_) => ControlApiError::bad_request(err.to_string()),
+        Persist { .. } => ControlApiError::internal(err.to_string()),
+    }
 }
 
 impl IntoResponse for ControlApiError {
@@ -458,8 +496,16 @@ pub fn build_router_with_plugins(
         )
         .route("/api/assistant/recall", post(recall_assistant_facts))
         .route("/api/voice/speech", post(post_voice_speech))
-        .route("/api/assistant/modes", get(list_assistant_modes))
-        .route("/api/assistant/modes/:id", get(get_assistant_mode))
+        .route(
+            "/api/assistant/modes",
+            get(list_assistant_modes).post(create_assistant_mode),
+        )
+        .route(
+            "/api/assistant/modes/:id",
+            get(get_assistant_mode)
+                .patch(update_assistant_mode)
+                .delete(delete_assistant_mode),
+        )
         .route("/api/assistant/sessions/:id/taint", get(get_session_taint))
         .route(
             "/api/assistant/sessions/:id/taint/clear",
@@ -1303,6 +1349,73 @@ async fn get_assistant_mode(
         .get_mode(&id)
         .ok_or_else(|| ControlApiError::bad_request(format!("mode '{id}' is not registered")))?;
     Ok(Json(serde_json::to_value(manifest).unwrap_or(Value::Null)))
+}
+
+/// POST `/api/assistant/modes` — create a new mode. Body is either
+/// `{ "name": "My Mode" }` (the studio "Create" path — safe defaults, id
+/// slugified from the name) or a full manifest carrying an `id` (advanced
+/// create). See `docs/mode-lifecycle.md`.
+async fn create_assistant_mode(
+    State(state): State<ControlApiState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ControlApiError> {
+    let service = require_assistant(&state)?;
+    let manifest = if body.get("id").and_then(Value::as_str).is_some() {
+        serde_json::from_value::<ordo_modes::ModeManifest>(body)
+            .map_err(|err| ControlApiError::bad_request(format!("invalid mode manifest: {err}")))?
+    } else {
+        let name = body.get("name").and_then(Value::as_str).ok_or_else(|| {
+            ControlApiError::bad_request(
+                "create mode requires a 'name' (or a full manifest with 'id')",
+            )
+        })?;
+        ordo_modes::ModeManifest::new_user_mode(name)
+            .map_err(|err| ControlApiError::bad_request(err.to_string()))?
+    };
+    let created = service
+        .create_mode(manifest)
+        .map_err(map_mode_mutation_error)?;
+    Ok(Json(serde_json::to_value(created).unwrap_or(Value::Null)))
+}
+
+/// PATCH `/api/assistant/modes/:id` — update a mode's config. The path id wins
+/// over any `id` in the body. Protectedness is immutable (M2).
+async fn update_assistant_mode(
+    State(state): State<ControlApiState>,
+    Path(id): Path<String>,
+    Json(mut body): Json<Value>,
+) -> Result<Json<Value>, ControlApiError> {
+    let service = require_assistant(&state)?;
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("id".to_string(), Value::String(id.clone()));
+    }
+    let manifest = serde_json::from_value::<ordo_modes::ModeManifest>(body)
+        .map_err(|err| ControlApiError::bad_request(format!("invalid mode manifest: {err}")))?;
+    let updated = service
+        .update_mode(manifest)
+        .map_err(map_mode_mutation_error)?;
+    Ok(Json(serde_json::to_value(updated).unwrap_or(Value::Null)))
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct DeleteModeQuery {
+    /// Required to delete a PROTECTED core mode. Defaults false.
+    #[serde(default)]
+    force: bool,
+}
+
+/// DELETE `/api/assistant/modes/:id` — delete a mode. Protected core modes
+/// require `?force=true`.
+async fn delete_assistant_mode(
+    State(state): State<ControlApiState>,
+    Path(id): Path<String>,
+    Query(query): Query<DeleteModeQuery>,
+) -> Result<Json<Value>, ControlApiError> {
+    let service = require_assistant(&state)?;
+    service
+        .delete_mode(&id, query.force)
+        .map_err(map_mode_mutation_error)?;
+    Ok(Json(json!({ "deleted": id })))
 }
 
 async fn create_assistant_session(

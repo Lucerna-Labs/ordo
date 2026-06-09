@@ -55,10 +55,11 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
   create/delete/update that write/remove `user-files/modes/<id>.json` and refuse
   to delete a `protected` mode (unless an explicit force) +
   `ModeManifest::new_user_mode(name)`. Unit tested. _Status: **DONE.**_
-- **M3 — `modes.*` capability + control routes.** `modes.create / rename /
-  delete / list` via a provider + `POST/PATCH/DELETE /api/assistant/modes`.
-  Wire into the lane allowlist (operator-facing, not assistant-autonomous).
-  _Status: pending._
+- **M3 — control routes.** `POST /api/assistant/modes` (create from `{name}`
+  or full manifest), `PATCH /api/assistant/modes/:id` (update),
+  `DELETE /api/assistant/modes/:id?force=` (delete, protected needs force) via
+  `AssistantService::{create,update,delete}_mode`, with `ModeMutationError`
+  mapped to 409/404/403/400/503/500. _Status: **DONE** (live-validated)._
 - **M4 — Studio UI.** "Create mode" button + name field; mode list with a
   delete control disabled/guarded for protected modes. _Status: pending._
 - **Each stage:** build `-D warnings`, unit tests, adversarial review for the
@@ -93,3 +94,15 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
   defaults (`protected: false`). New `ModeMutationError`
   (AlreadyExists/NotFound/Protected/Invalid/Persist) for precise HTTP mapping in
   M3. `ordo-modes` 60 tests pass; `-D warnings` clean.
+- **M3 (done, live-validated).** `AssistantService::{create,update,delete}_mode`
+  delegate to the registry (+`ModeMutationError::Unavailable` when no registry).
+  Control routes `POST /api/assistant/modes`, `PATCH`/`DELETE
+  /api/assistant/modes/:id` with `map_mode_mutation_error` →
+  409/404/403/400/503/500 and new `ControlApiError` constructors
+  (conflict/forbidden/service_unavailable). `ordo-control` gains a direct
+  `ordo-modes` dep. **Bug found by live test + fixed:** on-disk core-mode files
+  that predate the `protected` field loaded as deletable — `load_with_defaults`
+  now stamps protectedness from the compiled core set (structural, not
+  file-driven), with a regression test. Verified live on :4142: create → 200,
+  duplicate → 409, `DELETE general`/`diagnostic` (no force) → 403, unprotected
+  delete → 200. `ordo-modes` 61 tests; `-D warnings` clean.

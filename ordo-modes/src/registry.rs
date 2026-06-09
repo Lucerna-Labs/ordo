@@ -58,6 +58,8 @@ pub enum ModeRegistryError {
 /// NotFound → 404, Protected → 403, Invalid → 400, Persist → 500.
 #[derive(Debug, Error)]
 pub enum ModeMutationError {
+    #[error("mode registry is not available")]
+    Unavailable,
     #[error("a mode with id '{0}' already exists")]
     AlreadyExists(String),
     #[error("no mode with id '{0}'")]
@@ -251,6 +253,20 @@ impl ModeRegistry {
                     "default mode wasn't loaded from disk; falling back to compiled-in copy"
                 );
                 map.insert(default.id.clone(), default.clone());
+            }
+        }
+
+        // Protectedness is STRUCTURAL: a core mode is protected because it is in
+        // the compiled set, not because of what its (possibly stale, possibly
+        // operator-edited) on-disk file says. Stamp it from the compiled default
+        // so a file that predates the `protected` field — or an edit that
+        // cleared it — can't make a core mode casually deletable.
+        {
+            let mut map = registry.inner.write();
+            for default in &defaults {
+                if let Some(mode) = map.get_mut(&default.id) {
+                    mode.protected = default.protected;
+                }
             }
         }
 
@@ -546,6 +562,25 @@ mod tests {
         r.delete("scratch", false).unwrap();
         assert!(r.get("scratch").is_none());
         assert!(!tmp.path().join("scratch.json").exists(), "delete should remove the file");
+    }
+
+    #[test]
+    fn stale_on_disk_core_mode_is_reprotected_on_load() {
+        // Simulate an upgrade: an old general.json that predates the `protected`
+        // field (so it deserializes protected=false) must NOT make the core
+        // mode deletable — load stamps protectedness from the compiled default.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("general.json"),
+            r#"{"id":"general","label":"General","description":"old","memory_scope":["global"],"protected":false}"#,
+        )
+        .unwrap();
+        let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
+        assert!(r.is_protected("general"), "stale core file must be re-protected on load");
+        assert!(matches!(
+            r.delete("general", false),
+            Err(ModeMutationError::Protected(_))
+        ));
     }
 
     #[test]

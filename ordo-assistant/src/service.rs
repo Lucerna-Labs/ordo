@@ -437,6 +437,41 @@ impl AssistantService {
         self.modes.as_ref().and_then(|reg| reg.get(id))
     }
 
+    /// Create a new (unprotected) mode. Operator action — see
+    /// `docs/mode-lifecycle.md`. Persists + registers it.
+    pub fn create_mode(
+        &self,
+        manifest: ordo_modes::ModeManifest,
+    ) -> Result<ordo_modes::ModeManifest, ordo_modes::ModeMutationError> {
+        self.modes
+            .as_ref()
+            .ok_or(ordo_modes::ModeMutationError::Unavailable)?
+            .create(manifest)
+    }
+
+    /// Update an existing mode's config (protectedness stays immutable).
+    pub fn update_mode(
+        &self,
+        manifest: ordo_modes::ModeManifest,
+    ) -> Result<ordo_modes::ModeManifest, ordo_modes::ModeMutationError> {
+        self.modes
+            .as_ref()
+            .ok_or(ordo_modes::ModeMutationError::Unavailable)?
+            .update(manifest)
+    }
+
+    /// Delete a mode. Refuses a protected mode unless `force`.
+    pub fn delete_mode(
+        &self,
+        id: &str,
+        force: bool,
+    ) -> Result<(), ordo_modes::ModeMutationError> {
+        self.modes
+            .as_ref()
+            .ok_or(ordo_modes::ModeMutationError::Unavailable)?
+            .delete(id, force)
+    }
+
     /// Read access to the registered mode for a session id, falling
     /// back to the General Assistant manifest when the session's
     /// stored mode isn't in the registry. Returns None when the
