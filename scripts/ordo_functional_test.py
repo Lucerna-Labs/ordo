@@ -15,6 +15,8 @@ Usage: python scripts/ordo_functional_test.py [--base-url http://127.0.0.1:4142]
 Stdlib only. Exit non-zero if any subsystem FAILed.
 """
 import argparse
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -183,15 +185,52 @@ def test_connections():
     rec("PASS" if ok(s) else "FAIL", "connections.delete", f"HTTP {s}")
 
 
+# A 142-byte WASM "echo" module (memory + alloc + a `hello` entry that returns
+# its input unchanged), compiled from WAT. Lets the harness prove a REAL MCP
+# install + sandboxed invoke end to end, with no external build step.
+ECHO_WASM_B64 = (
+    "AGFzbQEAAAABDAJgAX8Bf2ACf38BfgMDAgABBQMBAAEGBwF/AUGACAsHGgMGbWVtb3J5AgAFYWxs"
+    "b2MAAAVoZWxsbwABCiACEQEBfyMAIQEjACAAaiQAIAELDAAgAK1CIIYgAa2ECwAlBG5hbWUCFQIA"
+    "AgABbgEBcAECAANpbnABA2xlbgcHAQAEYnVtcA=="
+)
+
+
 def test_mcp():
     print("\n## mcp")
-    s, servers = req("GET", "/api/mcp/servers")
+    s, _ = req("GET", "/api/mcp/servers")
     rec("PASS" if ok(s) else "FAIL", "mcp.servers.list", f"HTTP {s}")
-    # full install needs a signed module; verify the install path VALIDATES bad input.
-    s, body = req("POST", "/api/mcp/servers/install", {"server_id": "x"})
+    # validation: an incomplete install body must be rejected.
+    s, _ = req("POST", "/api/mcp/servers/install", {"server_id": "x"})
     rec("PASS" if (s and 400 <= s < 500) else "WARN", "mcp.install(validation)",
-        f"HTTP {s} (rejects incomplete install body as expected)" if (s and 400 <= s < 500)
-        else f"HTTP {s}: {str(body)[:90]}")
+        f"HTTP {s} (rejects incomplete body)")
+    # END-TO-END: install a real WASM echo module, invoke it in the sandbox,
+    # verify the output, uninstall.
+    sid = f"echo-{RUNID}"
+    wasm = base64.b64decode(ECHO_WASM_B64)
+    body = {
+        "server_id": sid,
+        "module_b64": ECHO_WASM_B64,
+        "identity": {"name": "Echo Test", "version": "0.1.0", "publisher": "functional-test",
+                     "sigstore_cert": [1, 2, 3, 4],  # non-empty satisfies invariant 28
+                     "identity_hash": list(hashlib.sha256(wasm).digest())},
+        "declaration": {"host_functions": [], "domains": [], "filesystem_paths": [],
+                        "bus_topics": [], "secret_classes": []},
+        "tool_catalog": [{"name": "hello", "description": "echoes its JSON input",
+                          "input_schema": {}, "output_schema": {}, "risk_level": "read_only"}],
+    }
+    s, r = req("POST", "/api/mcp/servers/install", body)
+    if not ok(s):
+        rec("FAIL", "mcp.install(end-to-end)", f"HTTP {s}: {str(r)[:120]}")
+        return
+    rec("PASS", "mcp.install(end-to-end)", "WASM installed; lockfile signed")
+    payload = {"x": 1, "msg": "hi ordo"}
+    s, r = req("POST", f"/api/mcp/servers/{sid}/invoke/hello", {"arguments": payload})
+    echoed = isinstance(r, dict) and r.get("raw_response") == payload
+    fuel = (r or {}).get("resource_usage", {}).get("fuel_consumed") if isinstance(r, dict) else None
+    rec("PASS" if (ok(s) and echoed) else "FAIL", "mcp.invoke(end-to-end)",
+        f"HTTP {s} echo_matches={echoed} fuel={fuel}")
+    s, _ = req("DELETE", f"/api/mcp/servers/{sid}")
+    rec("PASS" if ok(s) else "FAIL", "mcp.uninstall", f"HTTP {s}")
 
 
 def test_plugins_automations_review_files():
