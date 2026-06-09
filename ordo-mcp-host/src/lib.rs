@@ -77,6 +77,7 @@ pub trait CapabilityProvider: Send + Sync {
 pub const SKILLS_LIST: &str = "skills.list";
 pub const SKILLS_INSTALL: &str = "skills.install";
 pub const SKILLS_DELETE: &str = "skills.delete";
+pub const SKILLS_AUDIT_ROUTING: &str = "skills.audit_routing";
 pub const PLUGINS_LIST: &str = "plugins.list";
 pub const PLUGINS_INSTALL: &str = "plugins.install";
 pub const PLUGINS_DELETE: &str = "plugins.delete";
@@ -89,6 +90,7 @@ const MAINTENANCE_CAPABILITIES: &[&str] = &[
     SKILLS_LIST,
     SKILLS_INSTALL,
     SKILLS_DELETE,
+    SKILLS_AUDIT_ROUTING,
     PLUGINS_LIST,
     PLUGINS_INSTALL,
     PLUGINS_DELETE,
@@ -101,6 +103,10 @@ const MAINTENANCE_CAPABILITIES: &[&str] = &[
 pub struct MaintenanceProvider {
     user_files_root: PathBuf,
     plugins_root: PathBuf,
+    /// Live mode registry — required for `skills.audit_routing` (it routes every
+    /// skill against every mode). `None` in tests / pre-mode shape, in which
+    /// case the audit returns a clear error instead of panicking.
+    modes: Option<ordo_modes::ModeRegistry>,
 }
 
 impl MaintenanceProvider {
@@ -108,7 +114,14 @@ impl MaintenanceProvider {
         Self {
             user_files_root: user_files_root.into(),
             plugins_root: plugins_root.into(),
+            modes: None,
         }
+    }
+
+    /// Attach the mode registry so `skills.audit_routing` can run.
+    pub fn with_modes(mut self, modes: ordo_modes::ModeRegistry) -> Self {
+        self.modes = Some(modes);
+        self
     }
 
     fn skills_root(&self) -> PathBuf {
@@ -165,6 +178,9 @@ impl CapabilityProvider for MaintenanceProvider {
             SKILLS_LIST => maintenance_list_skills(&self.skills_root()),
             SKILLS_INSTALL => maintenance_install_skill(&self.skills_root(), arguments),
             SKILLS_DELETE => maintenance_delete_named_dir(&self.skills_root(), arguments, "skill"),
+            SKILLS_AUDIT_ROUTING => {
+                maintenance_audit_skill_routing(&self.skills_root(), self.modes.as_ref())
+            }
             PLUGINS_LIST => maintenance_list_plugins(&self.plugins_root),
             PLUGINS_INSTALL => maintenance_install_plugin(&self.plugins_root, arguments),
             PLUGINS_DELETE => maintenance_delete_named_dir(&self.plugins_root, arguments, "plugin"),
@@ -188,6 +204,7 @@ fn maintenance_description(capability: &str) -> &'static str {
         SKILLS_LIST => "List locally installed Ordo skills under user-files/skills.",
         SKILLS_INSTALL => "Install or update a local Ordo skill by writing user-files/skills/<id>/skill.md.",
         SKILLS_DELETE => "Delete a local Ordo skill directory by id.",
+        SKILLS_AUDIT_ROUTING => "Audit how every installed skill routes across every mode: flags orphaned skills, declared-but-vetoed contradictions, and skills declaring modes that don't exist (phantom modes). Read-only.",
         PLUGINS_LIST => "List local plugin manifests under user-files/plugins.",
         PLUGINS_INSTALL => "Install or update a plugin manifest under user-files/plugins/<name>/plugin.json. Restart required to load.",
         PLUGINS_DELETE => "Delete a local plugin directory by name. Restart required to unload if active.",
@@ -197,6 +214,36 @@ fn maintenance_description(capability: &str) -> &'static str {
         LOGS_SYSTEM_TAIL => "Read a bounded tail of local Ordo runtime system logs for diagnostics.",
         _ => "Ordo maintenance capability.",
     }
+}
+
+/// Audit skill→mode routing health. Read-only: discovers skills from disk,
+/// lists all modes, and runs the routing audit (`ordo_modes::audit_skill_routing`).
+/// This is what the diagnostic mode's daily scan calls (see
+/// `docs/skill-routing.md`).
+fn maintenance_audit_skill_routing(
+    skills_root: &Path,
+    modes: Option<&ordo_modes::ModeRegistry>,
+) -> Result<Value, String> {
+    let registry = modes.ok_or_else(|| {
+        "skills.audit_routing requires the mode registry, which is not attached".to_string()
+    })?;
+    let modes = registry.list();
+    let skills = ordo_skills::discover_skills(skills_root).map_err(|err| err.to_string())?;
+    let audit = ordo_modes::audit_skill_routing(&modes, &skills);
+
+    let orphaned = audit.orphaned();
+    let unhealthy_count = audit.unhealthy().len();
+    let anomaly_count = audit.anomaly_count();
+    let audit_value = serde_json::to_value(&audit).map_err(|err| err.to_string())?;
+    Ok(json!({
+        "skills_root": skills_root.display().to_string(),
+        "mode_count": modes.len(),
+        "skill_count": skills.len(),
+        "anomaly_count": anomaly_count,
+        "orphaned": orphaned,
+        "unhealthy_count": unhealthy_count,
+        "audit": audit_value,
+    }))
 }
 
 fn maintenance_load_automations(path: &Path) -> Result<AutomationOrchestrator, String> {
@@ -6158,9 +6205,54 @@ fn assistant_parse_id(
 #[cfg(test)]
 mod tests {
     use super::{
-        CapabilityProvider, FilesystemProvider, KnowledgeProvider, OrdoOpsProvider, ToolCallResult,
+        CapabilityProvider, FilesystemProvider, KnowledgeProvider, MaintenanceProvider,
+        OrdoOpsProvider, ToolCallResult,
     };
     use serde_json::json;
+
+    #[tokio::test]
+    async fn skills_audit_routing_reports_orphaned_phantom_mode_skill() {
+        let base = std::env::temp_dir().join("ordo-mcp-host-audit-ok");
+        let _ = std::fs::remove_dir_all(&base);
+        let skill_dir = base.join("skills").join("phantom_skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("skill.md"),
+            "---\nname: Phantom\navailable_to_modes: [no_such_mode]\n---\n# x",
+        )
+        .unwrap();
+
+        let provider = MaintenanceProvider::new(&base, base.join("plugins"))
+            .with_modes(ordo_modes::ModeRegistry::from_defaults().unwrap());
+        let out = provider
+            .handle_tool_call("skills.audit_routing", &json!({}))
+            .await;
+        match out {
+            Some(ToolCallResult::Completed { result }) => {
+                let orphaned = result["orphaned"].as_array().unwrap();
+                assert!(
+                    orphaned.iter().any(|v| v == "phantom_skill"),
+                    "phantom_skill should be orphaned: {result}"
+                );
+                assert!(result["anomaly_count"].as_u64().unwrap() >= 1);
+            }
+            _ => panic!("expected a completed audit"),
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skills_audit_routing_without_registry_fails_cleanly() {
+        let base = std::env::temp_dir().join("ordo-mcp-host-audit-noreg");
+        let provider = MaintenanceProvider::new(&base, base.join("plugins")); // no modes
+        match provider
+            .handle_tool_call("skills.audit_routing", &json!({}))
+            .await
+        {
+            Some(ToolCallResult::Failed { error }) => assert!(error.contains("registry")),
+            _ => panic!("expected a clean failure without a registry"),
+        }
+    }
 
     async fn call(capability: &str, args: serde_json::Value) -> serde_json::Value {
         let provider = OrdoOpsProvider::new();

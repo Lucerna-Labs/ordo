@@ -829,7 +829,7 @@ impl PlanningOrdoRuntime {
         .with_review(review_service.clone())
         .with_memory_log(memory_log_service.clone());
 
-        if let Some(reg) = mode_registry {
+        if let Some(reg) = mode_registry.clone() {
             assistant_service = assistant_service.with_modes(reg);
         }
 
@@ -1116,11 +1116,15 @@ impl PlanningOrdoRuntime {
             let mgmt_gated = security.gate(mgmt_provider, "mcp-management".to_string());
             host.add_provider(Arc::new(mgmt_gated));
 
+            let mut maintenance = MaintenanceProvider::new(
+                config.user_files_path.clone(),
+                config.plugins_path.clone(),
+            );
+            if let Some(reg) = mode_registry.clone() {
+                maintenance = maintenance.with_modes(reg);
+            }
             let maintenance_provider: Arc<dyn ordo_mcp_host::CapabilityProvider> =
-                Arc::new(MaintenanceProvider::new(
-                    config.user_files_path.clone(),
-                    config.plugins_path.clone(),
-                ));
+                Arc::new(maintenance);
             let maintenance_gated =
                 security.gate(maintenance_provider, "ordo-maintenance".to_string());
             host.add_provider(Arc::new(maintenance_gated));

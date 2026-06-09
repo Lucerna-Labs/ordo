@@ -11,6 +11,8 @@ ordo-store = { path = "../ordo-store" }
 ordo-cloud = { path = "../ordo-cloud" }
 ordo-review = { path = "../ordo-review" }
 ordo-assistant = { path = "../ordo-assistant" }
+ordo-modes = { path = "../ordo-modes" }
+ordo-skills = { path = "../ordo-skills" }
 ordo-apps = { path = "../ordo-apps" }
 ordo-files = { path = "../ordo-files" }
 ordo-code = { path = "../ordo-code" }

@@ -191,7 +191,8 @@ classifies:
   declared-but-vetoed / phantom-mode / undeclared) with per-(skill,mode)
   verdicts + veto reasons. New capability in the maintenance surface. The
   diagnostic mode's "verify routing is correct" tool.
-  _Status: **core logic DONE** (`ordo-modes::audit`); capability wiring pending._
+  _Status: **DONE** — `ordo-modes::audit` engine + `skills.audit_routing`
+  capability (MaintenanceProvider), live-validated._
 - **Stage 5 — diagnostic authority + bounded skill-side repair.** Grant the
   diagnostic mode a `skills.` lane (keep `skills.delete` blocked); add
   `skills.repair_routing` applying ONLY safe skill-frontmatter fixes
@@ -237,3 +238,15 @@ classifies:
   DeclaredButVetoed / PhantomMode / Undeclared per skill, read-only. `ordo-modes`
   56 tests pass (5 new); `-D warnings` clean. This is the engine the diagnostic
   daily scan + the `skills.audit_routing` capability will call.
+- **Stage 4 wiring (done, live-validated).** `skills.audit_routing` capability
+  on the `MaintenanceProvider` (`ordo-mcp-host`): discovers skills from
+  `<user-files>/skills`, lists all modes from the registry (passed via
+  `.with_modes()` from `ordo-runtime`), runs `audit_skill_routing`, returns the
+  full report + `orphaned`/`anomaly_count`/`unhealthy_count` summary. Errors
+  cleanly (`Failed`) when no registry is attached. `ordo-mcp-host` 44 tests (2
+  new); `-D warnings` clean. Live on :4142 over the 15 real skills: HTTP 200,
+  modes=20, skills=15, **orphaned=[]** (the mode rework healed the old orphans —
+  they now route via the new `coding`/`research` modes + dev-mode skill tags),
+  22 anomalies — all `phantom_mode` (the 4 `ordo_*` skills still declare
+  `orchestration`/`runtime`/`legal_admin`, which don't exist) or informational
+  `undeclared`. Those phantom-mode declarations are the S5 safe-repair target.
