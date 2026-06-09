@@ -842,6 +842,24 @@ impl PlanningOrdoRuntime {
         if let Some(reg) = mode_registry.clone() {
             assistant_service = assistant_service.with_modes(reg);
         }
+        // Discover markdown skills so each turn surfaces the active mode's
+        // permitted skills into the system prompt (docs/skill-routing.md).
+        match ordo_skills::discover_skills(&config.user_files_path.join("skills")) {
+            Ok(skills) if !skills.is_empty() => {
+                tracing::info!(
+                    target: "ordo_runtime",
+                    count = skills.len(),
+                    "discovered skills for mode-scoped surfacing"
+                );
+                assistant_service = assistant_service.with_skills(skills);
+            }
+            Ok(_) => {}
+            Err(err) => tracing::warn!(
+                target: "ordo_runtime",
+                error = %err,
+                "failed to scan skills directory"
+            ),
+        }
 
         // Apps + files services (Phase 1.1 / 1.4). Share the single
         // SQLite file per Rule 6; files stores bytes under

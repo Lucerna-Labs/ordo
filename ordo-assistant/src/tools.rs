@@ -41,6 +41,7 @@ pub const DEFAULT_ALLOWED_LANES: &[&str] = &[
     "mcp.servers.re_authorize",
     "mcp.servers.set_trust",
     "skills.list",
+    "skills.get",
     "skills.install",
     "skills.delete",
     "plugins.list",

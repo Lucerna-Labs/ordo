@@ -458,6 +458,58 @@ pub fn render_mode_preamble(mode: &ordo_modes::ModeManifest) -> Option<Value> {
     }))
 }
 
+/// Render a concise "skills available in this mode" system message — the
+/// progressive-disclosure surface for markdown `SKILL.md` playbooks
+/// (`docs/skill-routing.md`). Lists each permitted skill's id, name, and a
+/// short blurb so the model knows the skill exists and when to use it; it reads
+/// the full instructions on demand via the `skills.get` capability. `None` when
+/// the mode has no skills routed to it.
+pub fn render_skills_preamble(skills: &[ordo_skills::SkillManifest]) -> Option<Value> {
+    if skills.is_empty() {
+        return None;
+    }
+    let mut text = String::from(
+        "# Skills available in this mode\n\n\
+         These are installed skill playbooks routed to the active mode. Use one \
+         when its description fits the task; read its full instructions on demand \
+         with the `skills.get` capability (pass the skill `id`). Do not invent \
+         skills that aren't listed here.\n\n",
+    );
+    for skill in skills {
+        text.push_str("- `");
+        text.push_str(&skill.id);
+        text.push('`');
+        if !skill.name.is_empty() && skill.name != skill.id {
+            text.push_str(" (");
+            text.push_str(&skill.name);
+            text.push(')');
+        }
+        let blurb = skill_blurb(&skill.description);
+        if !blurb.is_empty() {
+            text.push_str(" — ");
+            text.push_str(&blurb);
+        }
+        text.push('\n');
+    }
+    while text.ends_with('\n') || text.ends_with(' ') {
+        text.pop();
+    }
+    Some(json!({
+        "role": "system",
+        "content": text,
+    }))
+}
+
+/// A lean one-line blurb from a (possibly long) skill description.
+fn skill_blurb(description: &str) -> String {
+    let description = description.trim();
+    if description.chars().count() <= 200 {
+        return description.to_string();
+    }
+    let truncated: String = description.chars().take(200).collect();
+    format!("{truncated}…")
+}
+
 /// Splice a mode preamble into a built bootstrap prompt at the
 /// position right after the environment map system message (index 2
 /// in the canonical layout: bootstrap, env map, [mode], compaction,
@@ -1020,6 +1072,27 @@ mod tests {
         };
         m.normalize_and_validate().unwrap();
         m
+    }
+
+    #[test]
+    fn render_skills_preamble_lists_skills_and_omits_when_empty() {
+        assert!(render_skills_preamble(&[]).is_none());
+        let skills = vec![ordo_skills::SkillManifest {
+            id: "ordo_rust_architecture".into(),
+            name: "Rust Architecture".into(),
+            description: "Teaches building Rust projects with Ordo's architecture.".into(),
+            tags: vec!["rust".into()],
+            modes: vec!["coding".into()],
+            risk_level: ordo_skills::RiskLevel::Medium,
+            requires_tools: false,
+            lane_label: "x".into(),
+            path: None,
+        }];
+        let preamble = render_skills_preamble(&skills).expect("non-empty");
+        let content = preamble["content"].as_str().unwrap();
+        assert!(content.contains("Skills available in this mode"));
+        assert!(content.contains("ordo_rust_architecture"));
+        assert!(content.contains("skills.get"));
     }
 
     #[test]

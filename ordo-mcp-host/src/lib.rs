@@ -75,6 +75,7 @@ pub trait CapabilityProvider: Send + Sync {
 }
 
 pub const SKILLS_LIST: &str = "skills.list";
+pub const SKILLS_GET: &str = "skills.get";
 pub const SKILLS_INSTALL: &str = "skills.install";
 pub const SKILLS_DELETE: &str = "skills.delete";
 pub const SKILLS_AUDIT_ROUTING: &str = "skills.audit_routing";
@@ -89,6 +90,7 @@ pub const LOGS_SYSTEM_TAIL: &str = "logs.system_tail";
 
 const MAINTENANCE_CAPABILITIES: &[&str] = &[
     SKILLS_LIST,
+    SKILLS_GET,
     SKILLS_INSTALL,
     SKILLS_DELETE,
     SKILLS_AUDIT_ROUTING,
@@ -178,6 +180,7 @@ impl CapabilityProvider for MaintenanceProvider {
     ) -> Option<ToolCallResult> {
         let result = match capability {
             SKILLS_LIST => maintenance_list_skills(&self.skills_root()),
+            SKILLS_GET => maintenance_get_skill(&self.skills_root(), arguments),
             SKILLS_INSTALL => maintenance_install_skill(&self.skills_root(), arguments),
             SKILLS_DELETE => maintenance_delete_named_dir(&self.skills_root(), arguments, "skill"),
             SKILLS_AUDIT_ROUTING => {
@@ -211,6 +214,7 @@ impl CapabilityProvider for MaintenanceProvider {
 fn maintenance_description(capability: &str) -> &'static str {
     match capability {
         SKILLS_LIST => "List locally installed Ordo skills under user-files/skills.",
+        SKILLS_GET => "Read one installed skill's full markdown by id (the progressive-disclosure path: the prompt lists a mode's skills, the model fetches the body on demand).",
         SKILLS_INSTALL => "Install or update a local Ordo skill by writing user-files/skills/<id>/skill.md.",
         SKILLS_DELETE => "Delete a local Ordo skill directory by id.",
         SKILLS_AUDIT_ROUTING => "Audit how every installed skill routes across every mode: flags orphaned skills, declared-but-vetoed contradictions, and skills declaring modes that don't exist (phantom modes). Read-only.",
@@ -224,6 +228,33 @@ fn maintenance_description(capability: &str) -> &'static str {
         LOGS_SYSTEM_TAIL => "Read a bounded tail of local Ordo runtime system logs for diagnostics.",
         _ => "Ordo maintenance capability.",
     }
+}
+
+/// Read one installed skill's full markdown + parsed metadata by id. The
+/// progressive-disclosure fetch behind the per-mode skills list in the prompt.
+fn maintenance_get_skill(skills_root: &Path, arguments: &Value) -> Result<Value, String> {
+    let id = required_name(arguments, &["id", "name"])?;
+    let dir = safe_named_dir(skills_root, &id)?;
+    let skill_path = if dir.join("skill.md").exists() {
+        dir.join("skill.md")
+    } else {
+        dir.join("SKILL.md")
+    };
+    if !skill_path.exists() {
+        return Err(format!("skill '{id}' not found"));
+    }
+    let content = std::fs::read_to_string(&skill_path).map_err(|err| err.to_string())?;
+    let manifest = ordo_skills::SkillManifest::from_markdown(&id, &content);
+    Ok(json!({
+        "id": id,
+        "path": skill_path.display().to_string(),
+        "name": manifest.name,
+        "description": manifest.description,
+        "tags": manifest.tags,
+        "modes": manifest.modes,
+        "risk_level": manifest.risk_level,
+        "content": content,
+    }))
 }
 
 /// Audit skill→mode routing health. Read-only: discovers skills from disk,

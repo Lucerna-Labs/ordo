@@ -315,6 +315,10 @@ pub struct AssistantService {
     /// falls back to the pre-mode shape: no scope filtering, all
     /// existing lane allowlists in effect.
     modes: Option<ordo_modes::ModeRegistry>,
+    /// Discovered markdown SKILL.md playbooks, surfaced into a turn's system
+    /// prompt scoped to the active mode (`docs/skill-routing.md`). Empty when
+    /// none are loaded — the prompt simply omits the skills block.
+    skills: Vec<ordo_skills::SkillManifest>,
 }
 
 /// Per-subagent isolation state, recorded for the lifetime of a scoped
@@ -410,6 +414,7 @@ impl AssistantService {
             session_taint: Arc::new(Mutex::new(HashMap::new())),
             session_isolation: Arc::new(Mutex::new(HashMap::new())),
             modes: None,
+            skills: Vec::new(),
         }
     }
 
@@ -419,6 +424,27 @@ impl AssistantService {
     pub fn with_modes(mut self, modes: ordo_modes::ModeRegistry) -> Self {
         self.modes = Some(modes);
         self
+    }
+
+    /// Attach the discovered markdown skills. The runtime scans
+    /// `<user-files>/skills` at startup and passes them here; each turn then
+    /// surfaces the active mode's permitted skills into the system prompt.
+    pub fn with_skills(mut self, skills: Vec<ordo_skills::SkillManifest>) -> Self {
+        self.skills = skills;
+        self
+    }
+
+    /// The skills routed to a given mode (filtered by `mode.allows_skill`),
+    /// sorted by id. Discovery only — surfacing a skill grants no capability.
+    pub fn skills_for_mode(&self, mode: &ordo_modes::ModeManifest) -> Vec<ordo_skills::SkillManifest> {
+        let mut out: Vec<ordo_skills::SkillManifest> = self
+            .skills
+            .iter()
+            .filter(|skill| mode.allows_skill(skill))
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        out
     }
 
     /// All registered modes, sorted by id. Empty when the assistant
@@ -1380,6 +1406,12 @@ impl AssistantService {
         // Splice the mode preamble in right after the environment
         // map (idempotent on None â€” no-op for unmoded sessions).
         crate::prompt::inject_mode_preamble(messages_array, mode_preamble);
+        // Surface the active mode's permitted skills (progressive disclosure).
+        let skills_preamble = active_mode.as_ref().and_then(|mode| {
+            let skills = self.skills_for_mode(mode);
+            crate::prompt::render_skills_preamble(&skills)
+        });
+        crate::prompt::inject_mode_preamble(messages_array, skills_preamble);
         if let Some(collaboration) = request
             .metadata
             .get("cross_mode_collaboration")

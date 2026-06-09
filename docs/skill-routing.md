@@ -181,11 +181,14 @@ classifies:
   `ordo-modes` now depends on the `ordo-skills` leaf crate (keeps risk-rank
   semantics single-sourced). Unit-tested; defaults backward-compatible.
   _Status: **DONE.**_
-- **Stage 3 — `SkillRegistry` + surface to the general assistant.** A registry
-  that discovers skills and answers `skills_for_mode` (filter via
-  `allows_skill`). Ingest discovered markdown skills into the self-knowledge RAG
-  (real description + declared modes/tags) and filter what a mode sees. Custom
-  skills become discoverable and mode-scoped. _Status: pending._
+- **Stage 3 — surface skills to the general assistant.** _Status: **DONE**,
+  live-validated._ The runtime discovers skills at startup and hands them to the
+  `AssistantService` (`with_skills`); each turn computes `skills_for_mode`
+  (filter via `allows_skill`) and injects a concise per-mode "Skills available
+  in this mode" system message (id + name + blurb) — progressive disclosure. The
+  model fetches a skill's full body on demand via the new read-only `skills.get`
+  capability (granted in `DEFAULT_ALLOWED_LANES` + all core modes). Custom skills
+  are now assistant-discoverable AND mode-scoped.
 - **Stage 4 — `skills.audit_routing` (read-only).** A pure function over the
   registry + all mode manifests producing the anomaly report (orphaned /
   declared-but-vetoed / phantom-mode / undeclared) with per-(skill,mode)
