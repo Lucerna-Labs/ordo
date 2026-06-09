@@ -320,6 +320,14 @@ pub struct RuntimeConfig {
     /// Runtime opt-in for the native subprocess runner. Effective only
     /// when the `native-exec` cargo feature is also compiled in.
     pub code_allow_native: bool,
+    /// Daily skill-routing audit (see `docs/skill-routing.md`). `0` = disabled
+    /// (opt-in). When > 0, a background task runs `skills.audit_routing` every
+    /// this-many seconds and logs the routing health.
+    pub skill_audit_interval_secs: u64,
+    /// Whether the periodic audit also applies SAFE skill-frontmatter repairs
+    /// (`skills.repair_routing` with `apply=true`). Default true; only effective
+    /// when `skill_audit_interval_secs > 0`.
+    pub skill_audit_autofix: bool,
 }
 
 impl RuntimeConfig {
@@ -588,6 +596,8 @@ impl RuntimeConfig {
             code_allow_native: env_optional_string("ORDO_CODE_ALLOW_NATIVE", Some("false"))
                 .as_deref()
                 == Some("true"),
+            skill_audit_interval_secs: env_usize("ORDO_SKILL_AUDIT_INTERVAL_SECS", 0) as u64,
+            skill_audit_autofix: env_bool("ORDO_SKILL_AUDIT_AUTOFIX", true),
         }
     }
 }
@@ -1271,6 +1281,81 @@ impl PlanningOrdoRuntime {
             }
         }));
 
+        // Daily skill-routing audit (opt-in via ORDO_SKILL_AUDIT_INTERVAL_SECS;
+        // see docs/skill-routing.md). Periodically invokes skills.audit_routing
+        // and, when autofix is on, applies SAFE skill-frontmatter repairs
+        // (skills.repair_routing apply=true). The capabilities are handled by
+        // the MaintenanceProvider on the bus; this task just drives them on a
+        // timer and logs the outcome.
+        if config.skill_audit_interval_secs > 0 {
+            let audit_bus = bus.clone();
+            let interval_secs = config.skill_audit_interval_secs;
+            let autofix = config.skill_audit_autofix;
+            components.push(spawn_component("skill-routing-audit", async move {
+                // Let the MCP host + maintenance provider come up first.
+                tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                let brain = Brain::new(audit_bus);
+                let mut ticker =
+                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+                loop {
+                    ticker.tick().await;
+                    match brain
+                        .invoke_tool("skills.audit_routing", serde_json::json!({}))
+                        .await
+                    {
+                        Ok(report) => {
+                            let anomalies = report
+                                .get("anomaly_count")
+                                .and_then(serde_json::Value::as_u64)
+                                .unwrap_or(0);
+                            let orphaned = report
+                                .get("orphaned")
+                                .and_then(serde_json::Value::as_array)
+                                .map(Vec::len)
+                                .unwrap_or(0);
+                            tracing::info!(
+                                target: "ordo_runtime::skill_audit",
+                                anomalies, orphaned, "skill-routing audit complete"
+                            );
+                        }
+                        Err(err) => tracing::warn!(
+                            target: "ordo_runtime::skill_audit",
+                            error = %err, "skill-routing audit failed"
+                        ),
+                    }
+                    if autofix {
+                        match brain
+                            .invoke_tool("skills.repair_routing", serde_json::json!({ "apply": true }))
+                            .await
+                        {
+                            Ok(result) => {
+                                let repaired = result
+                                    .get("safe_repairs")
+                                    .and_then(serde_json::Value::as_array)
+                                    .map(Vec::len)
+                                    .unwrap_or(0);
+                                let deferred = result
+                                    .get("deferred")
+                                    .and_then(serde_json::Value::as_array)
+                                    .map(Vec::len)
+                                    .unwrap_or(0);
+                                if repaired > 0 || deferred > 0 {
+                                    tracing::info!(
+                                        target: "ordo_runtime::skill_audit",
+                                        repaired, deferred, "skill-routing auto-repair pass"
+                                    );
+                                }
+                            }
+                            Err(err) => tracing::warn!(
+                                target: "ordo_runtime::skill_audit",
+                                error = %err, "skill-routing auto-repair failed"
+                            ),
+                        }
+                    }
+                }
+            }));
+        }
+
         // Control API spawn moved below the MCP stack construction
         // so the registry / sandbox / client services can be threaded
         // into the HTTP layer alongside apps / files / webhooks.
@@ -1545,6 +1630,16 @@ fn env_profile(key: &str, default: RuntimeProfile) -> RuntimeProfile {
         .ok()
         .map(|value| RuntimeProfile::parse(&value))
         .unwrap_or(default)
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    match env::var(key) {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => default,
+    }
 }
 
 fn env_f32(key: &str, default: f32) -> f32 {

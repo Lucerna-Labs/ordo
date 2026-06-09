@@ -198,9 +198,14 @@ classifies:
   applies ONLY safe skill-frontmatter fixes (drop phantom-mode declarations when
   ≥1 real mode remains), dry-run by default. _Status: **DONE**, adversarially
   reviewed (ship, 2 nits fixed: continue-on-error + path-traversal guard)._
-- **Stage 6 — daily-scan automation.** New `AutomationIntent::SkillRoutingAudit`
-  → audit capability, `scope: Diagnostic`, daily trigger, run as
-  `mode:"diagnostic"`; seed a default automation. _Status: pending._
+- **Stage 6 — daily scan.** _Status: **DONE** (narrow timer, live-validated)._
+  The automation system has no executor (tick only *reports* due jobs), so
+  rather than build a generic one, a focused runtime background task
+  (`skill-routing-audit`) drives the scan. Opt-in via
+  `ORDO_SKILL_AUDIT_INTERVAL_SECS` (secs; `0`/unset = off); each tick invokes
+  `skills.audit_routing` (logs anomalies/orphaned) and, when
+  `ORDO_SKILL_AUDIT_AUTOFIX` (default true), `skills.repair_routing apply=true`
+  to auto-apply the SAFE repairs. Operator-chosen: narrow timer + auto-apply.
 - **Stage 7 — build pipeline (Gap A).** Make `ordo-build-planner` consume the
   registry: select step skills by metadata (a `pipeline-step` tag + ordering)
   rather than hardcoded names, honoring the veto. _Status: pending._
@@ -261,3 +266,15 @@ classifies:
   longer aborts the rest, errors collected) + path-traversal guard (canonicalize
   the target, refuse writes outside the skills root). `ordo-skills` 10 tests,
   `ordo-mcp-host` 45 tests; `-D warnings` clean.
+- **Stage 6 (done, live-validated).** Found that the automation system
+  (`ordo-automation`) has a scheduler + tick that only *reports* due jobs — no
+  executor invokes the capability, and nothing drives tick on a timer. So
+  (operator-chosen) S6 is a NARROW background task in `ordo-runtime`
+  (`skill-routing-audit`, opt-in via `ORDO_SKILL_AUDIT_INTERVAL_SECS`) that
+  builds a `Brain` over the bus and invokes `skills.audit_routing` each tick
+  (logging `anomalies`/`orphaned`), then `skills.repair_routing apply=true` when
+  `ORDO_SKILL_AUDIT_AUTOFIX` (default true). New `RuntimeConfig`
+  `skill_audit_interval_secs`/`skill_audit_autofix` + an `env_bool` helper;
+  `ordo-runtime` gains a `serde_json` dep. `-D warnings` clean. Live on :4142
+  (interval=30s, report-only): the task registers as a component and logs
+  `skill-routing audit complete anomalies=22 orphaned=0` every 30s.

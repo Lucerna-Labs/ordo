@@ -47,6 +47,7 @@ tokio.workspace = true
 futures.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde_json.workspace = true
 
 # Opt-in OpenTelemetry export. Turning on the `otel` feature adds an
 # OTLP trace layer to the tracing subscriber when
