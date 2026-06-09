@@ -1440,6 +1440,8 @@ export interface AssistantMode {
   default_credential?: string | null;
   cross_mode_borrow_policy?: string | null;
   cross_mode_consult_policy?: string | null;
+  /** Built-in core mode — can't be deleted without force. */
+  protected?: boolean;
 }
 
 export interface AssistantModesResponse {
@@ -1474,6 +1476,22 @@ export const listAssistantModes = async (): Promise<AssistantModesResponse> => {
 /** Full manifest for one mode — used by the advanced view. */
 export const fetchAssistantMode = (id: string) =>
   api.get<AssistantMode>(`/api/assistant/modes/${encodeURIComponent(id)}`);
+
+/**
+ * Create a new (unprotected) mode. Pass just a name — the runtime slugifies
+ * the id and fills safe General-like defaults; the operator tunes it after.
+ */
+export const createAssistantMode = (name: string) =>
+  api.post<AssistantMode>("/api/assistant/modes", { name });
+
+/**
+ * Delete a mode. Protected core modes are refused unless `force` is set, so
+ * an operator can't casually remove `general`, `diagnostic`, etc.
+ */
+export const deleteAssistantMode = (id: string, force = false) =>
+  api.delete<{ deleted: string }>(
+    `/api/assistant/modes/${encodeURIComponent(id)}${force ? "?force=true" : ""}`,
+  );
 
 // ─── Operator persona / agent facts ─────────────────────────────
 

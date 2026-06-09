@@ -152,6 +152,8 @@ import {
   fetchAssistantSession,
   type AssistantTurnRecord,
   listAssistantModes,
+  createAssistantMode,
+  deleteAssistantMode,
   type AssistantMode,
   type TurnEvent,
 } from "./api";
@@ -9703,15 +9705,57 @@ const ModesSurface = ({
   settings,
   onModeChange,
   onSettingsChange,
+  onModesChanged,
 }: {
   modes: AssistantMode[];
   activeMode: string;
   settings: Record<string, ModeUiSetting>;
   onModeChange: (mode: string) => void;
   onSettingsChange: (modeId: string, patch: Partial<ModeUiSetting>) => void;
+  onModesChanged: () => void | Promise<void>;
 }) => {
   const [ragSearch, setRagSearch] = useState("");
   const [ragPicker, setRagPicker] = useState<Record<string, string>>({});
+  // Create / delete mode (operator lifecycle — see docs/mode-lifecycle.md).
+  const [newModeName, setNewModeName] = useState("");
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
+  const handleCreateMode = async () => {
+    const name = newModeName.trim();
+    if (!name || modeBusy) return;
+    setModeBusy(true);
+    setModeError(null);
+    try {
+      await createAssistantMode(name);
+      setNewModeName("");
+      await onModesChanged();
+    } catch (err) {
+      setModeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setModeBusy(false);
+    }
+  };
+  const handleDeleteMode = async (mode: AssistantMode) => {
+    if (mode.protected || modeBusy) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Delete mode "${mode.label}" (${mode.id})? This removes the mode; its scoped memory/RAG is left intact.`,
+      )
+    ) {
+      return;
+    }
+    setModeBusy(true);
+    setModeError(null);
+    try {
+      await deleteAssistantMode(mode.id, false);
+      await onModesChanged();
+    } catch (err) {
+      setModeError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setModeBusy(false);
+    }
+  };
   const visibleModes =
     modes.length > 0
       ? modes
@@ -9786,6 +9830,39 @@ const ModesSurface = ({
         sub="Turn modes on or off, choose the foreground mode, and opt into extra RAG domains only when a mode needs them."
       />
       <Card>
+        <div className="flex items-end justify-between gap-3" style={{ flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <Mono size={11} upper track="0.18em" color={UI.textMuted}>
+              Create a mode
+            </Mono>
+            <div style={{ marginTop: 5, marginBottom: 8 }}>
+              <Serif size={13} italic color={UI.textMuted}>
+                Name a new workspace. Ordo gives it safe defaults (its own memory scope + General-like tools); tune it after. Core modes are protected and can't be deleted here.
+              </Serif>
+            </div>
+            <TextInput
+              value={newModeName}
+              onChange={setNewModeName}
+              placeholder="Name your mode (e.g. Grant Writing)…"
+            />
+          </div>
+          <Button
+            variant="primary"
+            disabled={modeBusy || newModeName.trim().length === 0}
+            onClick={handleCreateMode}
+          >
+            {modeBusy ? "Working…" : "Create mode"}
+          </Button>
+        </div>
+        {modeError && (
+          <div style={{ marginTop: 8 }}>
+            <Mono size={10} color="#e0a0a0">
+              {modeError}
+            </Mono>
+          </div>
+        )}
+      </Card>
+      <Card>
         <div className="flex items-start justify-between gap-4">
           <div>
             <Mono size={11} upper track="0.18em" color={UI.textMuted}>
@@ -9828,10 +9905,22 @@ const ModesSurface = ({
                   </Mono>
                 </div>
                 <div className="flex items-center gap-1.5">
+                  {mode.protected && <Badge variant="neutral">core</Badge>}
                   {active && <Badge variant="primary">active</Badge>}
                   {!ui.enabled && <Badge variant="warn">paused</Badge>}
                   {temporarySpecialist && <Badge variant="neutral">locked built-in</Badge>}
                   {temporarySpecialist && <Badge variant="info">auto-off</Badge>}
+                  {!mode.protected && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={modeBusy}
+                      title={`Delete the "${mode.label}" mode`}
+                      onClick={() => handleDeleteMode(mode)}
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </div>
               </div>
                   <div style={{ marginTop: 10 }}>
@@ -13081,6 +13170,15 @@ export default function OrdoShell() {
   // the runtime's DB; it just isn't the studio's foreground anymore.
   const [modes, setModes] = useState<AssistantMode[]>([]);
   const [activeMode, setActiveMode] = useState<string>(readStoredActiveMode);
+  // Refresh the mode list after a create/delete from the Modes tab.
+  const reloadModes = async () => {
+    try {
+      const res = await listAssistantModes();
+      setModes(Array.isArray(res.modes) ? res.modes : []);
+    } catch (err) {
+      console.warn("[Modes] reload failed:", err);
+    }
+  };
   // Mode inspector — expandable panel below the picker showing the
   // full manifest. Closed by default; operator opens via INSPECT
   // button. Not persisted — it's a per-session UI affordance, not
@@ -14826,6 +14924,7 @@ export default function OrdoShell() {
             settings={modeUiSettings}
             onModeChange={handleModeChange}
             onSettingsChange={updateModeUiSettings}
+            onModesChanged={reloadModes}
           />
         );
       case "skills":

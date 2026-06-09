@@ -61,7 +61,7 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
   `AssistantService::{create,update,delete}_mode`, with `ModeMutationError`
   mapped to 409/404/403/400/503/500. _Status: **DONE** (live-validated)._
 - **M4 — Studio UI.** "Create mode" button + name field; mode list with a
-  delete control disabled/guarded for protected modes. _Status: pending._
+  delete control guarded for protected modes. _Status: **DONE** (tsc clean)._
 - **Each stage:** build `-D warnings`, unit tests, adversarial review for the
   delete-guard / protection boundary.
 
@@ -106,3 +106,10 @@ admission, `protected: false`. The operator tunes lanes/skills/persona afterward
   file-driven), with a regression test. Verified live on :4142: create → 200,
   duplicate → 409, `DELETE general`/`diagnostic` (no force) → 403, unprotected
   delete → 200. `ordo-modes` 61 tests; `-D warnings` clean.
+- **M4 (done).** Studio UI (`ordo-studio/src`, the live `OrdoShell.tsx` 41-tab
+  UXI per `UXI_SOURCE_MAP.md`). `api.ts`: `AssistantMode.protected` field +
+  `createAssistantMode(name)` / `deleteAssistantMode(id, force)` hitting the M3
+  routes. `ModesSurface`: a "Create a mode" card (name input + button) and, per
+  mode card, a `core` badge for protected modes + a `danger` Delete button (with
+  confirm) for the rest; a `reloadModes` callback refreshes the list after
+  either. TypeScript `tsc -p` clean.
