@@ -78,6 +78,7 @@ pub const SKILLS_LIST: &str = "skills.list";
 pub const SKILLS_INSTALL: &str = "skills.install";
 pub const SKILLS_DELETE: &str = "skills.delete";
 pub const SKILLS_AUDIT_ROUTING: &str = "skills.audit_routing";
+pub const SKILLS_REPAIR_ROUTING: &str = "skills.repair_routing";
 pub const PLUGINS_LIST: &str = "plugins.list";
 pub const PLUGINS_INSTALL: &str = "plugins.install";
 pub const PLUGINS_DELETE: &str = "plugins.delete";
@@ -91,6 +92,7 @@ const MAINTENANCE_CAPABILITIES: &[&str] = &[
     SKILLS_INSTALL,
     SKILLS_DELETE,
     SKILLS_AUDIT_ROUTING,
+    SKILLS_REPAIR_ROUTING,
     PLUGINS_LIST,
     PLUGINS_INSTALL,
     PLUGINS_DELETE,
@@ -181,6 +183,13 @@ impl CapabilityProvider for MaintenanceProvider {
             SKILLS_AUDIT_ROUTING => {
                 maintenance_audit_skill_routing(&self.skills_root(), self.modes.as_ref())
             }
+            SKILLS_REPAIR_ROUTING => {
+                let apply = arguments
+                    .get("apply")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                maintenance_repair_skill_routing(&self.skills_root(), self.modes.as_ref(), apply)
+            }
             PLUGINS_LIST => maintenance_list_plugins(&self.plugins_root),
             PLUGINS_INSTALL => maintenance_install_plugin(&self.plugins_root, arguments),
             PLUGINS_DELETE => maintenance_delete_named_dir(&self.plugins_root, arguments, "plugin"),
@@ -205,6 +214,7 @@ fn maintenance_description(capability: &str) -> &'static str {
         SKILLS_INSTALL => "Install or update a local Ordo skill by writing user-files/skills/<id>/skill.md.",
         SKILLS_DELETE => "Delete a local Ordo skill directory by id.",
         SKILLS_AUDIT_ROUTING => "Audit how every installed skill routes across every mode: flags orphaned skills, declared-but-vetoed contradictions, and skills declaring modes that don't exist (phantom modes). Read-only.",
+        SKILLS_REPAIR_ROUTING => "Apply ONLY safe skill-frontmatter repairs: drop phantom-mode declarations (modes that don't exist) from a skill that still keeps at least one real mode. Dry-run by default; pass apply=true to write. Skills declaring ONLY nonexistent modes, and all mode-side policy issues, are deferred to the operator.",
         PLUGINS_LIST => "List local plugin manifests under user-files/plugins.",
         PLUGINS_INSTALL => "Install or update a plugin manifest under user-files/plugins/<name>/plugin.json. Restart required to load.",
         PLUGINS_DELETE => "Delete a local plugin directory by name. Restart required to unload if active.",
@@ -243,6 +253,115 @@ fn maintenance_audit_skill_routing(
         "orphaned": orphaned,
         "unhealthy_count": unhealthy_count,
         "audit": audit_value,
+    }))
+}
+
+/// Bounded SAFE repair of skill routing (see `docs/skill-routing.md`). For each
+/// skill that declares a phantom mode (one that doesn't exist) while STILL
+/// declaring at least one real mode, drop the phantom entries from its
+/// `available_to_modes` frontmatter — an inert, no-behaviour-change cleanup. A
+/// skill that declares ONLY nonexistent modes is DEFERRED (removing all of them
+/// would change its routing — the operator must pick real modes). All mode-side
+/// policy issues are out of scope here (the runtime can't self-edit modes).
+///
+/// Dry-run by default (`apply=false`) returns the plan; `apply=true` rewrites
+/// the `skill.md` files and reports what changed.
+fn maintenance_repair_skill_routing(
+    skills_root: &Path,
+    modes: Option<&ordo_modes::ModeRegistry>,
+    apply: bool,
+) -> Result<Value, String> {
+    let registry = modes.ok_or_else(|| {
+        "skills.repair_routing requires the mode registry, which is not attached".to_string()
+    })?;
+    let mode_ids: std::collections::BTreeSet<String> =
+        registry.list().into_iter().map(|m| m.id).collect();
+    let skills = ordo_skills::discover_skills(skills_root).map_err(|err| err.to_string())?;
+    // Canonical root for the path-traversal guard: a write target must resolve
+    // INSIDE this (so a symlinked skill dir can't escape user-files/skills).
+    let canonical_root = std::fs::canonicalize(skills_root).ok();
+
+    let mut safe_repairs = Vec::new();
+    let mut deferred = Vec::new();
+    let mut errors = Vec::new();
+    for skill in &skills {
+        if skill.modes.is_empty() {
+            continue;
+        }
+        let phantoms: Vec<String> = skill
+            .modes
+            .iter()
+            .filter(|m| !mode_ids.contains(*m))
+            .cloned()
+            .collect();
+        if phantoms.is_empty() {
+            continue;
+        }
+        let valid: Vec<String> = skill
+            .modes
+            .iter()
+            .filter(|m| mode_ids.contains(*m))
+            .cloned()
+            .collect();
+        if valid.is_empty() {
+            deferred.push(json!({
+                "skill_id": skill.id,
+                "declared_modes": skill.modes,
+                "reason": "skill declares only nonexistent modes; an operator must choose real modes (removing all declarations would change routing)",
+            }));
+            continue;
+        }
+        // Safe: removing the phantom entries leaves real declarations intact.
+        if apply {
+            // One skill's failure must not abort the rest (continue-on-error).
+            let outcome = (|| -> Result<usize, String> {
+                let path = skill
+                    .path
+                    .as_ref()
+                    .ok_or_else(|| format!("skill '{}' has no resolved path", skill.id))?;
+                let canonical = std::fs::canonicalize(path).map_err(|err| err.to_string())?;
+                if let Some(root) = canonical_root.as_deref() {
+                    if !canonical.starts_with(root) {
+                        return Err(format!(
+                            "refusing to write outside the skills root: {}",
+                            canonical.display()
+                        ));
+                    }
+                }
+                let content = std::fs::read_to_string(&canonical).map_err(|err| err.to_string())?;
+                let (rewritten, removed) =
+                    ordo_skills::remove_modes_from_frontmatter(&content, &phantoms);
+                if removed > 0 {
+                    std::fs::write(&canonical, rewritten).map_err(|err| err.to_string())?;
+                }
+                Ok(removed)
+            })();
+            match outcome {
+                Ok(removed) => safe_repairs.push(json!({
+                    "skill_id": skill.id,
+                    "removed_modes": phantoms,
+                    "resulting_modes": valid,
+                    "edits": removed,
+                    "path": skill.path,
+                })),
+                Err(error) => errors.push(json!({ "skill_id": skill.id, "error": error })),
+            }
+        } else {
+            safe_repairs.push(json!({
+                "skill_id": skill.id,
+                "remove_modes": phantoms,
+                "resulting_modes": valid,
+            }));
+        }
+    }
+
+    Ok(json!({
+        "applied": apply,
+        "skills_root": skills_root.display().to_string(),
+        "safe_repairs": safe_repairs,
+        "deferred": deferred,
+        "errors": errors,
+        "note": if apply { "safe skill-frontmatter repairs written" } else { "dry-run; pass apply=true to write" },
     }))
 }
 
@@ -6238,6 +6357,66 @@ mod tests {
             }
             _ => panic!("expected a completed audit"),
         }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skills_repair_routing_drops_phantom_modes_but_defers_all_phantom_skill() {
+        let base = std::env::temp_dir().join("ordo-mcp-host-repair");
+        let _ = std::fs::remove_dir_all(&base);
+        let skills_dir = base.join("skills");
+        // "coding" is a real core mode; the rest are phantom.
+        let fixable = skills_dir.join("fixable");
+        std::fs::create_dir_all(&fixable).unwrap();
+        std::fs::write(
+            fixable.join("skill.md"),
+            "## Installation Metadata\n\n```yaml\navailable_to_modes:\n  - coding\n  - orchestration\n  - runtime\n```\n",
+        )
+        .unwrap();
+        let only_phantom = skills_dir.join("only_phantom");
+        std::fs::create_dir_all(&only_phantom).unwrap();
+        std::fs::write(
+            only_phantom.join("skill.md"),
+            "```yaml\navailable_to_modes:\n  - orchestration\n```\n",
+        )
+        .unwrap();
+
+        let provider = MaintenanceProvider::new(&base, base.join("plugins"))
+            .with_modes(ordo_modes::ModeRegistry::from_defaults().unwrap());
+
+        // dry-run: plans the fix, defers the all-phantom skill, writes nothing.
+        let dry = match provider
+            .handle_tool_call("skills.repair_routing", &json!({}))
+            .await
+        {
+            Some(ToolCallResult::Completed { result }) => result,
+            _ => panic!("expected a completed dry-run"),
+        };
+        assert_eq!(dry["applied"], json!(false));
+        assert_eq!(dry["safe_repairs"].as_array().unwrap().len(), 1);
+        assert_eq!(dry["safe_repairs"][0]["skill_id"], "fixable");
+        assert_eq!(dry["deferred"].as_array().unwrap().len(), 1);
+        assert_eq!(dry["deferred"][0]["skill_id"], "only_phantom");
+        // nothing written yet
+        assert_eq!(
+            ordo_skills::discover_skills(&skills_dir).unwrap()
+                .iter().find(|s| s.id == "fixable").unwrap().modes.len(),
+            3
+        );
+
+        // apply: rewrites the fixable skill to keep only the real mode.
+        let applied = match provider
+            .handle_tool_call("skills.repair_routing", &json!({ "apply": true }))
+            .await
+        {
+            Some(ToolCallResult::Completed { result }) => result,
+            _ => panic!("expected a completed apply"),
+        };
+        assert_eq!(applied["applied"], json!(true));
+        let after = ordo_skills::discover_skills(&skills_dir).unwrap();
+        assert_eq!(after.iter().find(|s| s.id == "fixable").unwrap().modes, vec!["coding"]);
+        // the all-phantom skill is untouched
+        assert_eq!(after.iter().find(|s| s.id == "only_phantom").unwrap().modes, vec!["orchestration"]);
         let _ = std::fs::remove_dir_all(&base);
     }
 

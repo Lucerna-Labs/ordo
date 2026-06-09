@@ -353,6 +353,45 @@ fn markdown_section(content: &str, heading: &str) -> Option<String> {
     }
 }
 
+/// Remove specific mode ids from every block-style `available_to_modes:` list
+/// in a skill's markdown, leaving everything else — prose, and `category:` /
+/// `tags:` lists that might share a value like "orchestration" — untouched.
+/// Returns `(new_content, removed_count)`.
+///
+/// This is the surgical edit behind the diagnostic mode's bounded "safe
+/// repair": dropping phantom-mode declarations (modes that don't exist) from a
+/// skill without rewriting anything else. Inline/flow lists
+/// (`available_to_modes: [a, b]`) are intentionally NOT touched — those are left
+/// for the operator, so the transform can never misparse one.
+pub fn remove_modes_from_frontmatter(content: &str, remove: &[String]) -> (String, usize) {
+    let remove_set: std::collections::BTreeSet<&str> =
+        remove.iter().map(String::as_str).collect();
+    let mut out = String::with_capacity(content.len());
+    let mut removed = 0usize;
+    let mut in_modes_block = false;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if in_modes_block {
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                if remove_set.contains(unquote(item.trim())) {
+                    removed += 1;
+                    continue; // drop only this list item
+                }
+                out.push_str(line);
+                continue;
+            }
+            // anything that isn't a `- item` ends the block (blank line, the
+            // next key, a closing fence, dedent, …).
+            in_modes_block = false;
+        }
+        if trimmed == "available_to_modes:" {
+            in_modes_block = true;
+        }
+        out.push_str(line);
+    }
+    (out, removed)
+}
+
 fn unquote(value: &str) -> &str {
     let bytes = value.as_bytes();
     if value.len() >= 2 {
@@ -478,5 +517,68 @@ available_to_modes:
         let nope = std::env::temp_dir().join("ordo-skills-does-not-exist-xyz");
         let _ = std::fs::remove_dir_all(&nope);
         assert!(discover_skills(&nope).unwrap().is_empty());
+    }
+
+    #[test]
+    fn remove_modes_drops_only_available_to_modes_entries() {
+        // `orchestration` appears in BOTH category and available_to_modes — the
+        // repair must drop it ONLY from available_to_modes.
+        let md = "\
+lane: X
+
+## Installation Metadata
+
+```yaml
+category:
+  - rust
+  - orchestration
+available_to_modes:
+  - coding
+  - orchestration
+  - runtime
+  - research
+```
+";
+        let (out, removed) =
+            remove_modes_from_frontmatter(md, &["orchestration".into(), "runtime".into()]);
+        assert_eq!(removed, 2);
+        // re-parse: modes lost the phantoms, tags KEPT orchestration
+        let s = SkillManifest::from_markdown("x", &out);
+        assert_eq!(s.modes, vec!["coding", "research"]);
+        assert!(s.tags.contains(&"orchestration".to_string()));
+        assert!(s.tags.contains(&"rust".to_string()));
+    }
+
+    #[test]
+    fn remove_modes_handles_two_blocks_and_quotes() {
+        let md = "\
+## Mode Assignment Guidance
+
+```yaml
+available_to_modes:
+  - coding
+  - legal_admin
+```
+
+## Installation Metadata
+
+```yaml
+available_to_modes:
+  - \"coding\"
+  - 'legal_admin'
+```
+";
+        let (out, removed) = remove_modes_from_frontmatter(md, &["legal_admin".into()]);
+        assert_eq!(removed, 2, "both blocks' phantom entry removed");
+        assert_eq!(SkillManifest::from_markdown("x", &out).modes, vec!["coding"]);
+    }
+
+    #[test]
+    fn remove_modes_noop_when_nothing_matches() {
+        let md = "---\nname: x\navailable_to_modes: [inline, list]\n---\n";
+        let (out, removed) = remove_modes_from_frontmatter(md, &["inline".into()]);
+        // inline/flow lists are intentionally untouched
+        assert_eq!(removed, 0);
+        assert_eq!(out, md);
     }
 }

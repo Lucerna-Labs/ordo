@@ -193,11 +193,11 @@ classifies:
   diagnostic mode's "verify routing is correct" tool.
   _Status: **DONE** — `ordo-modes::audit` engine + `skills.audit_routing`
   capability (MaintenanceProvider), live-validated._
-- **Stage 5 — diagnostic authority + bounded skill-side repair.** Grant the
-  diagnostic mode a `skills.` lane (keep `skills.delete` blocked); add
-  `skills.repair_routing` applying ONLY safe skill-frontmatter fixes
-  (phantom-mode typo correction) via overwrite, recording to the self-heal
-  store; mode-side issues recorded as deferred. _Status: pending._
+- **Stage 5 — diagnostic authority + bounded skill-side repair.** Diagnostic
+  mode has the `skills.` lane (M1; `skills.delete` blocked); `skills.repair_routing`
+  applies ONLY safe skill-frontmatter fixes (drop phantom-mode declarations when
+  ≥1 real mode remains), dry-run by default. _Status: **DONE**, adversarially
+  reviewed (ship, 2 nits fixed: continue-on-error + path-traversal guard)._
 - **Stage 6 — daily-scan automation.** New `AutomationIntent::SkillRoutingAudit`
   → audit capability, `scope: Diagnostic`, daily trigger, run as
   `mode:"diagnostic"`; seed a default automation. _Status: pending._
@@ -250,3 +250,14 @@ classifies:
   22 anomalies — all `phantom_mode` (the 4 `ordo_*` skills still declare
   `orchestration`/`runtime`/`legal_admin`, which don't exist) or informational
   `undeclared`. Those phantom-mode declarations are the S5 safe-repair target.
+- **Stage 5 (done, reviewed).** `ordo_skills::remove_modes_from_frontmatter` — a
+  line-based transform that drops `- <mode>` items ONLY inside a block-style
+  `available_to_modes:` list (a `category:` list sharing a value like
+  "orchestration" is untouched; inline flow lists are skipped). `skills.repair_routing`
+  capability: for each skill declaring ≥1 real AND ≥1 phantom mode, drop the
+  phantoms; a skill declaring ONLY phantom modes is DEFERRED (removing all would
+  change routing). Dry-run by default; `apply=true` writes. Adversarial review →
+  ship; hardened per its nits: continue-on-error (one skill's write failure no
+  longer aborts the rest, errors collected) + path-traversal guard (canonicalize
+  the target, refuse writes outside the skills root). `ordo-skills` 10 tests,
+  `ordo-mcp-host` 45 tests; `-D warnings` clean.
