@@ -21,7 +21,7 @@
         "minHeight": 760,
         "resizable": true,
         "fullscreen": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI"
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI --use-fake-ui-for-media-stream"
       }
     ],
     "security": {

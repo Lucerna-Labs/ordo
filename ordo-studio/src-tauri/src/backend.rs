@@ -1409,6 +1409,43 @@ fn writable_plugin_root() -> Result<PathBuf, String> {
     Ok(repo_root()?.join("user-files").join("plugins"))
 }
 
+/// Open an http(s) URL in the user's DEFAULT BROWSER.
+///
+/// Used for the avatar pop-out: a real browser grants the microphone reliably
+/// (with the normal prompt), whereas the embedded WebView2 denies
+/// `getUserMedia` unless the host installs a permission handler. Restricted to
+/// http(s) so this can never be used as a generic shell-exec.
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("only http(s) URLs may be opened".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // `cmd /C start "" <url>` hands the URL to the default browser. The
+        // empty "" is the window-title argument `start` expects before a URL.
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn write_plugin_manifest(path: &Path, manifest: &PluginManifest) -> Result<(), String> {
     let serialized = serde_json::to_string_pretty(manifest).map_err(|error| error.to_string())?;
     fs::write(path, format!("{serialized}\n")).map_err(|error| error.to_string())

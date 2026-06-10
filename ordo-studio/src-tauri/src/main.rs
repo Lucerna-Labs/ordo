@@ -13,8 +13,8 @@ use backend::{
     list_local_mcp_servers, list_local_modes, list_local_pinned_memory, list_local_plugins,
     list_local_rag_collections, list_local_review_pending, list_local_review_recent,
     list_local_security_audit, list_local_security_rules, list_local_self_heal_cases,
-    list_local_webhooks, list_local_working_memory, preview_local_rag_collections,
-    set_local_plugin_enabled, update_local_plugin,
+    list_local_webhooks, list_local_working_memory, open_external_url,
+    preview_local_rag_collections, set_local_plugin_enabled, update_local_plugin,
     update_local_skill, StudioState,
 };
 use types::LogLevel;
@@ -72,7 +72,8 @@ fn main() {
             list_local_assistant_facts,
             get_local_session_taint,
             find_local_binary,
-            get_local_health
+            get_local_health,
+            open_external_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ordo Studio");

@@ -1780,63 +1780,28 @@ export function avatarPageUrl(): string {
 export async function openAvatarPopout(): Promise<void> {
   const url = avatarPageUrl();
   let tauriErr: unknown = null;
+  // In the desktop shell, open the avatar in the SYSTEM BROWSER via a Rust
+  // command. The embedded WebView2 denies microphone access (no host-side
+  // permission handler), so a real browser is the reliable surface for the
+  // voice avatar — and it opens dependably, unlike a native WebviewWindow.
   if (canUseTauriCommands()) {
     try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const existing = await WebviewWindow.getByLabel("avatar");
-      if (existing) {
-        await existing.show();
-        await existing.setFocus();
-        return;
-      }
-      const win = new WebviewWindow("avatar", {
-        url,
-        title: "Ordo Avatar",
-        width: 380,
-        height: 520,
-        minWidth: 240,
-        minHeight: 320,
-        resizable: true,
-        focus: true,
-      });
-      // Resolve on `tauri://created` OR a short timeout — the window is
-      // created synchronously, and the event can fire before this listener
-      // attaches (a race that otherwise hangs the await forever). Only an
-      // explicit `tauri://error` is treated as a failure → browser fallback.
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const ok = () => {
-          if (!settled) {
-            settled = true;
-            resolve();
-          }
-        };
-        win.once("tauri://created", ok);
-        win.once("tauri://error", (event) => {
-          if (!settled) {
-            settled = true;
-            reject(new Error(String((event as { payload?: unknown }).payload ?? "window error")));
-          }
-        });
-        setTimeout(ok, 2000);
-      });
+      await invokeLocal<void>("open_external_url", { url });
       return;
     } catch (err) {
       tauriErr = err;
-      console.warn("[avatar] Tauri window failed; trying window.open:", err);
+      console.warn("[avatar] open_external_url failed; trying window.open:", err);
     }
   }
-  // Fallback: open the avatar page in a separate browser window (still a
-  // resizable spare-monitor surface). If even this is blocked, surface why.
+  // Plain-browser context (and the dev origin): open a spare window directly.
   const opened = window.open(url, "ordo-avatar", "popup,width=380,height=560,resizable=yes");
   if (!opened) {
     throw new Error(
       "Couldn't open the avatar window. " +
         (tauriErr
-          ? `Native window error: ${tauriErr instanceof Error ? tauriErr.message : String(tauriErr)}. `
+          ? `Shell error: ${tauriErr instanceof Error ? tauriErr.message : String(tauriErr)}. `
           : "") +
-        "The browser fallback (window.open) was blocked. Open " +
-        `${url} directly in a browser as a workaround.`,
+        `Open ${url} directly in a browser as a workaround.`,
     );
   }
 }
