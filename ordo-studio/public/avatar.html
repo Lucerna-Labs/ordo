@@ -257,29 +257,27 @@
       // Ordo Avatar window.
       //
       // Framework-free — vanilla JS. The avatar is a set of looping
-      // video clips (idle / typing / phone / thinking / speaking),
-      // served from `/avatar/clips/*` and described by
+      // video clips served from `/avatar/clips/*` and described by
       // `/avatar/clips.json`. The page plays the clip matching the
       // avatar's current STATE, driven by the voice loop below:
       //
-      //  - idle      → cycle the ambient behaviors (look around / type /
-      //                answer the phone),
-      //  - thinking  → while a transcribe→turn round-trip is in flight,
-      //  - speaking  → while the spoken reply is playing.
+      //  - idle      → her resting/ambient loop,
+      //  - listening → you started speaking; she stops and looks at you,
+      //  - thinking  → while a transcribe→turn round-trip is in flight
+      //                (she "researches on her PC" to answer you),
+      //  - speaking  → while the spoken reply is playing,
+      //  - annoyed   → a brief reaction on failure / rudeness / repeats.
       //
-      // (A freely-moving head and sprite lip-sync can't coexist, so we
-      // sequence behaviors by state instead of compositing visemes.)
+      // Any state with no clip falls back to idle. (A freely-moving head
+      // and sprite lip-sync can't coexist, so we sequence behaviors by
+      // state instead of compositing visemes.)
       // ---------------------------------------------------------------
 
       // ---------------------------------------------------------------
       // Behavior-clip renderer. The avatar is a set of looping video
-      // clips (idle / typing / phone / thinking / speaking). The page
-      // plays the clip matching the avatar's current STATE, which the
-      // local voice loop drives directly: idle by default, "thinking"
-      // while a turn is in flight, "speaking" while the reply plays.
-      // (A moving head and sprite lip-sync can't coexist, so we sequence
-      // behaviors by state instead of compositing.) Two stacked <video>s
-      // crossfade on every change.
+      // clips the local voice loop switches between by state
+      // (idle / listening / thinking / speaking / annoyed). Two stacked
+      // <video>s crossfade on every change.
       // ---------------------------------------------------------------
       const clipEls = [
         document.getElementById("clipA"),
@@ -349,6 +347,8 @@
         if (dbgState) dbgState.textContent = state;
         if (state === "speaking") {
           playClip(pickClip("speaking", "talking"), true);
+        } else if (state === "listening") {
+          playClip(pickClip("listening", "idle"), true);
         } else if (state === "thinking") {
           playClip(pickClip("thinking", "idle"), true);
         } else if (state === "annoyed") {
@@ -769,6 +769,8 @@
       }
 
       function startUtterance() {
+        // You started speaking — she stops and looks at you to listen.
+        setAvatarState("listening");
         recChunks = [];
         try {
           recorder = new MediaRecorder(
@@ -787,11 +789,15 @@
         };
         recorder.onstop = async () => {
           recordingActive = false;
-          if (muted) return; // muted mid-utterance — discard
+          if (muted) {
+            setAvatarState("idle"); // muted mid-utterance — back to resting
+            return;
+          }
           const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
           const elapsed = Date.now() - recStartTs;
           if (blob.size === 0 || elapsed < VAD_MIN_MS) {
             setStatus("listening…", "live");
+            setAvatarState("idle"); // too short to be speech — back to resting
             return;
           }
           processing = true; // pause VAD while we transcribe / think / speak
