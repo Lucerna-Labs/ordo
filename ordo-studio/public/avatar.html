@@ -351,6 +351,8 @@
           playClip(pickClip("speaking", "talking"), true);
         } else if (state === "thinking") {
           playClip(pickClip("thinking", "idle"), true);
+        } else if (state === "annoyed") {
+          playClip(pickClip("annoyed", "idle"), true);
         } else {
           idleIdx = 0;
           // If there's a rotation, play each once and advance on end;
@@ -639,7 +641,27 @@
         });
       }
 
+      // Annoyed reaction — a brief flash she shows when something fails, when
+      // you're short/rude with her, or when you make her repeat herself. Falls
+      // back to idle until an `annoyed` clip exists in the manifest.
+      const ANNOYED_MS = 1700;
+      let lastUserMessage = "";
+      const RUDE_RE =
+        /\b(shut\s*up|stupid|idiot|dumb|dummy|moron|useless|hate you|shut it|hurry up|whatever|nevermind|never mind|you'?re wrong|ur wrong|so dumb|be quiet|don'?t care)\b/i;
+      const normalizeMsg = (t) =>
+        t.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+      const isRudeMessage = (t) => RUDE_RE.test(t);
+      const isRepeatMessage = (t) => {
+        const n = normalizeMsg(t);
+        return n.length > 0 && n === lastUserMessage;
+      };
+      async function flashAnnoyed() {
+        setAvatarState("annoyed");
+        await new Promise((r) => setTimeout(r, ANNOYED_MS));
+      }
+
       async function runVoiceLoop(blob, format) {
+        let failed = true; // any early return below leaves this true → annoyed
         setAvatarState("thinking");
         try {
         // 1. transcribe (agnostic STT)
@@ -674,6 +696,14 @@
         }
         addConvo("user", text);
 
+        // Annoyed reactions: if you're short/rude or you just asked the same
+        // thing again, she flashes annoyed before (still) helping.
+        if (isRudeMessage(text) || isRepeatMessage(text)) {
+          await flashAnnoyed();
+          setAvatarState("thinking");
+        }
+        lastUserMessage = normalizeMsg(text);
+
         // 2. assistant turn (dedicated voice session)
         setStatus("thinking…");
         let reply;
@@ -703,11 +733,18 @@
         addConvo("ordo", reply);
 
         // 3. speak the reply (visemes + audio)
+        failed = false; // we have a real reply — this turn succeeded
         await speakText(reply);
         } finally {
-          // If we bailed before speaking (no transcript / error / no reply),
-          // return to idle. speakText already flips speaking→idle on success.
-          if (avatarState === "thinking") setAvatarState("idle");
+          if (failed) {
+            // Something went wrong (couldn't hear you / model failed / no
+            // reply) — she gets annoyed, then settles back to idle.
+            await flashAnnoyed();
+            setAvatarState("idle");
+          } else if (avatarState === "thinking") {
+            // speakText already flips speaking→idle on success.
+            setAvatarState("idle");
+          }
         }
       }
 
