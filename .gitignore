@@ -25,3 +25,7 @@
 /installers/
 *.exe
 *.msi
+
+# Python bytecode
+__pycache__/
+*.pyc

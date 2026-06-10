@@ -3476,7 +3476,10 @@ impl RuntimeInfoProvider {
         };
 
         if update == RuntimeSettingsUpdate::default() {
-            return Err("no runtime settings fields were provided".to_string());
+            // Client sent an empty/no-op update. This is a validation error, not
+            // a server fault — phrase it so the control API's classifier
+            // (`classify_tool_failure`) maps it to 400, not 500.
+            return Err("at least one runtime settings field is required".to_string());
         }
 
         let persisted = settings_task
