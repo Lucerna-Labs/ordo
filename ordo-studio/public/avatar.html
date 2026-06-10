@@ -303,13 +303,23 @@
         return idleRotation[0] || "idle";
       }
 
+      let playToken = 0;
       function playClip(name, loop) {
         const url = clipUrl(name);
         if (!url) return;
         if (name === currentClip && clipEls[activeVid].loop === loop) return;
         currentClip = name;
+        const token = ++playToken;
         const cur = clipEls[activeVid];
         const nxt = clipEls[1 - activeVid];
+        // Drop any pending reveal still attached to nxt from a superseded
+        // call, so a rapid re-transition (e.g. a short speech blip going
+        // listening→idle) can't double-flip activeVid and strand her on the
+        // wrong clip.
+        if (nxt._reveal) {
+          nxt.removeEventListener("playing", nxt._reveal);
+          nxt._reveal = null;
+        }
         nxt.loop = loop;
         nxt.onended = loop
           ? null
@@ -317,11 +327,14 @@
               if (avatarState === "idle") advanceIdle();
             };
         const reveal = () => {
+          if (token !== playToken) return; // a newer transition superseded us
           nxt.removeEventListener("playing", reveal);
+          nxt._reveal = null;
           nxt.classList.add("active");
           cur.classList.remove("active");
           activeVid = 1 - activeVid;
         };
+        nxt._reveal = reveal;
         nxt.addEventListener("playing", reveal);
         nxt.src = url;
         try {

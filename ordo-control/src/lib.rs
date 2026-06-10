@@ -1995,10 +1995,14 @@ fn avatar_clips_dir() -> PathBuf {
 /// page still boots (the clip files simply 404 until present).
 const DEFAULT_CLIPS_JSON: &str = r#"{
   "clips": {
-    "idle": "avatar/clips/idle.mp4",
+    "idle": "avatar/clips/watching.mp4",
+    "working": "avatar/clips/working.mp4",
+    "watching": "avatar/clips/watching.mp4",
+    "thinking": "avatar/clips/working.mp4",
+    "listening": "avatar/clips/watching.mp4",
     "speaking": "avatar/clips/speaking.mp4"
   },
-  "idle_rotation": ["idle"]
+  "idle_rotation": ["working", "watching"]
 }"#;
 
 /// GET `/avatar/clips.json` — the behavior-clip manifest, read from the clips

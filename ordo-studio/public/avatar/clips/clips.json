@@ -1,7 +1,11 @@
 {
   "clips": {
-    "idle": "avatar/clips/idle.mp4",
+    "idle": "avatar/clips/watching.mp4",
+    "working": "avatar/clips/working.mp4",
+    "watching": "avatar/clips/watching.mp4",
+    "thinking": "avatar/clips/working.mp4",
+    "listening": "avatar/clips/watching.mp4",
     "speaking": "avatar/clips/speaking.mp4"
   },
-  "idle_rotation": ["idle"]
+  "idle_rotation": ["working", "watching"]
 }
