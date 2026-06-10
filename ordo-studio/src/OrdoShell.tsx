@@ -3061,7 +3061,15 @@ const AvatarSurface = () => {
         title="Avatar"
         sub="A talking-head avatar that lip-syncs to spoken text. Preview it, pop it out into its own resizable window for a spare monitor, and customize its look, persona, and skills."
         trailing={
-          <Button onClick={() => void openAvatarPopout()} variant="primary" size="md">
+          <Button
+            onClick={() =>
+              void openAvatarPopout().catch((e) =>
+                alert(`Avatar pop-out failed: ${e instanceof Error ? e.message : String(e)}`),
+              )
+            }
+            variant="primary"
+            size="md"
+          >
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <Monitor size={15} /> Open pop-out window
             </span>
@@ -3086,6 +3094,9 @@ const AvatarSurface = () => {
             <iframe
               title="Ordo Avatar preview"
               src={url}
+              // Permissions Policy: the embedded avatar page needs the mic for
+              // voice activation, and autoplay so its spoken reply can play.
+              allow="microphone; autoplay"
               style={{
                 width: "100%",
                 height: 560,
@@ -15666,7 +15677,11 @@ export default function OrdoShell() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void openAvatarPopout()}
+                  onClick={() =>
+                    void openAvatarPopout().catch((e) =>
+                      alert(`Avatar pop-out failed: ${e instanceof Error ? e.message : String(e)}`),
+                    )
+                  }
                   title="Open the avatar in a resizable pop-out window"
                   className="rounded-full px-2.5 py-1.5 transition-all"
                   style={{
