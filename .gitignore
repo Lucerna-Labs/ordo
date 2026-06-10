@@ -18,3 +18,10 @@
 
 # Tauri-generated schemas regenerated on every build
 /ordo-studio/src-tauri/gen/schemas/
+
+# NEVER commit: registry signing key + build binaries (scrubbed from history)
+**/registry-signing-key.bin
+/bin/windows/
+/installers/
+*.exe
+*.msi
