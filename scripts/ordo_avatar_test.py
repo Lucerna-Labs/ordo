@@ -475,7 +475,8 @@ def test_assets():
     check("avatar.html 200", s == 200, f"HTTP {s}")
     check("avatar.html is html", "text/html" in h.get("content-type", ""), h.get("content-type", ""))
     txt = raw.decode(errors="replace")
-    check("avatar.html has canvas", "<canvas" in txt)
+    check("avatar.html is a clip player (video stage + clips.json)",
+          "<video" in txt and "/avatar/clips.json" in txt)
     check("avatar.html wires /sse/avatar", "/sse/avatar" in txt)
     check("avatar.html has cloud-voice toggle", "cloud voice" in txt and "/api/voice/speech" in txt)
     check("avatar.html has voice-to-voice loop",
@@ -504,6 +505,29 @@ def test_assets():
     check("missing asset 404s (no 500)", s in (404, 405), f"HTTP {s}")
     s, _, _, _ = req("POST", "/avatar/mouth.png")
     check("wrong method on asset (no 500)", s in (404, 405), f"HTTP {s}", warn_only=True)
+
+    # Behavior-clip serving (disk-served, not embedded).
+    s, h, raw, p = req("GET", "/avatar/clips.json")
+    check("clips.json 200 + json", s == 200 and "application/json" in h.get("content-type", ""),
+          f"HTTP {s}")
+    if p:
+        check("clips.json has clips + idle_rotation",
+              isinstance(p.get("clips"), dict) and isinstance(p.get("idle_rotation"), list)
+              and len(p.get("clips")) >= 1, str(list((p.get("clips") or {}).keys())))
+    # the first idle clip should serve as a video (present on disk under the harness)
+    first = ((p or {}).get("idle_rotation") or list((p or {}).get("clips", {}).keys()) or [None])[0]
+    if first:
+        rel = (p.get("clips") or {}).get(first, f"avatar/clips/{first}.mp4")
+        s, h, raw, _ = req("GET", "/" + rel)
+        ctype = h.get("content-type", "")
+        check(f"clip '{first}' serves as video",
+              s == 200 and "video/" in ctype and len(raw or b"") > 0,
+              f"HTTP {s} {ctype} {len(raw or b'')}B", warn_only=(s != 200))
+    # path-traversal guard: a name containing '..' is rejected (never serves)
+    s, _, _, _ = req("GET", "/avatar/clips/a..b.mp4")
+    check("clip name traversal rejected (400/404, no 500)", s in (400, 404), f"HTTP {s}")
+    s, _, _, _ = req("GET", "/avatar/clips/nope-missing.mp4")
+    check("missing clip 404s (no 500)", s in (404, 405), f"HTTP {s}")
 
 
 def parse_frames(events):

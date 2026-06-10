@@ -578,6 +578,11 @@ pub fn build_router_with_plugins(
         .route("/avatar/mouth.png", get(avatar_mouth_png))
         .route("/avatar/expression.png", get(avatar_expression_png))
         .route("/avatar/glitch.png", get(avatar_glitch_png))
+        // Behavior-clip avatar: the manifest + clip files are served from a
+        // DISK directory (not embedded) so clips can be swapped without a
+        // runtime rebuild. See `avatar_clips_dir`.
+        .route("/avatar/clips.json", get(avatar_clips_manifest))
+        .route("/avatar/clips/:name", get(avatar_clip_file))
         // Files primitive (Phase 1.4). Rule 3: HTTP mirrors the
         // service â€” no business logic in these handlers.
         .route("/api/files", get(list_files_route).post(upload_file_json))
@@ -1974,6 +1979,63 @@ async fn avatar_expression_png() -> Response {
 
 async fn avatar_glitch_png() -> Response {
     png_response(AVATAR_GLITCH_PNG)
+}
+
+/// Directory the avatar's behavior clips + manifest are served from.
+/// Disk-served (NOT embedded) so an artist can drop in / swap clips without a
+/// runtime rebuild. Override with `ORDO_AVATAR_CLIPS_DIR`; defaults to the
+/// studio's public dir (the runtime's CWD is the repo root under the launcher).
+fn avatar_clips_dir() -> PathBuf {
+    std::env::var_os("ORDO_AVATAR_CLIPS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("ordo-studio/public/avatar/clips"))
+}
+
+/// Fallback manifest used when the clips dir has no `clips.json` yet, so the
+/// page still boots (the clip files simply 404 until present).
+const DEFAULT_CLIPS_JSON: &str = r#"{
+  "clips": {
+    "idle": "avatar/clips/idle.mp4",
+    "typing": "avatar/clips/typing.mp4",
+    "phone": "avatar/clips/phone.mp4",
+    "thinking": "avatar/clips/thinking.mp4",
+    "speaking": "avatar/clips/speaking.mp4"
+  },
+  "idle_rotation": ["idle", "typing", "phone"]
+}"#;
+
+/// GET `/avatar/clips.json` — the behavior-clip manifest, read from the clips
+/// dir (falls back to the built-in default so the avatar always boots).
+async fn avatar_clips_manifest() -> Response {
+    let json_ct = [(axum::http::header::CONTENT_TYPE, "application/json")];
+    match std::fs::read(avatar_clips_dir().join("clips.json")) {
+        Ok(bytes) => (json_ct, bytes).into_response(),
+        Err(_) => (json_ct, DEFAULT_CLIPS_JSON).into_response(),
+    }
+}
+
+/// GET `/avatar/clips/:name` — serve one behavior clip from the clips dir.
+/// `name` must be a basename (no path separators / traversal).
+async fn avatar_clip_file(Path(name): Path<String>) -> Response {
+    if name.is_empty() || name.contains('/') || name.contains('\\') || name.contains("..") {
+        return (StatusCode::BAD_REQUEST, "clip name must be a basename").into_response();
+    }
+    let content_type = match name.rsplit('.').next() {
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("json") => "application/json",
+        _ => "application/octet-stream",
+    };
+    match std::fs::read(avatar_clips_dir().join(&name)) {
+        Ok(bytes) => (
+            [(axum::http::header::CONTENT_TYPE, content_type)],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "clip not found").into_response(),
+    }
 }
 
 // -- files HTTP routes (Phase 1.4) ----------------------------------

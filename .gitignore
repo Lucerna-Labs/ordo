@@ -29,3 +29,13 @@
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Avatar behavior clips are generated art (swappable) — track clips.json, not the media
+ordo-studio/public/avatar/clips/*.mp4
+ordo-studio/public/avatar/clips/*.webm
+
+# Playwright MCP scratch output
+.playwright-mcp/
+ordo-runtime/user-files/
+runtime-dev.out.log
+runtime-dev.err.log

@@ -73,10 +73,17 @@
         display: grid;
         place-items: center;
       }
-      #stage canvas {
-        image-rendering: pixelated;
-        width: 224px;
-        height: 224px;
+      #stage video.clip {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      #stage video.clip.active {
+        opacity: 1;
       }
       .debug {
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -215,13 +222,12 @@
     </header>
     <main>
       <div id="stage">
-        <canvas id="avatar" width="128" height="128"></canvas>
+        <video id="clipA" class="clip" muted playsinline></video>
+        <video id="clipB" class="clip" muted playsinline></video>
       </div>
       <dl class="debug">
-        <dt>mouth</dt><dd id="dbg-mouth">—</dd>
-        <dt>expression</dt><dd id="dbg-expression">—</dd>
-        <dt>glitch</dt><dd id="dbg-glitch">—</dd>
-        <dt>frames</dt><dd id="dbg-frames">0</dd>
+        <dt>state</dt><dd id="dbg-state">idle</dd>
+        <dt>clip</dt><dd id="dbg-clip">—</dd>
       </dl>
     </main>
     <footer>
@@ -248,64 +254,125 @@
     </footer>
     <script type="module">
       // ---------------------------------------------------------------
-      // Ordo Avatar preview window.
+      // Ordo Avatar window.
       //
-      // This page is intentionally framework-free — vanilla JS + a
-      // single canvas. The renderer:
+      // Framework-free — vanilla JS. The avatar is a set of looping
+      // video clips (idle / typing / phone / thinking / speaking),
+      // served from `/avatar/clips/*` and described by
+      // `/avatar/clips.json`. The page plays the clip matching the
+      // avatar's current STATE, driven by the voice loop below:
       //
-      //  1. Fetches `/avatar/avatar.json` to learn the atlas layout.
-      //  2. Loads the three atlas PNGs (mouth / expression / glitch).
-      //  3. Opens an EventSource to `/sse/avatar` and paints each
-      //     incoming AvatarFrame by compositing the matching cells.
-      //  4. The "Speak" button POSTs to `/api/avatar/speak`, which
-      //     hands the text to the stub TTS producer; the resulting
-      //     phoneme stream flows through the avatar driver and lands
-      //     here as a stream of frames.
+      //  - idle      → cycle the ambient behaviors (look around / type /
+      //                answer the phone),
+      //  - thinking  → while a transcribe→turn round-trip is in flight,
+      //  - speaking  → while the spoken reply is playing.
       //
-      // Step-7 will replace the server-side TTS stub with
-      // `window.speechSynthesis` — at that point this page either
-      // becomes the dev fallback or gets folded into OrdoShell. For
-      // v0.1 it's the test surface.
+      // (A freely-moving head and sprite lip-sync can't coexist, so we
+      // sequence behaviors by state instead of compositing visemes.)
       // ---------------------------------------------------------------
 
-      // ARPAbet phoneme → 8-viseme grouping. Mirrors
-      // `ordo_avatar::atlas::phoneme_to_viseme`. Kept in JS so the
-      // renderer can run a "preview" frame even before the server
-      // sends one (and so a future direct-from-Web-Speech-API
-      // wiring stays self-contained on the page).
-      const PHONEME_VISEME = {
-        REST: 0,
-        M: 1, B: 1, P: 1,
-        F: 2, V: 2,
-        T: 3, D: 3, N: 3, S: 3, Z: 3, L: 3, TH: 3, DH: 3,
-        K: 4, G: 4, NG: 4, HH: 4,
-        AA: 5, AE: 5, AH: 5, AY: 5, EH: 5, EY: 5, IH: 5, IY: 5, ER: 5,
-        AO: 6, OW: 6, OY: 6, AW: 6, UH: 6, UW: 6,
-        R: 7, Y: 7, W: 7, CH: 7, JH: 7, SH: 7, ZH: 7,
-      };
+      // ---------------------------------------------------------------
+      // Behavior-clip renderer. The avatar is a set of looping video
+      // clips (idle / typing / phone / thinking / speaking). The page
+      // plays the clip matching the avatar's current STATE, which the
+      // local voice loop drives directly: idle by default, "thinking"
+      // while a turn is in flight, "speaking" while the reply plays.
+      // (A moving head and sprite lip-sync can't coexist, so we sequence
+      // behaviors by state instead of compositing.) Two stacked <video>s
+      // crossfade on every change.
+      // ---------------------------------------------------------------
+      const clipEls = [
+        document.getElementById("clipA"),
+        document.getElementById("clipB"),
+      ];
+      let clipManifest = { clips: {}, idle_rotation: [] };
+      let idleRotation = ["idle"];
+      let idleIdx = 0;
+      let activeVid = 0; // which <video> is currently shown
+      let currentClip = null;
+      let avatarState = "";
 
-      const EXPRESSION_CELL = {
-        Neutral: 0,
-        Speaking: 1,
-        Thinking: 2,
-        Alarmed: 3,
-        Amused: 4,
-        Glitched: 5,
-      };
+      function clipUrl(name) {
+        const rel = clipManifest.clips && clipManifest.clips[name];
+        return rel ? "/" + rel : null;
+      }
 
-      const GLITCH_CELL = {
-        None: null,
-        Light: 0,
-        Heavy: 1,
+      // First existing clip among the candidates (falls back to idle).
+      function pickClip(...names) {
+        for (const n of names) {
+          if (clipUrl(n)) return n;
+        }
+        return idleRotation[0] || "idle";
+      }
+
+      function playClip(name, loop) {
+        const url = clipUrl(name);
+        if (!url) return;
+        if (name === currentClip && clipEls[activeVid].loop === loop) return;
+        currentClip = name;
+        const cur = clipEls[activeVid];
+        const nxt = clipEls[1 - activeVid];
+        nxt.loop = loop;
+        nxt.onended = loop
+          ? null
+          : () => {
+              if (avatarState === "idle") advanceIdle();
+            };
+        const reveal = () => {
+          nxt.removeEventListener("playing", reveal);
+          nxt.classList.add("active");
+          cur.classList.remove("active");
+          activeVid = 1 - activeVid;
+        };
+        nxt.addEventListener("playing", reveal);
+        nxt.src = url;
+        try {
+          nxt.currentTime = 0;
+        } catch (_e) {
+          // some browsers reject currentTime before metadata — harmless.
+        }
+        nxt.play().catch(() => {
+          // Muted autoplay is normally allowed; if blocked, the first mic
+          // tap (a user gesture) lets playback through.
+        });
+        if (dbgClip) dbgClip.textContent = name;
+      }
+
+      function advanceIdle() {
+        idleIdx = (idleIdx + 1) % idleRotation.length;
+        playClip(idleRotation[idleIdx], false);
+      }
+
+      function setAvatarState(state) {
+        if (state === avatarState) return;
+        avatarState = state;
+        if (dbgState) dbgState.textContent = state;
+        if (state === "speaking") {
+          playClip(pickClip("speaking", "talking"), true);
+        } else if (state === "thinking") {
+          playClip(pickClip("thinking", "idle"), true);
+        } else {
+          idleIdx = 0;
+          // If there's a rotation, play each once and advance on end;
+          // a single idle clip just loops.
+          playClip(idleRotation[0], idleRotation.length <= 1);
+        }
+      }
+
+      // Small control surface so the host (Studio shell, pop-out opener) or a
+      // test can drive the avatar's behavior state externally — e.g. reflect
+      // the *main* assistant's thinking/speaking, not just this page's voice
+      // loop. The local voice loop remains the default driver.
+      window.ordoAvatar = {
+        setState: (s) => setAvatarState(s),
+        get state() {
+          return avatarState;
+        },
       };
 
       const statusEl = document.getElementById("status");
-      const canvas = document.getElementById("avatar");
-      const ctx = canvas.getContext("2d");
-      const dbgMouth = document.getElementById("dbg-mouth");
-      const dbgExpression = document.getElementById("dbg-expression");
-      const dbgGlitch = document.getElementById("dbg-glitch");
-      const dbgFrames = document.getElementById("dbg-frames");
+      const dbgState = document.getElementById("dbg-state");
+      const dbgClip = document.getElementById("dbg-clip");
       const cloudVoiceEl = document.getElementById("cloudVoice");
 
       // Remember the cloud-voice preference across window reopens.
@@ -327,106 +394,34 @@
         statusEl.className = "status" + (kind ? " " + kind : "");
       }
 
-      async function loadImage(src) {
-        return new Promise((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve(img);
-          img.onerror = (err) => reject(err);
-          img.src = src;
-        });
-      }
-
       async function boot() {
-        let descriptor;
         try {
-          const res = await fetch("/avatar/avatar.json", { cache: "no-store" });
+          const res = await fetch("/avatar/clips.json", { cache: "no-store" });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          descriptor = await res.json();
+          clipManifest = await res.json();
         } catch (err) {
-          setStatus(`atlas descriptor failed: ${err.message ?? err}`, "error");
+          setStatus(`clips manifest failed: ${err.message ?? err}`, "error");
           return;
         }
+        idleRotation =
+          clipManifest.idle_rotation && clipManifest.idle_rotation.length
+            ? clipManifest.idle_rotation
+            : Object.keys(clipManifest.clips || {});
+        if (!idleRotation.length) idleRotation = ["idle"];
 
-        let atlases;
+        setStatus("live", "live");
+        setAvatarState("idle");
+
+        // Keep a lightweight SSE link only for the status badge — the local
+        // voice loop owns idle/thinking/speaking, so there's no second
+        // state owner to race with.
         try {
-          atlases = {
-            mouth: await loadImage("/" + descriptor.mouth.atlas_path),
-            expression: await loadImage("/" + descriptor.expression.atlas_path),
-            glitch: await loadImage("/" + descriptor.glitch.atlas_path),
-          };
-        } catch (err) {
-          setStatus(`atlas PNGs failed`, "error");
-          return;
+          const source = new EventSource("/sse/avatar");
+          source.addEventListener("subscribed", () => setStatus("live", "live"));
+          source.onerror = () => setStatus("reconnecting…", "error");
+        } catch (_e) {
+          // SSE is optional for the clip avatar — non-fatal.
         }
-
-        const cellW = descriptor.cell_width;
-        const cellH = descriptor.cell_height;
-        canvas.width = cellW;
-        canvas.height = cellH;
-
-        let frameCount = 0;
-        let lastFrame = {
-          mouth: "Rest",
-          expression: "Neutral",
-          glitch: "None",
-        };
-
-        function paint(frame) {
-          // Composite: expression backdrop → mouth on top →
-          // glitch overlay (if any). Matches the renderer order
-          // documented on `AvatarFrame`.
-          const exprIdx = EXPRESSION_CELL[frame.expression] ?? 0;
-          const visemeIdx = PHONEME_VISEME[frame.mouth] ?? 0;
-          const glitchIdx = GLITCH_CELL[frame.glitch];
-
-          ctx.clearRect(0, 0, cellW, cellH);
-          ctx.drawImage(
-            atlases.expression,
-            exprIdx * cellW, 0, cellW, cellH,
-            0, 0, cellW, cellH,
-          );
-          ctx.drawImage(
-            atlases.mouth,
-            visemeIdx * cellW, 0, cellW, cellH,
-            0, 0, cellW, cellH,
-          );
-          if (glitchIdx !== null && glitchIdx !== undefined) {
-            ctx.drawImage(
-              atlases.glitch,
-              glitchIdx * cellW, 0, cellW, cellH,
-              0, 0, cellW, cellH,
-            );
-          }
-
-          dbgMouth.textContent = frame.mouth;
-          dbgExpression.textContent = frame.expression;
-          dbgGlitch.textContent = frame.glitch;
-          dbgFrames.textContent = String(++frameCount);
-          lastFrame = frame;
-        }
-
-        // Initial idle paint so the canvas isn't blank while we
-        // wait for the first frame.
-        paint(lastFrame);
-
-        const source = new EventSource("/sse/avatar");
-        source.addEventListener("subscribed", () => {
-          setStatus("live", "live");
-        });
-        source.addEventListener("frame", (e) => {
-          try {
-            const frame = JSON.parse(e.data);
-            paint(frame);
-          } catch (err) {
-            // Bad payload — keep the previous frame on screen.
-            console.error("avatar frame parse failed", err, e.data);
-          }
-        });
-        source.onerror = () => {
-          // EventSource auto-reconnects; surface the gap so the
-          // operator knows the stream blinked.
-          setStatus("reconnecting…", "error");
-        };
       }
 
       // Speech is two independent channels timed off the same text:
@@ -527,29 +522,34 @@
       // is voice-only — this is called by the voice-to-voice loop to speak
       // the assistant's reply, never to echo typed text.
       async function speakText(text) {
-        const visemePost = fetch("/api/avatar/speak", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text }),
-        })
-          .then(async (res) => {
-            if (!res.ok) {
-              const body = await res.text();
-              setStatus(`speak failed: ${res.status} ${body}`, "error");
-            }
+        setAvatarState("speaking");
+        try {
+          const visemePost = fetch("/api/avatar/speak", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text }),
           })
-          .catch((err) => {
-            setStatus(`speak failed: ${err.message ?? err}`, "error");
-          });
+            .then(async (res) => {
+              if (!res.ok) {
+                const body = await res.text();
+                setStatus(`speak failed: ${res.status} ${body}`, "error");
+              }
+            })
+            .catch((err) => {
+              setStatus(`speak failed: ${err.message ?? err}`, "error");
+            });
 
-        let spoke = false;
-        if (cloudVoiceEl.checked) {
-          spoke = await speakViaProvider(text);
+          let spoke = false;
+          if (cloudVoiceEl.checked) {
+            spoke = await speakViaProvider(text);
+          }
+          if (!spoke) {
+            await speakViaBrowser(text);
+          }
+          await visemePost;
+        } finally {
+          setAvatarState("idle");
         }
-        if (!spoke) {
-          await speakViaBrowser(text);
-        }
-        await visemePost;
       }
 
       // ---------------------------------------------------------------
@@ -640,6 +640,8 @@
       }
 
       async function runVoiceLoop(blob, format) {
+        setAvatarState("thinking");
+        try {
         // 1. transcribe (agnostic STT)
         setStatus("transcribing…");
         let text;
@@ -702,6 +704,11 @@
 
         // 3. speak the reply (visemes + audio)
         await speakText(reply);
+        } finally {
+          // If we bailed before speaking (no transcript / error / no reply),
+          // return to idle. speakText already flips speaking→idle on success.
+          if (avatarState === "thinking") setAvatarState("idle");
+        }
       }
 
       function setMicUI() {
