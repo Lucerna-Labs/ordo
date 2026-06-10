@@ -978,6 +978,42 @@ def test_credentials_lifecycle(mock_port):
           svc not in {c.get("service") for c in gone.get("credentials", [])})
 
 
+def test_credentials_preserve_secret(mock_port):
+    # End-to-end regression for the empty-secret bug: editing a credential's
+    # other fields with an empty `secret` (exactly what the Studio Edit modal
+    # sends, since the secret is redacted on read) must PRESERVE the key —
+    # proven here by the preserved secret still authenticating on the wire.
+    print("\n## /api/cloud/credentials — empty secret preserves the key (end-to-end)")
+    purge_creds()
+    svc = f"preserve{RUNID}"
+    base = f"http://127.0.0.1:{mock_port}/ok/v1"
+    register_cred(svc, base, {"voice_api": "openai"})  # secret = secret_for(svc)
+
+    # baseline: the call carries the stored secret
+    req("POST", "/api/voice/speech", {"input": "x", "service": svc})
+    first_auth = (MOCK.last("openai") or {}).get("auth")
+    check("initial call uses the stored secret",
+          first_auth == f"Bearer {secret_for(svc)}", first_auth)
+
+    # Edit modal save: re-upsert with EMPTY secret + a changed field.
+    s, _, _, _ = req("POST", "/api/cloud/credentials", {
+        "service": svc, "label": "edited", "auth_style": "bearer",
+        "secret": "", "base_url": base,
+        "extras": {"voice_api": "openai", "tts_voice": "nova"},
+    })
+    check("empty-secret edit upsert ok", s == 200, f"HTTP {s}")
+
+    # the key must survive AND the edited field must apply
+    req("POST", "/api/voice/speech", {"input": "y", "service": svc})
+    last = MOCK.last("openai") or {}
+    check("empty-secret edit PRESERVES the key on the wire",
+          last.get("auth") == f"Bearer {secret_for(svc)}", last.get("auth"))
+    check("edited field (tts_voice) still took effect",
+          (last.get("payload") or {}).get("voice") == "nova",
+          (last.get("payload") or {}).get("voice"))
+    delete_cred(svc)
+
+
 def test_sse_concurrent():
     print("\n## /sse/avatar — concurrent broadcast clients")
     results = {}
@@ -1094,6 +1130,7 @@ def main():
         test_voice_candidate(mock_port)
         test_voice_broken_providers(mock_port)
         test_credentials_lifecycle(mock_port)
+        test_credentials_preserve_secret(mock_port)
         # storms + big payloads LAST (these leave long background schedules)
         test_concurrency()
         test_speak_adversarial()

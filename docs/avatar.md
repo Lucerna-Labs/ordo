@@ -168,8 +168,10 @@ curl -s -X POST http://127.0.0.1:4141/api/avatar/speak \
   hardcoded `"openai"` then to all credentials, so a request naming a missing
   provider is silently served by a *different* one; `x-ordo-tts-provider` reveals
   the substitution. Whether to surface that to the operator is a product call.
-- **Empty secret zeroes the key over HTTP.** `POST /api/cloud/credentials` with
-  `secret:""` overwrites the stored secret with empty (the "preserve on empty"
-  contract holds only on the bus path, not HTTP). Editing a voice provider's
-  other fields without re-typing the key would clear it — a real credentials-layer
-  bug, tracked separately.
+- **Empty secret over HTTP now preserves the key (fixed).** `POST
+  /api/cloud/credentials` with `secret:""` previously overwrote the stored
+  secret with empty (the "preserve on empty" contract held only on the bus
+  path). `cloud_credentials_upsert` now maps empty→`None` to match
+  `full_into_update`, so editing a voice provider's other fields no longer
+  clears the key. Covered by `cloud_credentials_secret_tests` (unit) and an
+  end-to-end case in the harness (preserved key still authenticates).

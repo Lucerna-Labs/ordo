@@ -3240,9 +3240,15 @@ async fn cloud_credentials_upsert(
             .get("auth_style")
             .and_then(|value| value.as_str())
             .map(str::to_string),
+        // An empty `secret` means "preserve the existing one", matching the
+        // bus path (`full_into_update`) and the store's `None` semantics. The
+        // Studio's Edit modal never carries the (redacted) secret, so editing
+        // any other field must NOT wipe the stored key. Delete the credential
+        // to remove it.
         secret: arguments
             .get("secret")
             .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
             .map(str::to_string),
         base_url: arguments
             .get("base_url")
@@ -7529,5 +7535,158 @@ mod planning_llm_tests {
             }
             ToolCallResult::Completed { .. } => panic!("expected Failed after deny"),
         }
+    }
+}
+
+#[cfg(test)]
+mod cloud_credentials_secret_tests {
+    //! Regression coverage for the HTTP upsert empty-secret semantics.
+    //!
+    //! The Studio's Edit-credential modal never carries the (redacted)
+    //! secret, so saving an edit to any other field sends `secret: ""`.
+    //! That must PRESERVE the stored key (matching the bus path's
+    //! `full_into_update`), not wipe it. A non-empty secret still rotates.
+    use super::{cloud_credentials_upsert, CloudOpsProvider};
+    use ordo_cloud::{CloudCredentialStore, CloudCredentialTask};
+    use serde_json::json;
+
+    fn provider_with_task() -> (CloudOpsProvider, CloudCredentialTask) {
+        let store = CloudCredentialStore::in_memory().expect("store");
+        let task = CloudCredentialTask::start(store);
+        (CloudOpsProvider::new(task.clone()), task)
+    }
+
+    #[tokio::test]
+    async fn empty_secret_preserves_existing_on_upsert() {
+        let (provider, task) = provider_with_task();
+
+        // Create with a real secret.
+        cloud_credentials_upsert(
+            &provider,
+            &json!({
+                "service": "minimax",
+                "label": "MiniMax",
+                "auth_style": "bearer",
+                "secret": "sk-original-key",
+                "base_url": "https://api.minimax.io/v1",
+                "extras": { "group_id": "grp-1" }
+            }),
+        )
+        .await
+        .expect("create");
+
+        // Edit other fields (label + group_id) with an EMPTY secret —
+        // exactly what the Studio Edit modal sends.
+        cloud_credentials_upsert(
+            &provider,
+            &json!({
+                "service": "minimax",
+                "label": "MiniMax (edited)",
+                "auth_style": "bearer",
+                "secret": "",
+                "base_url": "https://api.minimax.io/v1",
+                "extras": { "group_id": "grp-2" }
+            }),
+        )
+        .await
+        .expect("edit");
+
+        let cred = task
+            .get("minimax".into())
+            .await
+            .expect("get")
+            .expect("credential exists");
+        assert_eq!(
+            cred.secret, "sk-original-key",
+            "empty secret must PRESERVE the stored key, not zero it"
+        );
+        assert_eq!(cred.label, "MiniMax (edited)", "other fields still update");
+        assert_eq!(
+            cred.extras.get("group_id").map(String::as_str),
+            Some("grp-2"),
+            "extras still update when secret is empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_secret_field_preserves_existing_on_upsert() {
+        let (provider, task) = provider_with_task();
+        cloud_credentials_upsert(
+            &provider,
+            &json!({
+                "service": "openai",
+                "label": "OpenAI",
+                "auth_style": "bearer",
+                "secret": "sk-keep-me",
+                "base_url": "https://api.openai.com/v1",
+                "extras": {}
+            }),
+        )
+        .await
+        .expect("create");
+
+        // No `secret` key at all → also preserve.
+        cloud_credentials_upsert(
+            &provider,
+            &json!({
+                "service": "openai",
+                "label": "OpenAI (renamed)",
+                "auth_style": "bearer",
+                "base_url": "https://api.openai.com/v1",
+                "extras": {}
+            }),
+        )
+        .await
+        .expect("edit");
+
+        let cred = task
+            .get("openai".into())
+            .await
+            .expect("get")
+            .expect("credential exists");
+        assert_eq!(cred.secret, "sk-keep-me", "omitted secret preserves the key");
+        assert_eq!(cred.label, "OpenAI (renamed)");
+    }
+
+    #[tokio::test]
+    async fn non_empty_secret_rotates_on_upsert() {
+        let (provider, task) = provider_with_task();
+        cloud_credentials_upsert(
+            &provider,
+            &json!({
+                "service": "openai",
+                "label": "OpenAI",
+                "auth_style": "bearer",
+                "secret": "sk-old",
+                "base_url": "https://api.openai.com/v1",
+                "extras": {}
+            }),
+        )
+        .await
+        .expect("create");
+
+        cloud_credentials_upsert(
+            &provider,
+            &json!({
+                "service": "openai",
+                "label": "OpenAI",
+                "auth_style": "bearer",
+                "secret": "sk-new-rotated",
+                "base_url": "https://api.openai.com/v1",
+                "extras": {}
+            }),
+        )
+        .await
+        .expect("rotate");
+
+        let cred = task
+            .get("openai".into())
+            .await
+            .expect("get")
+            .expect("credential exists");
+        assert_eq!(
+            cred.secret, "sk-new-rotated",
+            "a real (non-empty) secret must still rotate the stored key"
+        );
     }
 }
