@@ -347,6 +347,7 @@ const LEFT_RAIL_TAB_IDS = new Set([
   "hooks",
   "review",
   "skills",
+  "avatar",
   "plugins",
   "mcp",
   "extensions",
