@@ -157,6 +157,7 @@ import {
   type AssistantMode,
   type TurnEvent,
   openAvatarPopout,
+  avatarPageUrl,
 } from "./api";
 import { ExtensionsSurface } from "./extensions/ExtensionsSurface";
 import {
@@ -276,6 +277,9 @@ const TABS: TabDef[] = [
   { id: "persona", label: "Persona", glyph: User, group: "agent" },
   { id: "agent-persona", label: "Agent Persona", glyph: Bot, group: "agent" },
   { id: "agent-memory", label: "Agent Memory", glyph: BookMarked, group: "agent" },
+  // The talking-head avatar. Its own tab so it's discoverable; the panel
+  // previews it inline and pops it out into a resizable window.
+  { id: "avatar", label: "Avatar", glyph: Monitor, group: "agent" },
   // Apps are agent rigging (deployable units the assistant operates).
   // Files are knowledge material (uploaded artifacts the assistant
   // reads from), so they belong in the knowledge group next to RAG
@@ -2873,6 +2877,54 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
 // preferences. Stored as assistant facts (assistant.list_facts /
 // remember_fact / forget_fact) which are what the assistant turn
 // already pulls into context.
+
+const AvatarSurface = () => {
+  const url = avatarPageUrl();
+  return (
+    <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
+      <SectionHeader
+        icon={<Bot size={22} />}
+        title="Avatar"
+        sub="A talking-head avatar that lip-syncs to spoken text. Preview it inline below, or pop it out into its own resizable window and drag it onto a spare monitor. Type into the Speak box to drive the lip-sync."
+        trailing={
+          <Button onClick={() => void openAvatarPopout()} variant="primary" size="md">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <Monitor size={15} /> Open pop-out window
+            </span>
+          </Button>
+        }
+      />
+      <Card>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <iframe
+            title="Ordo Avatar preview"
+            src={url}
+            style={{
+              width: "100%",
+              height: 560,
+              border: `1px solid ${UI.cardBorder}`,
+              borderRadius: 12,
+              background: "#0c0d10",
+            }}
+          />
+          <div style={{ fontSize: 13, color: UI.textMuted, lineHeight: 1.7 }}>
+            <div>
+              <strong style={{ color: PARCHMENT }}>Voice.</strong> The browser voice is
+              the zero-config default. Toggle <em>cloud voice</em> inside the window to route
+              audio through a configured provider (OpenAI-compatible or MiniMax) — set one up
+              in the <strong style={{ color: PARCHMENT }}>Provider</strong> tab.
+            </div>
+            <div style={{ marginTop: 6 }}>
+              <strong style={{ color: PARCHMENT }}>Not animating?</strong> The runtime must
+              run with <code>ORDO_ENABLE_AVATAR=1</code> (the Ordo launcher sets this) so the
+              avatar driver emits frames. Restart Ordo Studio if you just updated.
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+};
 
 const PersonaSurface = () => {
   const [facts, setFacts] = useState<AssistantFact[] | null>(null);
@@ -14930,6 +14982,8 @@ export default function OrdoShell() {
         );
       case "skills":
         return <SkillsSurface onOpenDirectoryTab={navigateToTab} />;
+      case "avatar":
+        return <AvatarSurface />;
       case "persona":
         return <PersonaSurface />;
       case "agent-persona":

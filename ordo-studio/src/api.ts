@@ -1667,8 +1667,14 @@ export const fetchHealth = () =>
  * `ORDO_ENABLE_AVATAR=1`; without it the window renders the idle face
  * and the Speak box still drives the lip-sync stub once enabled.
  */
+/** Absolute URL of the avatar page served by the control API. Use this
+ *  for an inline `<iframe>` preview or to open the pop-out window. */
+export function avatarPageUrl(): string {
+  return `${CONTROL_API_ORIGIN}/avatar.html`;
+}
+
 export async function openAvatarPopout(): Promise<void> {
-  const url = `${CONTROL_API_ORIGIN}/avatar.html`;
+  const url = avatarPageUrl();
   if (canUseTauriCommands()) {
     try {
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
