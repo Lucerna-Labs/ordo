@@ -20,7 +20,8 @@
         "minWidth": 1220,
         "minHeight": 760,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI"
       }
     ],
     "security": {
