@@ -2879,14 +2879,47 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
 // remember_fact / forget_fact) which are what the assistant turn
 // already pulls into context.
 
+// Placeholder panel for an Avatar sub-tab whose real functionality lands
+// later. Captures WHAT will live there so the scaffold is self-documenting.
+const AvatarComingSoon = ({
+  title,
+  blurb,
+  planned,
+}: {
+  title: string;
+  blurb: string;
+  planned: string[];
+}) => (
+  <Card>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>{title}</span>
+        <Badge variant="neutral">Coming soon</Badge>
+      </div>
+      <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>{blurb}</div>
+      <div style={{ fontSize: 13, color: UI.textDim }}>
+        Planned controls:
+        <ul style={{ margin: "8px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
+          {planned.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </Card>
+);
+
+type AvatarSubTab = "preview" | "appearance" | "persona" | "skills";
+
 const AvatarSurface = () => {
+  const [subTab, setSubTab] = useState<AvatarSubTab>("preview");
   const url = avatarPageUrl();
   return (
     <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
       <SectionHeader
         icon={<Bot size={22} />}
         title="Avatar"
-        sub="A talking-head avatar that lip-syncs to spoken text. Preview it inline below, or pop it out into its own resizable window and drag it onto a spare monitor. Type into the Speak box to drive the lip-sync."
+        sub="A talking-head avatar that lip-syncs to spoken text. Preview it, pop it out into its own resizable window for a spare monitor, and customize its look, persona, and skills."
         trailing={
           <Button onClick={() => void openAvatarPopout()} variant="primary" size="md">
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -2895,34 +2928,85 @@ const AvatarSurface = () => {
           </Button>
         }
       />
-      <Card>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <iframe
-            title="Ordo Avatar preview"
-            src={url}
-            style={{
-              width: "100%",
-              height: 560,
-              border: `1px solid ${UI.cardBorder}`,
-              borderRadius: 12,
-              background: "#0c0d10",
-            }}
-          />
-          <div style={{ fontSize: 13, color: UI.textMuted, lineHeight: 1.7 }}>
-            <div>
-              <strong style={{ color: PARCHMENT }}>Voice.</strong> The browser voice is
-              the zero-config default. Toggle <em>cloud voice</em> inside the window to route
-              audio through a configured provider (OpenAI-compatible or MiniMax) — set one up
-              in the <strong style={{ color: PARCHMENT }}>Provider</strong> tab.
-            </div>
-            <div style={{ marginTop: 6 }}>
-              <strong style={{ color: PARCHMENT }}>Not animating?</strong> The runtime must
-              run with <code>ORDO_ENABLE_AVATAR=1</code> (the Ordo launcher sets this) so the
-              avatar driver emits frames. Restart Ordo Studio if you just updated.
+      <TabPills
+        items={[
+          { id: "preview" as AvatarSubTab, label: "Preview" },
+          { id: "appearance" as AvatarSubTab, label: "Appearance" },
+          { id: "persona" as AvatarSubTab, label: "Persona" },
+          { id: "skills" as AvatarSubTab, label: "Skills" },
+        ]}
+        active={subTab}
+        onChange={setSubTab}
+      />
+
+      {subTab === "preview" && (
+        <Card>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <iframe
+              title="Ordo Avatar preview"
+              src={url}
+              style={{
+                width: "100%",
+                height: 560,
+                border: `1px solid ${UI.cardBorder}`,
+                borderRadius: 12,
+                background: "#0c0d10",
+              }}
+            />
+            <div style={{ fontSize: 13, color: UI.textMuted, lineHeight: 1.7 }}>
+              <div>
+                <strong style={{ color: PARCHMENT }}>Voice.</strong> The browser voice is
+                the zero-config default. Toggle <em>cloud voice</em> inside the window to route
+                audio through a configured provider (OpenAI-compatible or MiniMax) — set one up
+                in the <strong style={{ color: PARCHMENT }}>Provider</strong> tab.
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <strong style={{ color: PARCHMENT }}>Not animating?</strong> The runtime must
+                run with <code>ORDO_ENABLE_AVATAR=1</code> (the Ordo launcher sets this) so the
+                avatar driver emits frames. Restart Ordo Studio if you just updated.
+              </div>
             </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
+
+      {subTab === "appearance" && (
+        <AvatarComingSoon
+          title="Appearance"
+          blurb="Change how the avatar looks — its sprite atlas (skin), expression set, glitch style, accent colors, and render size."
+          planned={[
+            "Swap the sprite atlas / skin (mouth, expression, glitch sheets)",
+            "Pick accent colors + background for the pop-out window",
+            "Idle expression + blink/glitch intensity",
+            "Render scale and pixelation",
+          ]}
+        />
+      )}
+
+      {subTab === "persona" && (
+        <AvatarComingSoon
+          title="Persona"
+          blurb="Give the avatar its own personality and voice — independent of, but able to inherit from, the Agent Persona."
+          planned={[
+            "Default expression + emotional tone",
+            "Voice provider + specific voice (browser / OpenAI-compatible / MiniMax)",
+            "Speaking pace and idle behavior",
+            "Inherit from Agent Persona, or override per-avatar",
+          ]}
+        />
+      )}
+
+      {subTab === "skills" && (
+        <AvatarComingSoon
+          title="Skills"
+          blurb="Scope which skills the avatar surface can use and react to, reusing the mode→skill routing."
+          planned={[
+            "Allow / block specific skills for the avatar",
+            "React to skill events (think, alarmed, glitched expressions)",
+            "Bind the avatar to a mode's skill set",
+          ]}
+        />
+      )}
     </div>
   );
 };
