@@ -159,6 +159,8 @@ import {
   openAvatarPopout,
   avatarPageUrl,
   transcribeAudio,
+  getAvatarBrain,
+  setAvatarBrain,
 } from "./api";
 import { ExtensionsSurface } from "./extensions/ExtensionsSurface";
 import {
@@ -2910,7 +2912,144 @@ const AvatarComingSoon = ({
   </Card>
 );
 
-type AvatarSubTab = "preview" | "appearance" | "persona" | "skills";
+// The avatar's own LLM endpoint, bound to the `avatar` mode. Lets the avatar
+// run as a second assistant on a different model (so it works concurrently
+// with the main assistant) while sharing memory / RAG / skills.
+const AvatarBrainPanel = () => {
+  const [kind, setKind] = useState<"local" | "cloud">("local");
+  const [baseUrl, setBaseUrl] = useState("http://localhost:11434/v1");
+  const [model, setModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [current, setCurrent] = useState<{
+    bound: boolean;
+    model: string | null;
+    baseUrl: string | null;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const b = await getAvatarBrain();
+      setCurrent({ bound: b.bound, model: b.model, baseUrl: b.baseUrl });
+      if (b.bound) {
+        if (b.baseUrl) setBaseUrl(b.baseUrl);
+        if (b.model) setModel(b.model);
+        setKind(b.baseUrl && /localhost|127\.0\.0\.1/.test(b.baseUrl) ? "local" : "cloud");
+      }
+    } catch {
+      // first run / unreadable — keep the local-first defaults
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const pickKind = (k: "local" | "cloud") => {
+    setKind(k);
+    setBaseUrl(k === "local" ? "http://localhost:11434/v1" : "https://api.openai.com/v1");
+  };
+
+  const save = async () => {
+    if (!model.trim()) {
+      setToast("enter a model name");
+      return;
+    }
+    setBusy(true);
+    setToast(null);
+    try {
+      await setAvatarBrain({
+        kind,
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        apiKey: apiKey.trim() || undefined,
+      });
+      setToast("saved — the avatar now thinks with this model.");
+      setApiKey("");
+      await load();
+    } catch (err) {
+      setToast(`save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const kindBtn = (k: "local" | "cloud", label: string) => (
+    <button
+      type="button"
+      onClick={() => pickKind(k)}
+      style={{
+        flex: 1,
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: `1px solid ${kind === k ? UI.primaryBorder : UI.cardBorder}`,
+        background: kind === k ? UI.primarySoft : "transparent",
+        color: kind === k ? UI.primary : UI.textMuted,
+        fontWeight: 600,
+        fontSize: 13,
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  const labelStyle = { fontSize: 12, color: UI.textMuted, marginBottom: 4 } as const;
+
+  return (
+    <Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>Brain</div>
+        <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>
+          The avatar runs as a second assistant on its <strong>own model</strong> — so it works
+          side-by-side with your main assistant — while sharing the same memory, RAG, and skills.
+          Point it at a <strong>local</strong> (Ollama / llama.cpp) or <strong>cloud</strong> endpoint.
+        </div>
+        {current?.bound && (
+          <div style={{ fontSize: 13, color: "#4ade80" }}>
+            Current brain: <strong>{current.model || "?"}</strong>
+            {current.baseUrl ? ` @ ${current.baseUrl}` : ""}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {kindBtn("local", "Local")}
+          {kindBtn("cloud", "Cloud")}
+        </div>
+        <div>
+          <div style={labelStyle}>Endpoint (OpenAI-compatible base URL)</div>
+          <TextInput value={baseUrl} onChange={setBaseUrl} placeholder="http://localhost:11434/v1" />
+        </div>
+        <div>
+          <div style={labelStyle}>Model</div>
+          <TextInput
+            value={model}
+            onChange={setModel}
+            placeholder={kind === "local" ? "llama3.1:8b" : "gpt-4o-mini"}
+          />
+        </div>
+        {kind === "cloud" && (
+          <div>
+            <div style={labelStyle}>API key (leave blank to keep the stored one)</div>
+            <TextInput value={apiKey} onChange={setApiKey} placeholder="sk-..." />
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Button onClick={() => void save()} disabled={busy} variant="primary" size="md">
+            {busy ? "Saving…" : "Save avatar brain"}
+          </Button>
+          {toast && <span style={{ fontSize: 12, color: UI.textMuted }}>{toast}</span>}
+        </div>
+        <div style={{ fontSize: 12, color: UI.textDim, lineHeight: 1.6 }}>
+          Local-first keeps the avatar off your cloud quota and genuinely concurrent. The endpoint is
+          stored as the <code>avatar-brain</code> credential and bound to the <code>avatar</code> mode;
+          memory, RAG, and skills stay shared with the rest of Ordo.
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+type AvatarSubTab = "preview" | "brain" | "appearance" | "persona" | "skills";
 
 const AvatarSurface = () => {
   const [subTab, setSubTab] = useState<AvatarSubTab>("preview");
@@ -2932,6 +3071,7 @@ const AvatarSurface = () => {
       <TabPills
         items={[
           { id: "preview" as AvatarSubTab, label: "Preview" },
+          { id: "brain" as AvatarSubTab, label: "Brain" },
           { id: "appearance" as AvatarSubTab, label: "Appearance" },
           { id: "persona" as AvatarSubTab, label: "Persona" },
           { id: "skills" as AvatarSubTab, label: "Skills" },
@@ -2970,6 +3110,8 @@ const AvatarSurface = () => {
           </div>
         </Card>
       )}
+
+      {subTab === "brain" && <AvatarBrainPanel />}
 
       {subTab === "appearance" && (
         <AvatarComingSoon

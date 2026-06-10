@@ -166,8 +166,20 @@ curl -s -X POST http://127.0.0.1:4141/api/avatar/speak \
   (`ordo-modes` defaults) with a concise spoken-companion persona (short replies
   meant to be heard, not read), hidden from the chat mode-picker. Separate from
   the Studio's **voice-to-text dictation** (composer mic → transcribe → fills the
-  message box; no spoken reply). Deferred: MiniMax ASR, wake-word, tight
-  audio↔viseme sync, barge-in.
+  message box; no spoken reply).
+- **The avatar has its own brain (concurrent second assistant).** The avatar
+  runs as a second assistant on its **own LLM endpoint** so it works at the same
+  time as your main assistant (e.g. rust-vibe-coder on a cloud model) without
+  contending for it — but on the **shared brain**: same persistent memory
+  (global scope), RAG, and skills. The Avatar tab's **Brain** sub-tab configures
+  a local (Ollama / llama.cpp) or cloud endpoint, stored as the `avatar-brain`
+  credential and bound to the `avatar` mode's `default_credential`; avatar-mode
+  turns route there automatically (`service.rs` candidate walk). Local-first by
+  default (keeps the avatar off cloud quota + genuinely concurrent). Verified:
+  the binding round-trips without losing the mode manifest. A live concurrent
+  run needs two working model endpoints.
+- Deferred: MiniMax ASR, wake-word, tight audio↔viseme sync, barge-in, per-avatar
+  appearance/persona/skills customization (scaffolded sub-tabs).
 
 ## Known sharp-edges (surfaced by the test harness)
 

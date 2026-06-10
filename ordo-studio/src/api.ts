@@ -1493,6 +1493,92 @@ export const deleteAssistantMode = (id: string, force = false) =>
     `/api/assistant/modes/${encodeURIComponent(id)}${force ? "?force=true" : ""}`,
   );
 
+/**
+ * Update a mode. The runtime expects the FULL manifest (the route injects
+ * `id`), so callers fetch the mode, change fields, and send the whole thing
+ * back — preserving every field they didn't touch.
+ */
+export const updateAssistantMode = (id: string, manifest: Record<string, unknown>) =>
+  api.patch<AssistantMode>(`/api/assistant/modes/${encodeURIComponent(id)}`, manifest);
+
+// ─── Avatar brain (its own LLM endpoint, bound to the `avatar` mode) ───
+//
+// The avatar runs as a second assistant on its OWN model so it works
+// concurrently with the main assistant — but on the SHARED brain (same
+// memory/RAG/skills). We store its endpoint as a dedicated credential
+// (`avatar-brain`) in the shared vault and bind it to the `avatar` mode's
+// default_credential; the assistant turn then routes avatar-mode turns to it.
+
+export const AVATAR_BRAIN_SERVICE = "avatar-brain";
+export const AVATAR_MODE_ID = "avatar";
+
+export interface AvatarBrain {
+  kind: "local" | "cloud";
+  baseUrl: string;
+  model: string;
+  /** Cloud only; omitted/blank for local (preserved on save if blank). */
+  apiKey?: string;
+}
+
+/** Read the current avatar-brain config: the bound credential + its model. */
+export const getAvatarBrain = async (): Promise<{
+  bound: boolean;
+  service: string | null;
+  baseUrl: string | null;
+  model: string | null;
+}> => {
+  let bound = AVATAR_BRAIN_SERVICE;
+  try {
+    const mode = await fetchAssistantMode(AVATAR_MODE_ID);
+    bound = mode.default_credential || AVATAR_BRAIN_SERVICE;
+  } catch {
+    // mode unreadable — fall back to the convention name
+  }
+  try {
+    const { credentials } = await listCloudCredentials();
+    const cred = credentials.find((c) => c.service === bound);
+    return {
+      bound: Boolean(cred),
+      service: cred ? bound : null,
+      baseUrl: cred?.base_url ?? cred?.endpoint ?? null,
+      model: cred?.extras?.model ?? null,
+    };
+  } catch {
+    return { bound: false, service: null, baseUrl: null, model: null };
+  }
+};
+
+/**
+ * Configure the avatar's own LLM endpoint and bind it to the `avatar` mode.
+ * Upserts the `avatar-brain` credential (base_url + model in extras), then
+ * patches the avatar mode's `default_credential`. An empty apiKey preserves
+ * any stored secret (and is fine for local endpoints, which ignore it).
+ */
+export const setAvatarBrain = async (brain: AvatarBrain): Promise<void> => {
+  await upsertCloudCredential({
+    service: AVATAR_BRAIN_SERVICE,
+    label: "Avatar brain",
+    auth_style: "bearer",
+    // Local servers (Ollama/llama.cpp) ignore the bearer token; a placeholder
+    // keeps the credential valid. Cloud uses the real key (blank = preserve).
+    secret: brain.apiKey && brain.apiKey.length > 0
+      ? brain.apiKey
+      : brain.kind === "local"
+        ? "local"
+        : "",
+    base_url: brain.baseUrl,
+    extras: { model: brain.model, avatar_brain: "true", kind: brain.kind },
+  });
+  const mode = (await fetchAssistantMode(AVATAR_MODE_ID)) as unknown as Record<
+    string,
+    unknown
+  >;
+  await updateAssistantMode(AVATAR_MODE_ID, {
+    ...mode,
+    default_credential: AVATAR_BRAIN_SERVICE,
+  });
+};
+
 // ─── Operator persona / agent facts ─────────────────────────────
 
 // The runtime stores facts as triples (subject / predicate / object).
