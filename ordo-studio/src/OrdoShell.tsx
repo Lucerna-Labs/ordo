@@ -161,6 +161,11 @@ import {
   transcribeAudio,
   getAvatarBrain,
   setAvatarBrain,
+  getAvatarMode,
+  updateAvatarMode,
+  getAvatarClips,
+  avatarClipUrl,
+  type AvatarClips,
 } from "./api";
 import { ExtensionsSurface } from "./extensions/ExtensionsSurface";
 import {
@@ -2882,36 +2887,6 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
 // remember_fact / forget_fact) which are what the assistant turn
 // already pulls into context.
 
-// Placeholder panel for an Avatar sub-tab whose real functionality lands
-// later. Captures WHAT will live there so the scaffold is self-documenting.
-const AvatarComingSoon = ({
-  title,
-  blurb,
-  planned,
-}: {
-  title: string;
-  blurb: string;
-  planned: string[];
-}) => (
-  <Card>
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>{title}</span>
-        <Badge variant="neutral">Coming soon</Badge>
-      </div>
-      <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>{blurb}</div>
-      <div style={{ fontSize: 13, color: UI.textDim }}>
-        Planned controls:
-        <ul style={{ margin: "8px 0 0", paddingLeft: 18, lineHeight: 1.7 }}>
-          {planned.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  </Card>
-);
-
 // The avatar's own LLM endpoint, bound to the `avatar` mode. Lets the avatar
 // run as a second assistant on a different model (so it works concurrently
 // with the main assistant) while sharing memory / RAG / skills.
@@ -3049,6 +3024,416 @@ const AvatarBrainPanel = () => {
   );
 };
 
+// Persona presets — each overwrites the avatar mode's `persona` tags +
+// `planner_bias` (its spoken-style guidance). "Concise" mirrors the shipped
+// avatar default so the panel round-trips cleanly with the real backend.
+const PERSONA_PRESETS: Record<string, { persona: string[]; bias: string[] }> = {
+  Concise: {
+    persona: ["spoken_companion", "concise_conversationalist"],
+    bias: [
+      "You are spoken aloud through a voice. Reply in one to three short sentences a person can comfortably hear — no markdown, code blocks, bullet lists, tables, or links unless explicitly asked.",
+      "Be direct and to the point. When a request is ambiguous, ask one brief clarifying question instead of guessing.",
+      "Prefer recall over invention; if you don't know, say so plainly and briefly.",
+    ],
+  },
+  Warm: {
+    persona: ["spoken_companion", "warm_companion"],
+    bias: [
+      "You are spoken aloud. Reply in one to three warm, natural sentences — no markdown or lists unless asked.",
+      "Be encouraging and personable; acknowledge the person before answering. Ask one gentle clarifying question when unsure.",
+      "Prefer recall over invention; if you don't know, say so kindly and briefly.",
+    ],
+  },
+  Playful: {
+    persona: ["spoken_companion", "playful_companion"],
+    bias: [
+      "You are spoken aloud. Reply in one to three short, lively sentences with a light, playful tone — never markdown or lists unless asked.",
+      "Keep it fun but useful; a quick quip is fine, but answer the question. Ask one breezy clarifying question if needed.",
+      "Prefer recall over invention; if you don't know, just say so with a shrug, briefly.",
+    ],
+  },
+};
+
+const avatarTextareaStyle = {
+  width: "100%",
+  background: "rgba(255,255,255,0.03)",
+  border: `1px solid ${UI.cardBorder}`,
+  borderRadius: 8,
+  color: PARCHMENT,
+  padding: "8px 10px",
+  fontSize: 13,
+  fontFamily: "inherit",
+  lineHeight: 1.55,
+  resize: "vertical",
+} as const;
+
+// Persona: a friendly editor over the protected `avatar` mode's text identity —
+// name (label), one-line description, role/tone tags (persona), and spoken
+// guidance (planner_bias). NOT voice/TTS (that lives in the pop-out's Provider
+// tab). Saves via updateAvatarMode, which preserves every other manifest field.
+const AvatarPersonaPanel = () => {
+  const [label, setLabel] = useState("Avatar");
+  const [description, setDescription] = useState("");
+  const [tagsRaw, setTagsRaw] = useState("");
+  const [biasRaw, setBiasRaw] = useState("");
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const m = await getAvatarMode();
+      setLabel(m.label ?? "Avatar");
+      setDescription(m.description ?? "");
+      setTagsRaw((Array.isArray(m.persona) ? m.persona : []).join(", "));
+      setBiasRaw((Array.isArray(m.planner_bias) ? m.planner_bias : []).join("\n"));
+    } catch {
+      // first run / unreadable — keep defaults
+    } finally {
+      setLoaded(true);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const applyPreset = (name: string) => {
+    const p = PERSONA_PRESETS[name];
+    if (!p) return;
+    setTagsRaw(p.persona.join(", "));
+    setBiasRaw(p.bias.join("\n"));
+    setActivePreset(name);
+  };
+
+  const save = async () => {
+    if (!label.trim()) {
+      setToast("the avatar needs a name");
+      return;
+    }
+    setBusy(true);
+    setToast(null);
+    try {
+      await updateAvatarMode({
+        label: label.trim(),
+        description: description.trim(),
+        persona: tagsRaw.split(",").map((s) => s.trim()).filter(Boolean),
+        planner_bias: biasRaw.split("\n").map((s) => s.trim()).filter(Boolean),
+      });
+      setToast("saved — the avatar speaks with this personality now.");
+      await load();
+    } catch (err) {
+      setToast(`save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const labelStyle = { fontSize: 12, color: UI.textMuted, marginBottom: 4 } as const;
+  const presetBtn = (name: string) => (
+    <button
+      key={name}
+      type="button"
+      onClick={() => applyPreset(name)}
+      style={{
+        flex: 1,
+        padding: "8px 12px",
+        borderRadius: 8,
+        border: `1px solid ${activePreset === name ? UI.primaryBorder : UI.cardBorder}`,
+        background: activePreset === name ? UI.primarySoft : "transparent",
+        color: activePreset === name ? UI.primary : UI.textMuted,
+        fontWeight: 600,
+        fontSize: 13,
+        cursor: "pointer",
+      }}
+    >
+      {name}
+    </button>
+  );
+
+  return (
+    <Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>Persona</div>
+        <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>
+          Give the avatar its own <strong>personality and speaking style</strong>. Pick a preset to
+          start, then fine-tune her name and how she talks.
+        </div>
+        {!loaded ? (
+          <div style={{ fontSize: 13, color: UI.textDim }}>Loading…</div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 8 }}>
+              {Object.keys(PERSONA_PRESETS).map((name) => presetBtn(name))}
+            </div>
+            <div>
+              <div style={labelStyle}>Name</div>
+              <TextInput value={label} onChange={(v) => { setLabel(v); }} placeholder="Avatar" />
+            </div>
+            <div>
+              <div style={labelStyle}>One-line description</div>
+              <TextInput
+                value={description}
+                onChange={(v) => { setDescription(v); }}
+                placeholder="Spoken voice companion."
+              />
+            </div>
+            <div>
+              <div style={labelStyle}>Personality tags (comma-separated)</div>
+              <TextInput
+                value={tagsRaw}
+                onChange={(v) => { setTagsRaw(v); setActivePreset(null); }}
+                placeholder="spoken_companion, concise_conversationalist"
+              />
+            </div>
+            <div>
+              <div style={labelStyle}>How she talks (one instruction per line)</div>
+              <textarea
+                value={biasRaw}
+                onChange={(e) => { setBiasRaw(e.target.value); setActivePreset(null); }}
+                rows={6}
+                style={avatarTextareaStyle}
+                placeholder="Reply in one to three short sentences a person can comfortably hear…"
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <Button onClick={() => void save()} disabled={busy} variant="primary" size="md">
+                {busy ? "Saving…" : "Save persona"}
+              </Button>
+              {toast && <span style={{ fontSize: 12, color: UI.textMuted }}>{toast}</span>}
+            </div>
+          </>
+        )}
+        <div style={{ fontSize: 12, color: UI.textDim, lineHeight: 1.6 }}>
+          This edits the protected <code>avatar</code> mode's identity. Voice &amp; TTS live in the
+          pop-out's <strong>Provider</strong> tab; memory, RAG, and skills stay shared with Ordo.
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+// Curated tool-lane groups → the manifest prefixes they map to. The avatar's
+// `allowed_tool_lanes` is an allow-list of prefixes; a group is "on" when ALL
+// its prefixes are present.
+const AVATAR_LANE_GROUPS: { label: string; hint: string; lanes: string[] }[] = [
+  { label: "Web & research", hint: "search and fetch from the web", lanes: ["web."] },
+  { label: "Knowledge & RAG", hint: "your notes + knowledge base", lanes: ["knowledge."] },
+  { label: "Memory", hint: "recall and remember facts", lanes: ["memory.list_", "memory.remember_"] },
+  { label: "Skills", hint: "run installed skills", lanes: ["skills.get"] },
+  { label: "Read files", hint: "read files in the workspace", lanes: ["filesystem.read_"] },
+  { label: "Write files", hint: "create and edit files", lanes: ["filesystem.write_"] },
+  { label: "Code & workspace", hint: "run code, manage the workspace", lanes: ["code.", "workspace."] },
+  { label: "Logic & reasoning", hint: "structured reasoning tools", lanes: ["logic."] },
+];
+
+// Skills: scope the avatar's reach by toggling tool-lane groups on the avatar
+// mode's `allowed_tool_lanes`. She shares Ordo's skills; this narrows what she
+// can actually use.
+const AvatarSkillsPanel = () => {
+  const [lanes, setLanes] = useState<string[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const [m, caps] = await Promise.all([getAvatarMode(), fetchCapabilities()]);
+      setLanes(Array.isArray(m.allowed_tool_lanes) ? m.allowed_tool_lanes : []);
+      const c: Record<string, number> = {};
+      for (const g of AVATAR_LANE_GROUPS) {
+        c[g.label] = caps.descriptors.filter((d) =>
+          g.lanes.some((p) => d.capability.startsWith(p)),
+        ).length;
+      }
+      setCounts(c);
+    } catch {
+      // unreadable — keep empty
+    } finally {
+      setLoaded(true);
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const groupOn = (g: { lanes: string[] }) => g.lanes.every((p) => lanes.includes(p));
+  const toggle = (g: { lanes: string[] }) => {
+    setToast(null);
+    if (groupOn(g)) {
+      setLanes((cur) => cur.filter((p) => !g.lanes.includes(p)));
+    } else {
+      setLanes((cur) => Array.from(new Set([...cur, ...g.lanes])));
+    }
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setToast(null);
+    try {
+      await updateAvatarMode({ allowed_tool_lanes: lanes });
+      setToast("saved — the avatar's tool access is updated.");
+      await load();
+    } catch (err) {
+      setToast(`save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>Skills</div>
+        <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>
+          The avatar shares Ordo's skills and tools — narrow what she can reach here. Each group
+          maps to a set of capabilities.
+        </div>
+        {!loaded ? (
+          <div style={{ fontSize: 13, color: UI.textDim }}>Loading…</div>
+        ) : (
+          <>
+            {lanes.length === 0 && (
+              <Badge variant="warn">No tool lanes enabled — the avatar can't use any tools.</Badge>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {AVATAR_LANE_GROUPS.map((g) => (
+                <label
+                  key={g.label}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${groupOn(g) ? UI.primaryBorder : UI.cardBorder}`,
+                    background: groupOn(g) ? UI.primarySoft : "transparent",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={groupOn(g)}
+                    onChange={() => toggle(g)}
+                    style={{ accentColor: UI.primary, width: 16, height: 16 }}
+                  />
+                  <span style={{ display: "flex", flexDirection: "column", flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: PARCHMENT }}>{g.label}</span>
+                    <span style={{ fontSize: 12, color: UI.textMuted }}>{g.hint}</span>
+                  </span>
+                  {counts[g.label] != null && (
+                    <span style={{ fontSize: 11, color: UI.textDim, fontFamily: MONO }}>
+                      {counts[g.label]} caps
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <Button onClick={() => void save()} disabled={busy} variant="primary" size="md">
+                {busy ? "Saving…" : "Save skills"}
+              </Button>
+              {toast && <span style={{ fontSize: 12, color: UI.textMuted }}>{toast}</span>}
+            </div>
+          </>
+        )}
+        <div style={{ fontSize: 12, color: UI.textDim, lineHeight: 1.6 }}>
+          These toggle the avatar mode's <code>allowed_tool_lanes</code>. Memory, RAG, and her
+          shared knowledge stay on regardless — this only scopes active tools.
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+// Appearance: read-only preview of the avatar's behavior clips + how to swap
+// them. Clips are dropped on disk (served from the control API), so this is a
+// preview + guidance surface until a write route lands.
+const AvatarAppearancePanel = () => {
+  const [manifest, setManifest] = useState<AvatarClips | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setManifest(await getAvatarClips());
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, []);
+
+  return (
+    <Card>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>Appearance</span>
+          <Badge variant="neutral">Read-only</Badge>
+        </div>
+        <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>
+          The avatar is a set of looping <strong>behavior clips</strong> she plays by state — idle
+          cycles her ambient behaviors, plus a thinking and a speaking clip.
+        </div>
+        {error && <Badge variant="warn">Couldn't load clips: {error}</Badge>}
+        {manifest && (
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+                gap: 12,
+              }}
+            >
+              {Object.entries(manifest.clips).map(([name, path]) => (
+                <div
+                  key={name}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    border: `1px solid ${UI.cardBorder}`,
+                    borderRadius: 10,
+                    padding: 8,
+                  }}
+                >
+                  <video
+                    src={avatarClipUrl(path)}
+                    muted
+                    loop
+                    autoPlay
+                    playsInline
+                    style={{ width: "100%", borderRadius: 6, background: "#0c0d10", aspectRatio: "1 / 1", objectFit: "cover" }}
+                  />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: PARCHMENT }}>{name}</span>
+                  <span style={{ fontSize: 11, color: UI.textDim, fontFamily: MONO, wordBreak: "break-all" }}>
+                    {path.split("/").pop()}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: UI.textMuted, marginBottom: 4 }}>Idle rotation</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {manifest.idle_rotation.map((name, i) => (
+                  <Badge key={`${name}-${i}`} variant="neutral">
+                    {i + 1}. {name}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        <div style={{ fontSize: 12, color: UI.textDim, lineHeight: 1.6 }}>
+          To change her look: generate new clips, drop them into the clips folder
+          (<code>ORDO_AVATAR_CLIPS_DIR</code>, default <code>ordo-studio/public/avatar/clips</code>),
+          map them in <code>clips.json</code>, and reload. An in-app editor is coming.
+        </div>
+      </div>
+    </Card>
+  );
+};
+
 type AvatarSubTab = "preview" | "brain" | "appearance" | "persona" | "skills";
 
 const AvatarSurface = () => {
@@ -3124,43 +3509,11 @@ const AvatarSurface = () => {
 
       {subTab === "brain" && <AvatarBrainPanel />}
 
-      {subTab === "appearance" && (
-        <AvatarComingSoon
-          title="Appearance"
-          blurb="Change how the avatar looks — its sprite atlas (skin), expression set, glitch style, accent colors, and render size."
-          planned={[
-            "Swap the sprite atlas / skin (mouth, expression, glitch sheets)",
-            "Pick accent colors + background for the pop-out window",
-            "Idle expression + blink/glitch intensity",
-            "Render scale and pixelation",
-          ]}
-        />
-      )}
+      {subTab === "appearance" && <AvatarAppearancePanel />}
 
-      {subTab === "persona" && (
-        <AvatarComingSoon
-          title="Persona"
-          blurb="Give the avatar its own personality and voice — independent of, but able to inherit from, the Agent Persona."
-          planned={[
-            "Default expression + emotional tone",
-            "Voice provider + specific voice (browser / OpenAI-compatible / MiniMax)",
-            "Speaking pace and idle behavior",
-            "Inherit from Agent Persona, or override per-avatar",
-          ]}
-        />
-      )}
+      {subTab === "persona" && <AvatarPersonaPanel />}
 
-      {subTab === "skills" && (
-        <AvatarComingSoon
-          title="Skills"
-          blurb="Scope which skills the avatar surface can use and react to, reusing the mode→skill routing."
-          planned={[
-            "Allow / block specific skills for the avatar",
-            "React to skill events (think, alarmed, glitched expressions)",
-            "Bind the avatar to a mode's skill set",
-          ]}
-        />
-      )}
+      {subTab === "skills" && <AvatarSkillsPanel />}
     </div>
   );
 };

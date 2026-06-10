@@ -1440,6 +1440,14 @@ export interface AssistantMode {
   default_credential?: string | null;
   cross_mode_borrow_policy?: string | null;
   cross_mode_consult_policy?: string | null;
+  // Skill routing — present in the Rust ModeManifest; optional here so the
+  // full-manifest round-trip (updateAvatarMode) can carry them through without
+  // a type error. The Skills panel writes `allowed_skill_tags`.
+  allowed_skill_tags?: string[];
+  blocked_skill_tags?: string[];
+  blocked_skills?: string[];
+  max_skill_risk?: string | null;
+  default_skill_admission?: string | null;
   /** Built-in core mode — can't be deleted without force. */
   protected?: boolean;
 }
@@ -1578,6 +1586,53 @@ export const setAvatarBrain = async (brain: AvatarBrain): Promise<void> => {
     default_credential: AVATAR_BRAIN_SERVICE,
   });
 };
+
+// ─── Avatar mode customization (persona / skills) ────────────────
+//
+// Every avatar customization edit GETs the full avatar manifest, spreads it,
+// overwrites ONLY the named field group, and PATCHes the whole thing back. The
+// runtime injects `id` from the path and enforces deny_unknown_fields, so we
+// MUST round-trip every field unchanged. NEVER construct a partial manifest:
+// omitting planner_bias/persona/allowed_tool_lanes/protected/default_credential
+// would silently wipe them. The spread preserves `protected: true` and the
+// bound `default_credential` (the avatar-brain link) untouched.
+
+/** The full avatar manifest, typed. Used by every avatar customization panel. */
+export const getAvatarMode = (): Promise<AssistantMode> => fetchAssistantMode(AVATAR_MODE_ID);
+
+/**
+ * Merge a partial patch into the avatar manifest WITHOUT field loss. Re-fetches
+ * the LIVE manifest on every call (never cache + re-PATCH a stale snapshot — a
+ * concurrent brain/persona/skills save would otherwise be clobbered), spreads
+ * it, applies `patch` on top, and PATCHes the whole thing back. This is the
+ * only sanctioned way to edit the protected `avatar` mode from the studio.
+ */
+export const updateAvatarMode = async (patch: Partial<AssistantMode>): Promise<AssistantMode> => {
+  const mode = (await fetchAssistantMode(AVATAR_MODE_ID)) as unknown as Record<string, unknown>;
+  return updateAssistantMode(AVATAR_MODE_ID, { ...mode, ...patch });
+};
+
+// ─── Avatar appearance (behavior clips) ──────────────────────────
+
+export interface AvatarClips {
+  clips: Record<string, string>;
+  idle_rotation: string[];
+}
+
+/** Read the avatar's behavior-clip manifest (served from the control API). */
+export const getAvatarClips = async (): Promise<AvatarClips> => {
+  const res = await fetch(`${CONTROL_API_ORIGIN}/avatar/clips.json`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`clips.json HTTP ${res.status}`);
+  const data = (await res.json()) as Partial<AvatarClips>;
+  return {
+    clips: data.clips && typeof data.clips === "object" ? data.clips : {},
+    idle_rotation: Array.isArray(data.idle_rotation) ? data.idle_rotation : [],
+  };
+};
+
+/** Resolve a clips-manifest relative path (e.g. "avatar/clips/idle.mp4") to a URL. */
+export const avatarClipUrl = (relPath: string): string =>
+  `${CONTROL_API_ORIGIN}/${relPath.replace(/^\//, "")}`;
 
 // ─── Operator persona / agent facts ─────────────────────────────
 
