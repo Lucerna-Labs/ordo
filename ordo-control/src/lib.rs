@@ -530,6 +530,7 @@ pub fn build_router_with_plugins(
         )
         .route("/api/assistant/recall", post(recall_assistant_facts))
         .route("/api/voice/speech", post(post_voice_speech))
+        .route("/api/voice/transcribe", post(post_voice_transcribe))
         .route(
             "/api/assistant/modes",
             get(list_assistant_modes).post(create_assistant_mode),
@@ -1710,6 +1711,54 @@ async fn post_voice_speech(
     headers.insert("x-ordo-tts-provider", provider);
     headers.insert("x-ordo-tts-format", format);
     Ok(response)
+}
+
+/// Body for `POST /api/voice/transcribe`. Audio rides as base64 so the
+/// control API stays JSON (only the provider call is multipart). `format`
+/// is the container hint (e.g. "webm", "wav", "mp3").
+#[derive(Deserialize)]
+struct VoiceTranscribeRequest {
+    audio_base64: String,
+    #[serde(default)]
+    format: Option<String>,
+    #[serde(default)]
+    service: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    language: Option<String>,
+}
+
+/// Speech-to-text: decode the base64 audio and transcribe it via an
+/// OpenAI-compatible provider (agnostic — `base_url` can be local or cloud).
+/// Returns `{ text, provider, model }`.
+async fn post_voice_transcribe(
+    State(state): State<ControlApiState>,
+    Json(body): Json<VoiceTranscribeRequest>,
+) -> Result<Json<Value>, ControlApiError> {
+    let service = require_assistant(&state)?;
+    if body.audio_base64.trim().is_empty() {
+        return Err(ControlApiError::bad_request("audio_base64 is required"));
+    }
+    let audio = base64_decode_minimal(&body.audio_base64).map_err(ControlApiError::bad_request)?;
+    let format = body.format.unwrap_or_else(|| "webm".to_string());
+    let transcript = service
+        .transcribe_audio(
+            audio,
+            format,
+            ordo_assistant::TranscribeRequest {
+                service: body.service,
+                model: body.model,
+                language: body.language,
+            },
+        )
+        .await
+        .map_err(map_assistant_error)?;
+    Ok(Json(json!({
+        "text": transcript.text,
+        "provider": transcript.credential_service,
+        "model": transcript.model,
+    })))
 }
 
 /// Server-Sent Events mirror of the assistant-event WebSocket.

@@ -82,6 +82,25 @@ pub struct SpeechResponse {
     pub voice: String,
 }
 
+/// Speech-to-text options. The audio bytes + container format are passed
+/// separately (the control layer decodes base64 before calling).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TranscribeRequest {
+    #[serde(default)]
+    pub service: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub language: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TranscriptResponse {
+    pub text: String,
+    pub credential_service: String,
+    pub model: String,
+}
+
 /// Everything the router pulled into the prompt for this turn. Stored
 /// alongside the turn so the studio can surface "here's what the
 /// assistant consulted before it answered you."

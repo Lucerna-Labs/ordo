@@ -40,8 +40,8 @@ use crate::tools::ToolGateway;
 use crate::types::{
     AssistantError, AssistantResult, AssistantSession, CancelFlag, CancellationRegistry, Fact,
     FactSummary, KnowledgeKind, NewFact, NewKnowledge, RagHitSummary, RecalledFact, ReviewOutcome,
-    SessionWithTurns, SpeechRequest, SpeechResponse, ToolInvocation, Turn, TurnContext,
-    TurnRequest, TurnResult, MAX_SUBAGENT_DEPTH,
+    SessionWithTurns, SpeechRequest, SpeechResponse, ToolInvocation, TranscribeRequest,
+    TranscriptResponse, Turn, TurnContext, TurnRequest, TurnResult, MAX_SUBAGENT_DEPTH,
 };
 
 // Outer-bound LLM timeout used as a fallback when no credential is
@@ -931,6 +931,92 @@ impl AssistantService {
                         credential_service: credential.service,
                         model,
                         voice,
+                    });
+                }
+                Err(err) => {
+                    last_error = Some(AssistantError::LlmFailed(err.to_string()));
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| AssistantError::NoCredential("openai".into())))
+    }
+
+    /// Transcribe `audio` (raw bytes of container `format`) to text via an
+    /// OpenAI-compatible speech-to-text provider. Mirrors [`Self::speak_text`]:
+    /// it walks credential candidates (the requested `service` first, then the
+    /// default, then all configured) and returns the first that succeeds — so
+    /// pass an explicit `service` to target a specific STT endpoint
+    /// deterministically (e.g. a local whisper server).
+    pub async fn transcribe_audio(
+        &self,
+        audio: Vec<u8>,
+        format: String,
+        request: TranscribeRequest,
+    ) -> AssistantResult<TranscriptResponse> {
+        if audio.is_empty() {
+            return Err(AssistantError::InvalidArgument(
+                "transcription audio must not be empty".into(),
+            ));
+        }
+
+        let mut candidates = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut push = |name: String| {
+            if !name.trim().is_empty() && seen.insert(name.clone()) {
+                candidates.push(name);
+            }
+        };
+        if let Some(service) = request.service.as_ref() {
+            push(service.clone());
+        }
+        if let Ok(Some(default_service)) = self.credentials.get_default().await {
+            push(default_service);
+        }
+        push(self.default_service.clone());
+        if let Ok(all) = self.credentials.list().await {
+            for credential in all {
+                push(credential.service);
+            }
+        }
+
+        let mut last_error: Option<AssistantError> = None;
+        for service in candidates {
+            let credential = match self.credentials.get(service.clone()).await {
+                Ok(Some(credential)) => credential,
+                Ok(None) => {
+                    if !matches!(
+                        last_error,
+                        Some(AssistantError::LlmFailed(_))
+                            | Some(AssistantError::InvalidArgument(_))
+                    ) {
+                        last_error = Some(AssistantError::NoCredential(service));
+                    }
+                    continue;
+                }
+                Err(err) => {
+                    last_error = Some(AssistantError::Storage(err.to_string()));
+                    continue;
+                }
+            };
+            if credential.auth_style == "anthropic" {
+                last_error = Some(AssistantError::InvalidArgument(format!(
+                    "speech-to-text provider '{}' is not OpenAI-compatible",
+                    credential.service
+                )));
+                continue;
+            }
+            let args = json!({
+                "model": request.model.clone(),
+                "language": request.language.clone(),
+            });
+            match ordo_cloud::voice::transcribe(&self.http, &credential, audio.clone(), &format, &args)
+                .await
+            {
+                Ok(transcript) => {
+                    return Ok(TranscriptResponse {
+                        text: transcript.text,
+                        credential_service: credential.service,
+                        model: transcript.model,
                     });
                 }
                 Err(err) => {

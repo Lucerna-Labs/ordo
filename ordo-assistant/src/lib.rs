@@ -45,6 +45,7 @@ pub use tools::{ToolGateway, DEFAULT_ALLOWED_LANES, RESERVED_FROM_ASSISTANT};
 pub use types::{
     AssistantError, AssistantResult, AssistantSession, Fact, FactSummary, KnowledgeEntry,
     KnowledgeKind, KnowledgeSummary, NewFact, NewKnowledge, RagHitSummary, RecalledFact,
-    RecalledKnowledge, SessionWithTurns, SpeechRequest, SpeechResponse, ToolInvocation, Turn,
-    TurnContext, TurnRequest, TurnResult, MAX_SUBAGENT_DEPTH,
+    RecalledKnowledge, SessionWithTurns, SpeechRequest, SpeechResponse, ToolInvocation,
+    TranscribeRequest, TranscriptResponse, Turn, TurnContext, TurnRequest, TurnResult,
+    MAX_SUBAGENT_DEPTH,
 };

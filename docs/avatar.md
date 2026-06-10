@@ -152,9 +152,13 @@ curl -s -X POST http://127.0.0.1:4141/api/avatar/speak \
 - The MiniMax adapter is now exercised end-to-end by the mock harness (request
   shaping, GroupId encoding, hex decode, byte round-trip), but still needs a
   **live key + `group_id`** to confirm against the real service.
-- "Voice-to-voice" input (speech-in → response) is not wired — this build makes
-  the **output voice** provider-agnostic. Speech-to-text input is a future
-  extension that would feed the assistant the same way typed text does.
+- **Voice-to-voice is wired (beta).** The avatar pop-out has a tap-to-talk mic:
+  record → `POST /api/voice/transcribe` (agnostic OpenAI-compatible STT, local
+  or cloud) → an assistant turn in a dedicated voice session → the reply is
+  spoken + lip-synced. STT provider is configured like the TTS one (a credential
+  with `base_url`; set the `STT provider` field in the pop-out to target it).
+  See `docs/plans/2026-06-10-avatar-voice-to-voice-design.md`. Deferred: MiniMax
+  ASR, VAD/wake-word, tight audio↔viseme sync, barge-in.
 
 ## Known sharp-edges (surfaced by the test harness)
 

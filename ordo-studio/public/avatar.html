@@ -149,6 +149,63 @@
         padding: 0;
         accent-color: #4ade80;
       }
+      /* voice-to-voice additions */
+      footer {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .controls-row {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+      }
+      .settings-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #mic {
+        flex: none;
+        width: 46px;
+        padding: 0;
+        font-size: 16px;
+      }
+      #mic.recording {
+        background: rgba(248, 113, 113, 0.2);
+        border-color: #f87171;
+        color: #f87171;
+        animation: ordo-pulse 1s ease-in-out infinite;
+      }
+      @keyframes ordo-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.45; }
+      }
+      #sttService {
+        flex: 1;
+        min-width: 120px;
+        font-size: 12px;
+        padding: 6px 10px;
+      }
+      #convo {
+        width: 100%;
+        max-height: 110px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        text-align: left;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      #convo:empty { display: none; }
+      .convo-line .who {
+        color: #6b707a;
+        font-weight: 600;
+        margin-right: 5px;
+      }
+      .convo-line.user { color: #c8ccd4; }
+      .convo-line.ordo { color: #4ade80; }
     </style>
   </head>
   <body>
@@ -168,20 +225,33 @@
       </dl>
     </main>
     <footer>
-      <input
-        id="text"
-        type="text"
-        placeholder="text for the avatar to speak…"
-        autocomplete="off"
-      />
-      <label
-        class="voice-toggle"
-        title="Use the configured cloud voice provider (OpenAI-compatible / MiniMax) instead of the browser voice"
-      >
-        <input id="cloudVoice" type="checkbox" />
-        cloud voice
-      </label>
-      <button id="speak">Speak</button>
+      <div id="convo" aria-live="polite"></div>
+      <div class="controls-row">
+        <button id="mic" title="Tap to talk — speak, then tap again to send">🎤</button>
+        <input
+          id="text"
+          type="text"
+          placeholder="…or type for the avatar to speak"
+          autocomplete="off"
+        />
+        <button id="speak">Speak</button>
+      </div>
+      <div class="settings-row">
+        <label
+          class="voice-toggle"
+          title="Use the configured cloud voice provider (OpenAI-compatible / MiniMax) instead of the browser voice"
+        >
+          <input id="cloudVoice" type="checkbox" />
+          cloud voice
+        </label>
+        <input
+          id="sttService"
+          type="text"
+          placeholder="STT provider (optional)"
+          autocomplete="off"
+          title="Credential service name for speech-to-text (e.g. a local whisper server). Leave blank to let Ordo pick."
+        />
+      </div>
     </footer>
     <script type="module">
       // ---------------------------------------------------------------
@@ -436,12 +506,10 @@
         }
       }
 
-      async function speak() {
-        const text = textInput.value.trim();
-        if (!text) return;
-        speakBtn.disabled = true;
-
-        // Visemes always — independent of the audio path.
+      // Speak a given string: drive the lip-sync visemes + play the audio
+      // (cloud provider when opted in, else the browser voice). Reused by
+      // the type-to-speak box AND the voice-to-voice loop's reply.
+      async function speakText(text) {
         const visemePost = fetch("/api/avatar/speak", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -457,8 +525,6 @@
             setStatus(`speak failed: ${err.message ?? err}`, "error");
           });
 
-        // Audio: cloud provider when opted in, else (or on failure)
-        // the browser voice.
         let spoke = false;
         if (cloudVoiceEl.checked) {
           spoke = await speakViaProvider(text);
@@ -466,15 +532,216 @@
         if (!spoke) {
           speakViaBrowser(text);
         }
-
         await visemePost;
-        speakBtn.disabled = false;
+      }
+
+      async function speak() {
+        const text = textInput.value.trim();
+        if (!text) return;
+        speakBtn.disabled = true;
+        try {
+          await speakText(text);
+        } finally {
+          speakBtn.disabled = false;
+        }
       }
 
       speakBtn.addEventListener("click", speak);
       textInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") speak();
       });
+
+      // ---------------------------------------------------------------
+      // Voice-to-voice loop: tap mic → record → tap again → transcribe
+      // (agnostic STT) → assistant turn (dedicated voice session) → speak
+      // the reply. See docs/plans/2026-06-10-avatar-voice-to-voice-design.md
+      // ---------------------------------------------------------------
+      const micBtn = document.getElementById("mic");
+      const sttInput = document.getElementById("sttService");
+      const convoEl = document.getElementById("convo");
+      let voiceSessionId = null;
+      let mediaRecorder = null;
+      let recordedChunks = [];
+      let recording = false;
+
+      try {
+        sttInput.value = localStorage.getItem("ordo.avatar.sttService") || "";
+        sttInput.addEventListener("change", () => {
+          localStorage.setItem("ordo.avatar.sttService", sttInput.value.trim());
+        });
+      } catch (_err) {
+        // localStorage unavailable — non-fatal.
+      }
+
+      function addConvo(role, text) {
+        if (!convoEl) return;
+        const line = document.createElement("div");
+        line.className = "convo-line " + role;
+        const who = document.createElement("span");
+        who.className = "who";
+        who.textContent = role === "user" ? "you:" : "Ordo:";
+        line.appendChild(who);
+        line.appendChild(document.createTextNode(text));
+        convoEl.appendChild(line);
+        convoEl.scrollTop = convoEl.scrollHeight;
+      }
+
+      async function ensureVoiceSession() {
+        if (voiceSessionId) return voiceSessionId;
+        const res = await fetch("/api/assistant/sessions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "Avatar voice", mode: "general" }),
+        });
+        if (!res.ok) throw new Error(`session create failed: ${res.status}`);
+        const s = await res.json();
+        voiceSessionId =
+          s.id || s.session_id || (s.session && s.session.id) || null;
+        if (!voiceSessionId) throw new Error("session id missing in response");
+        return voiceSessionId;
+      }
+
+      function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const s = String(reader.result || "");
+            resolve(s.slice(s.indexOf(",") + 1)); // strip the data: prefix
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      }
+
+      async function runVoiceLoop(blob, format) {
+        // 1. transcribe (agnostic STT)
+        setStatus("transcribing…");
+        let text;
+        try {
+          const audio_base64 = await blobToBase64(blob);
+          const service = sttInput.value.trim();
+          const res = await fetch("/api/voice/transcribe", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              audio_base64,
+              format,
+              ...(service ? { service } : {}),
+            }),
+          });
+          if (!res.ok) {
+            const body = await res.text();
+            console.warn("transcribe failed", res.status, body);
+            setStatus(`transcribe failed (${res.status})`, "error");
+            return;
+          }
+          text = (await res.json()).text;
+        } catch (err) {
+          setStatus(`transcribe error: ${err.message ?? err}`, "error");
+          return;
+        }
+        if (!text || !text.trim()) {
+          setStatus("…didn't catch that", "error");
+          return;
+        }
+        addConvo("user", text);
+
+        // 2. assistant turn (dedicated voice session)
+        setStatus("thinking…");
+        let reply;
+        try {
+          const sid = await ensureVoiceSession();
+          const res = await fetch("/api/assistant/turn", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ session_id: sid, user_message: text }),
+          });
+          if (!res.ok) {
+            const body = await res.text();
+            console.warn("assistant turn failed", res.status, body);
+            setStatus(`assistant failed (${res.status})`, "error");
+            return;
+          }
+          const result = await res.json();
+          reply = result && result.turn && result.turn.assistant_response;
+        } catch (err) {
+          setStatus(`assistant error: ${err.message ?? err}`, "error");
+          return;
+        }
+        if (!reply || !reply.trim()) {
+          setStatus("…no reply", "error");
+          return;
+        }
+        addConvo("ordo", reply);
+
+        // 3. speak the reply (visemes + audio)
+        await speakText(reply);
+      }
+
+      async function toggleMic() {
+        if (recording) {
+          recording = false;
+          micBtn.classList.remove("recording");
+          micBtn.textContent = "🎤";
+          if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+          }
+          return;
+        }
+
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (err) {
+          console.warn("getUserMedia failed", err);
+          setStatus("mic blocked — allow microphone access for this window", "error");
+          return;
+        }
+
+        recordedChunks = [];
+        const mime = MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/ogg")
+            ? "audio/ogg"
+            : "";
+        try {
+          mediaRecorder = mime
+            ? new MediaRecorder(stream, { mimeType: mime })
+            : new MediaRecorder(stream);
+        } catch (err) {
+          console.warn("MediaRecorder failed", err);
+          setStatus("recording unsupported in this window", "error");
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        const format = (mediaRecorder.mimeType || mime || "audio/webm").includes("ogg")
+          ? "ogg"
+          : "webm";
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size) recordedChunks.push(e.data);
+        };
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach((t) => t.stop());
+          micBtn.disabled = true;
+          try {
+            const blob = new Blob(recordedChunks, {
+              type: mediaRecorder.mimeType || "audio/webm",
+            });
+            if (blob.size > 0) await runVoiceLoop(blob, format);
+          } finally {
+            micBtn.disabled = false;
+          }
+        };
+
+        mediaRecorder.start();
+        recording = true;
+        micBtn.classList.add("recording");
+        micBtn.textContent = "■";
+        setStatus("listening… (tap to stop)", "live");
+      }
+
+      micBtn.addEventListener("click", () => void toggleMic());
 
       boot();
     </script>

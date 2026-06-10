@@ -1027,7 +1027,22 @@ fn apply_auth(
     builder: RequestBuilder,
     credential: &CloudCredential,
 ) -> CloudResult<RequestBuilder> {
-    let mut builder = builder.header(CONTENT_TYPE, "application/json");
+    // JSON requests carry a JSON content-type; the auth header itself is
+    // applied by `apply_auth_only` so multipart callers (e.g. the STT
+    // dispatch, which lets reqwest set its own multipart content-type) can
+    // reuse the auth logic without the JSON content-type.
+    let builder = builder.header(CONTENT_TYPE, "application/json");
+    apply_auth_only(builder, credential)
+}
+
+/// Apply only the credential's auth header(s) to a request builder, without
+/// setting any content-type. Used by JSON requests (via [`apply_auth`]) and
+/// by multipart requests that set their own content-type.
+pub(crate) fn apply_auth_only(
+    builder: RequestBuilder,
+    credential: &CloudCredential,
+) -> CloudResult<RequestBuilder> {
+    let mut builder = builder;
     match credential.auth_style.as_str() {
         "bearer" => {
             let secret = credential_secret_or_env(credential)?;

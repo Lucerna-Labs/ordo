@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+import base64
 import json
 import os
 import socket
@@ -59,6 +60,9 @@ OPENAI_AUDIO = bytes([0x4F, 0x50, 0x4E, 0x00, 0xFF, 0xA5, 0x10, 0x7E,
 MINIMAX_AUDIO = bytes([0x4D, 0x4D, 0x58, 0x00, 0x01, 0xFE, 0xDC, 0xBA,
                        0x98, 0x76, 0x54, 0x32, 0x10, 0xAB, 0xCD, 0xEF,
                        0x7F, 0x80, 0x00, 0xFF])
+# Fixed transcript the mock STT (/audio/transcriptions) returns regardless
+# of input audio — lets the voice/transcribe round-trip assert exact text.
+KNOWN_TRANSCRIPT = "the quick brown fox jumps over the lazy dog"
 
 # Valid enum value sets (from ordo-protocol). mouth = Phoneme (UPPERCASE);
 # expression / glitch serialize verbatim (PascalCase).
@@ -233,6 +237,44 @@ class MockHandler(BaseHTTPRequestHandler):
 
         # Match by suffix so extra base_url path segments (used by the
         # base_url-inference test, e.g. /ok/minimax/v1) still route.
+        if endpoint.endswith("/audio/transcriptions"):
+            # multipart/form-data: pull out the model field + file size + auth
+            ctype = self.headers.get("Content-Type", "")
+            boundary = ""
+            for seg in ctype.split(";"):
+                seg = seg.strip()
+                if seg.lower().startswith("boundary="):
+                    boundary = seg[len("boundary="):].strip('"')
+            model = None
+            response_format = None
+            file_bytes = 0
+            if boundary:
+                for part in raw.split(("--" + boundary).encode()):
+                    hdr, sep, pbody = part.partition(b"\r\n\r\n")
+                    if not sep:
+                        continue
+                    hs = hdr.decode("latin1", "replace")
+                    pbody = pbody.rstrip(b"\r\n")
+                    name = None
+                    ni = hs.find('name="')
+                    if ni != -1:
+                        name = hs[ni + 6:hs.find('"', ni + 6)]
+                    if "filename=" in hs:
+                        file_bytes = len(pbody)
+                    elif name == "model":
+                        model = pbody.decode("utf-8", "replace")
+                    elif name == "response_format":
+                        response_format = pbody.decode("utf-8", "replace")
+            MOCK.record({"kind": "stt", "mode": mode, "auth": auth,
+                         "model": model, "response_format": response_format,
+                         "file_bytes": file_bytes})
+            if mode == "err500":
+                return self._send(500, b'{"error":"mock 500"}', "application/json")
+            if mode == "badjson":
+                return self._send(200, b"not-json-at-all", "application/json")
+            return self._send(200, json.dumps({"text": KNOWN_TRANSCRIPT}).encode(),
+                              "application/json")
+
         if endpoint.endswith("/audio/speech"):
             MOCK.record({"kind": "openai", "mode": mode, "auth": auth,
                          "payload": payload, "query": query})
@@ -436,6 +478,8 @@ def test_assets():
     check("avatar.html has canvas", "<canvas" in txt)
     check("avatar.html wires /sse/avatar", "/sse/avatar" in txt)
     check("avatar.html has cloud-voice toggle", "cloud voice" in txt and "/api/voice/speech" in txt)
+    check("avatar.html has voice-to-voice loop",
+          "/api/voice/transcribe" in txt and 'id="mic"' in txt and "/api/assistant/turn" in txt)
 
     s, h, raw, p = req("GET", "/avatar/avatar.json")
     check("avatar.json 200", s == 200, f"HTTP {s}")
@@ -1014,6 +1058,50 @@ def test_credentials_preserve_secret(mock_port):
     delete_cred(svc)
 
 
+def test_voice_transcribe(mock_port):
+    print("\n## /api/voice/transcribe — agnostic STT round-trip (mock)")
+    purge_creds()
+    svc = f"mockstt{RUNID}"
+    register_cred(svc, f"http://127.0.0.1:{mock_port}/ok/v1", {"stt_model": "whisper-1"})
+    audio_b64 = base64.b64encode(b"\x1a\x45\xdf\xa3 fake webm audio \x00\xff\x7f mock").decode()
+    before = MOCK.count("stt")
+    s, h, raw, p = req("POST", "/api/voice/transcribe",
+                       {"audio_base64": audio_b64, "format": "webm", "service": svc})
+    check("transcribe 200", s == 200, f"HTTP {s}")
+    check("returns the transcript text", (p or {}).get("text") == KNOWN_TRANSCRIPT,
+          (p or {}).get("text"))
+    check("reports provider", (p or {}).get("provider") == svc, (p or {}).get("provider"))
+    check("reports model", (p or {}).get("model") == "whisper-1", (p or {}).get("model"))
+    check("STT /audio/transcriptions endpoint hit", MOCK.count("stt") == before + 1)
+    last = MOCK.last("stt") or {}
+    check("STT sent model field", last.get("model") == "whisper-1", last.get("model"))
+    check("STT exact bearer secret on the wire",
+          last.get("auth") == f"Bearer {secret_for(svc)}", last.get("auth"))
+    check("STT received the audio file bytes", (last.get("file_bytes") or 0) > 0,
+          f"{last.get('file_bytes')} bytes")
+    delete_cred(svc)
+
+    # broken provider (HTTP 500) -> clean 4xx, never 5xx/transcript
+    purge_creds()
+    bad = f"sttbad{RUNID}"
+    register_cred(bad, f"http://127.0.0.1:{mock_port}/err500/v1", {})
+    s, _, raw, _ = req("POST", "/api/voice/transcribe",
+                       {"audio_base64": audio_b64, "format": "webm", "service": bad})
+    check("STT provider 500 -> 4xx (never 5xx)", s and 400 <= s < 500, f"HTTP {s}")
+    delete_cred(bad)
+
+    # empty audio -> 400
+    s, _, _, _ = req("POST", "/api/voice/transcribe", {"audio_base64": "", "format": "webm"})
+    check("empty audio_base64 -> 400", s == 400, f"HTTP {s}")
+
+    # no provider -> 4xx (skip under --no-launch with foreign creds)
+    purge_creds()
+    if not foreign_creds_present():
+        s, _, _, _ = req("POST", "/api/voice/transcribe",
+                         {"audio_base64": audio_b64, "format": "webm"})
+        check("no STT provider -> 4xx (no 500)", s and 400 <= s < 500, f"HTTP {s}")
+
+
 def test_sse_concurrent():
     print("\n## /sse/avatar — concurrent broadcast clients")
     results = {}
@@ -1129,6 +1217,7 @@ def main():
         test_voice_resolution(mock_port)
         test_voice_candidate(mock_port)
         test_voice_broken_providers(mock_port)
+        test_voice_transcribe(mock_port)
         test_credentials_lifecycle(mock_port)
         test_credentials_preserve_secret(mock_port)
         # storms + big payloads LAST (these leave long background schedules)

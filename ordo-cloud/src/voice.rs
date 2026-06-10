@@ -27,7 +27,128 @@ use serde_json::{json, Value};
 use reqwest::Method;
 
 use crate::openai::{self, SpeechAudio};
-use crate::{CloudCredential, CloudError, CloudHttp, CloudResult};
+use crate::{apply_auth_only, resolve_url, timeout_for, CloudCredential, CloudError, CloudHttp, CloudResult};
+
+/// Default OpenAI-compatible speech-to-text model.
+const DEFAULT_STT_MODEL: &str = "whisper-1";
+
+/// Result of a speech-to-text transcription.
+#[derive(Debug, Clone)]
+pub struct Transcript {
+    pub text: String,
+    pub model: String,
+}
+
+/// Transcribe `audio` (raw bytes of the given container `format`, e.g. "webm",
+/// "wav", "mp3") via the credential's OpenAI-compatible
+/// `POST {base_url}/audio/transcriptions` endpoint (multipart). Works against
+/// OpenAI Whisper and any local server that implements the same contract
+/// (whisper.cpp / faster-whisper / LocalAI) — the credential's `base_url`
+/// selects which. Recognized `arguments`: `model`, `language`.
+///
+/// Beta scope: OpenAI-compatible (Whisper) shape only. A MiniMax-style ASR
+/// adapter can be added later the same way the MiniMax TTS adapter was.
+pub async fn transcribe(
+    http: &CloudHttp,
+    credential: &CloudCredential,
+    audio: Vec<u8>,
+    format: &str,
+    arguments: &Value,
+) -> CloudResult<Transcript> {
+    if audio.is_empty() {
+        return Err(CloudError::InvalidArgument(
+            "transcription audio must not be empty".into(),
+        ));
+    }
+    let model = arguments
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| credential.extras.get("stt_model").cloned())
+        .unwrap_or_else(|| DEFAULT_STT_MODEL.to_string());
+
+    let ext = sanitize_audio_ext(format);
+    let part = reqwest::multipart::Part::bytes(audio)
+        .file_name(format!("audio.{ext}"))
+        .mime_str(audio_mime_for_ext(&ext))
+        .map_err(|err| CloudError::InvalidArgument(err.to_string()))?;
+    let mut form = reqwest::multipart::Form::new()
+        .part("file", part)
+        .text("model", model.clone())
+        .text("response_format", "json");
+    if let Some(language) = arguments.get("language").and_then(Value::as_str) {
+        if !language.trim().is_empty() {
+            form = form.text("language", language.to_string());
+        }
+    }
+
+    // Build the request directly so reqwest sets the multipart content-type
+    // (with boundary); apply only the credential's auth header, never a JSON
+    // content-type.
+    let url = resolve_url(credential, "/audio/transcriptions")?;
+    let builder = http
+        .client
+        .request(Method::POST, url)
+        .timeout(timeout_for(credential));
+    let builder = apply_auth_only(builder, credential)?;
+
+    let response = builder
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|err| CloudError::Request {
+            service: credential.service.clone(),
+            message: err.to_string(),
+        })?;
+    let status = response.status();
+    let bytes = response.bytes().await.map_err(|err| CloudError::Request {
+        service: credential.service.clone(),
+        message: err.to_string(),
+    })?;
+    if !status.is_success() {
+        return Err(CloudError::BadStatus {
+            service: credential.service.clone(),
+            status: status.as_u16(),
+            body: String::from_utf8_lossy(&bytes).to_string(),
+        });
+    }
+    // OpenAI / Whisper return { "text": "..." } for response_format=json.
+    let payload: Value = serde_json::from_slice(&bytes).map_err(|err| CloudError::Request {
+        service: credential.service.clone(),
+        message: format!("transcription response was not JSON: {err}"),
+    })?;
+    let text = payload
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CloudError::Request {
+            service: credential.service.clone(),
+            message: "transcription response missing 'text'".into(),
+        })?
+        .to_string();
+
+    Ok(Transcript { text, model })
+}
+
+/// Restrict an audio container hint to a small safe set for the upload
+/// filename extension; unknown values fall back to a generic container.
+fn sanitize_audio_ext(format: &str) -> String {
+    let f = format.trim().trim_start_matches('.').to_ascii_lowercase();
+    match f.as_str() {
+        "webm" | "ogg" | "oga" | "wav" | "mp3" | "mp4" | "m4a" | "mpeg" | "mpga" | "flac" => f,
+        _ => "webm".to_string(),
+    }
+}
+
+fn audio_mime_for_ext(ext: &str) -> &'static str {
+    match ext {
+        "wav" => "audio/wav",
+        "mp3" | "mpga" | "mpeg" => "audio/mpeg",
+        "mp4" | "m4a" => "audio/mp4",
+        "ogg" | "oga" => "audio/ogg",
+        "flac" => "audio/flac",
+        _ => "audio/webm",
+    }
+}
 
 /// MiniMax T2A v2 defaults. `speech-02-hd` is the current
 /// high-definition model; `male-qn-qingse` is a stock preset voice.
