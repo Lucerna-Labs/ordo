@@ -1996,12 +1996,9 @@ fn avatar_clips_dir() -> PathBuf {
 const DEFAULT_CLIPS_JSON: &str = r#"{
   "clips": {
     "idle": "avatar/clips/idle.mp4",
-    "typing": "avatar/clips/typing.mp4",
-    "phone": "avatar/clips/phone.mp4",
-    "thinking": "avatar/clips/thinking.mp4",
     "speaking": "avatar/clips/speaking.mp4"
   },
-  "idle_rotation": ["idle", "typing", "phone"]
+  "idle_rotation": ["idle"]
 }"#;
 
 /// GET `/avatar/clips.json` — the behavior-clip manifest, read from the clips
