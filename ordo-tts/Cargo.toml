@@ -1,0 +1,17 @@
+[package]
+name = "ordo-tts"
+version = "0.1.0"
+edition = "2021"
+
+# Stub TTS producer (v0.1 of the avatar build order, step 2).
+#
+# Emits the `ordo.tts.*` message stream defined in `ordo-protocol`
+# from canned phoneme schedules. Real engine swap lands in step 7;
+# the wire format does not change.
+
+[dependencies]
+ordo-protocol = { path = "../ordo-protocol" }
+ordo-bus = { path = "../ordo-bus" }
+tokio = { workspace = true, features = ["full"] }
+tracing.workspace = true
+uuid.workspace = true

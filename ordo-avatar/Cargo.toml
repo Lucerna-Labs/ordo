@@ -1,0 +1,24 @@
+[package]
+name = "ordo-avatar"
+version = "0.1.0"
+edition = "2021"
+description = "Avatar performance driver — consumes the TTS phoneme stream + SystemStateChanged + self-heal incidents, emits OrdoMessage::AvatarFrameEmitted at ~30Hz with a mouth viseme, expression layer, and glitch overlay."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+ordo-bus = { path = "../ordo-bus" }
+ordo-protocol = { path = "../ordo-protocol" }
+
+tokio = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "warn"

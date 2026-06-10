@@ -2743,6 +2743,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordo-avatar"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "ordo-bus",
+ "ordo-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "ordo-brain"
 version = "0.1.0"
 dependencies = [
@@ -2913,6 +2927,7 @@ dependencies = [
  "ordo-rag",
  "ordo-review",
  "ordo-security",
+ "ordo-tts",
  "ordo-ui-extensions",
  "ordo-webhooks",
  "parking_lot",
@@ -3442,6 +3457,7 @@ dependencies = [
  "opentelemetry_sdk",
  "ordo-apps",
  "ordo-assistant",
+ "ordo-avatar",
  "ordo-brain",
  "ordo-bus",
  "ordo-cloud",
@@ -3701,6 +3717,17 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "ordo-tts"
+version = "0.1.0"
+dependencies = [
+ "ordo-bus",
+ "ordo-protocol",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

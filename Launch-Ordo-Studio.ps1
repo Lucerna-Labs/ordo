@@ -66,6 +66,10 @@ $env:ORDO_USER_FILES_PATH = $runtimeUserFiles
 $env:ORDO_MODES_PATH = $modesPath
 $env:ORDO_RUNTIME_PROFILE = "standard"
 $env:ORDO_CONTROL_URL = $controlUrl
+# Run the avatar performance driver so the avatar pop-out window
+# (the Bot button next to the voice controls) lip-syncs out of the
+# box. One ~30Hz task; set to "0" to disable. See docs/avatar.md.
+$env:ORDO_ENABLE_AVATAR = "1"
 $env:RUSTFLAGS = "-D warnings"
 
 Push-Location $studioDir

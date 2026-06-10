@@ -45,6 +45,7 @@ pub mod anthropic;
 pub mod bus_bridge;
 pub mod openai;
 pub mod vault;
+pub mod voice;
 
 pub use bus_bridge::run_bus_bridge;
 

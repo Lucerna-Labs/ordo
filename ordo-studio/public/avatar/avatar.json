@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "cell_width": 128,
+  "cell_height": 128,
+  "mouth": {
+    "atlas_path": "avatar/mouth.png",
+    "cell_count": 8
+  },
+  "expression": {
+    "atlas_path": "avatar/expression.png",
+    "cell_count": 6
+  },
+  "glitch": {
+    "atlas_path": "avatar/glitch.png",
+    "cell_count": 2
+  }
+}

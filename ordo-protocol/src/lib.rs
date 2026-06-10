@@ -5,11 +5,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+pub mod avatar;
 pub mod build;
 pub mod cloud;
 pub mod mcp;
 pub mod memory;
 pub mod secrets;
+pub mod tts;
 pub use build::{
     build_topics, BuildArtifactRef, BuildErrorClass, BuildGateEvidence, BuildGateResult,
     BuildPlannerEvent, BuildStep, BuildStepCompletedSignal, GateOutcome,
@@ -36,6 +38,8 @@ pub use secrets::{
     SecretAuditEventType, SecretClass, SecretRecord, StructuralOutputCheck,
     ThresholdShareAnnouncement, ThresholdSigningRequest, TransparencyReceipt,
 };
+pub use avatar::{avatar_topics, AvatarFrame, Expression, GlitchLevel};
+pub use tts::{tts_topics, Phoneme, PhonemeFrame, UtteranceEnd, UtteranceStart};
 
 pub mod topics {
     pub const ALL: &str = "ordo.*";
@@ -706,6 +710,19 @@ pub enum OrdoMessage {
         action: String,
         taint_path: Vec<String>,
     },
+
+    // -------------------------------------------------------------
+    // TTS + Avatar.
+    //
+    // Producers: `ordo-tts` (TTS stub/engine), `ordo-avatar` (driver).
+    // Consumers: `ordo-avatar` (subscribes to TTS), the React UI via
+    // ordo-control's `/sse/avatar` bridge (subscribes to AvatarFrame).
+    // Field semantics live in `crate::tts` and `crate::avatar`.
+    // -------------------------------------------------------------
+    TtsUtteranceStarted(UtteranceStart),
+    TtsPhonemeFrame(PhonemeFrame),
+    TtsUtteranceEnded(UtteranceEnd),
+    AvatarFrameEmitted(AvatarFrame),
 
     // -- Email remote-control channel -----------------------------
     // ordo-email polls an IMAP inbox, finds commands from

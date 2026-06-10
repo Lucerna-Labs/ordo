@@ -24,8 +24,8 @@ use ordo_automation_primitives::{AutomationId, AutomationSpec};
 use ordo_brain::Brain;
 use ordo_bus::Bus;
 use ordo_protocol::{
-    infer_rag_collections, normalize_rag_collections, rag_collection_label,
-    summarize_capability_lanes,
+    avatar_topics, infer_rag_collections, normalize_rag_collections, rag_collection_label,
+    summarize_capability_lanes, OrdoMessage,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,6 +33,19 @@ use tokio::sync::Mutex as AsyncMutex;
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 const DASHBOARD_HTML: &str = include_str!("dashboard.html");
+
+// Avatar pop-out window assets, embedded so the runtime can serve the
+// page + sprite atlas itself (same origin as `/sse/avatar`, so the
+// page's relative URLs resolve without any CORS dance). The avatar
+// renders in its own resizable window — see `OrdoShell` for the
+// pop-out trigger. Single source of truth lives under
+// `ordo-studio/public/`; embedded here at compile time.
+const AVATAR_HTML: &str = include_str!("../../ordo-studio/public/avatar.html");
+const AVATAR_ATLAS_JSON: &str = include_str!("../../ordo-studio/public/avatar/avatar.json");
+const AVATAR_MOUTH_PNG: &[u8] = include_bytes!("../../ordo-studio/public/avatar/mouth.png");
+const AVATAR_EXPRESSION_PNG: &[u8] =
+    include_bytes!("../../ordo-studio/public/avatar/expression.png");
+const AVATAR_GLITCH_PNG: &[u8] = include_bytes!("../../ordo-studio/public/avatar/glitch.png");
 
 #[derive(Clone)]
 struct ControlApiState {
@@ -71,6 +84,18 @@ struct ControlApiState {
     /// `ORDO_ENABLE_ORCHESTRATOR` is set AND an assistant service is wired;
     /// the `/api/orchestrate` route returns 503 otherwise.
     orchestrator: Option<Arc<ordo_orchestrator::Orchestrator>>,
+    /// Direct bus handle. Used by `/sse/avatar` to subscribe to
+    /// `ordo.avatar.frame.emitted` envelopes and forward them to the
+    /// avatar pop-out window. Held separately from `Brain` (which wraps
+    /// the bus internally) because the SSE route needs raw
+    /// `subscribe(topic)` access.
+    bus: Arc<dyn Bus>,
+    /// Stub TTS service wired against the same bus. Drives
+    /// `POST /api/avatar/speak` — the caller posts text, the service
+    /// publishes the `ordo.tts.*` stream, and the avatar driver reacts
+    /// and emits frames on `/sse/avatar`. The agnostic voice provider
+    /// (Stage 2) layers on top of this same publish path.
+    tts: ordo_tts::TtsService,
 }
 
 #[derive(Debug)]
@@ -381,6 +406,13 @@ pub fn build_router_with_plugins(
     let build_planner = build_planner_from_plugins(bus.clone(), &plugins_path);
     let orchestrator = build_orchestrator(&assistant);
 
+    // Keep a raw bus handle for `/sse/avatar` and wire the stub TTS
+    // producer against the same bus before `Brain::new` consumes its
+    // clone. The avatar driver subscribes to the TTS stream inside the
+    // runtime; here we only need to publish onto it.
+    let avatar_bus = bus.clone();
+    let tts = ordo_tts::TtsService::new().with_bus(bus.clone());
+
     let state = ControlApiState {
         brain: Arc::new(Brain::new(bus)),
         plugins_path,
@@ -400,6 +432,8 @@ pub fn build_router_with_plugins(
         automation_path,
         build_planner: Arc::new(AsyncMutex::new(build_planner)),
         orchestrator,
+        bus: avatar_bus,
+        tts,
     };
 
     Router::new()
@@ -525,6 +559,24 @@ pub fn build_router_with_plugins(
             "/api/assistant/sessions/:session/stream",
             get(assistant_sse),
         )
+        // Avatar performance frames. The `ordo-avatar` driver publishes
+        // one `AvatarFrameEmitted` per tick (~30Hz); this SSE route
+        // mirrors that stream to the resizable avatar pop-out window
+        // (and to `curl -N http://127.0.0.1:4141/sse/avatar` for debug).
+        .route("/sse/avatar", get(avatar_sse))
+        // The avatar pop-out (or any caller) posts the text it wants
+        // spoken; ordo-tts publishes the `ordo.tts.*` envelopes, the
+        // avatar driver reacts, and frames flow back over `/sse/avatar`.
+        .route("/api/avatar/speak", post(post_avatar_speak))
+        // Avatar pop-out window page + sprite atlas, served from the
+        // runtime so the window is self-contained at the control-API
+        // origin (its relative `/sse/avatar` + `/api/avatar/speak`
+        // calls then resolve without CORS).
+        .route("/avatar.html", get(avatar_page))
+        .route("/avatar/avatar.json", get(avatar_atlas_descriptor))
+        .route("/avatar/mouth.png", get(avatar_mouth_png))
+        .route("/avatar/expression.png", get(avatar_expression_png))
+        .route("/avatar/glitch.png", get(avatar_glitch_png))
         // Files primitive (Phase 1.4). Rule 3: HTTP mirrors the
         // service â€” no business logic in these handlers.
         .route("/api/files", get(list_files_route).post(upload_file_json))
@@ -1731,6 +1783,148 @@ async fn assistant_sse(
     Sse::new(combined)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+// -- avatar HTTP routes ---------------------------------------------
+//
+// The avatar lives in a resizable pop-out window (a spare-monitor
+// surface). It subscribes to `/sse/avatar` for performance frames and
+// posts text to `/api/avatar/speak`. Rule 3: these handlers only
+// mirror the bus — phoneme scheduling lives in `ordo-tts`, frame
+// composition in `ordo-avatar`.
+
+/// Server-Sent Events stream of [`OrdoMessage::AvatarFrameEmitted`]
+/// envelopes from the bus. One event per tick from the `ordo-avatar`
+/// driver (~30Hz). Connected clients are the avatar pop-out window;
+/// the SSE shape also lets `curl -N http://127.0.0.1:4141/sse/avatar`
+/// work as a debug surface without any client code.
+///
+/// Event payload is the JSON-serialized [`ordo_protocol::AvatarFrame`]
+/// — the renderer pulls `mouth` / `expression` / `glitch` out and
+/// indexes into the sprite atlas.
+///
+/// Backpressure: the bus uses tokio broadcast channels. A slow client
+/// surfaces a `lagged` notice and resumes from current — the avatar
+/// stream is fully resamplable from the next tick, so no recovery
+/// dance is needed (unlike the assistant stream, which carries
+/// session-scoped state).
+async fn avatar_sse(State(state): State<ControlApiState>) -> axum::response::Response {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use futures::stream::{self, StreamExt};
+
+    let bus = state.bus.clone();
+    let sub = match bus.subscribe(avatar_topics::FRAME_EMITTED).await {
+        Ok(s) => s,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("avatar subscribe failed: {err}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let hello = Event::default()
+        .event("subscribed")
+        .data(json!({ "topic": avatar_topics::FRAME_EMITTED }).to_string());
+
+    // Move `sub` into unfold's state slot so the future doesn't borrow
+    // across iterations (same trick as `assistant_sse`).
+    let tail = stream::unfold(sub, |mut sub| async move {
+        let envelope = sub.next().await?;
+        let event = match envelope.payload {
+            OrdoMessage::AvatarFrameEmitted(frame) => {
+                let data = serde_json::to_string(&frame).unwrap_or_else(|_| "{}".to_string());
+                Event::default().event("frame").data(data)
+            }
+            _ => {
+                // Topic filter at subscribe-time should mean we never
+                // see other variants here, but if the bus ever changes
+                // filter semantics we keep the stream open rather than
+                // tear it down.
+                Event::default()
+                    .event("ignored")
+                    .data(json!({ "reason": "unexpected_variant" }).to_string())
+            }
+        };
+        Some((Ok::<_, std::convert::Infallible>(event), sub))
+    });
+
+    let head = stream::once(async move { Ok::<_, std::convert::Infallible>(hello) });
+    let combined = head.chain(tail);
+
+    Sse::new(combined)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// Body for `POST /api/avatar/speak`.
+#[derive(Deserialize)]
+struct AvatarSpeakRequest {
+    text: String,
+    #[serde(default)]
+    voice_id: Option<String>,
+}
+
+/// Trigger the TTS producer. Returns the freshly-minted
+/// `utterance_id` so the caller can correlate with the phoneme frame
+/// stream if it subscribes to the raw TTS topics. Most callers only
+/// care about the avatar driver — they subscribe to `/sse/avatar` and
+/// ignore the id.
+async fn post_avatar_speak(
+    State(state): State<ControlApiState>,
+    Json(body): Json<AvatarSpeakRequest>,
+) -> Result<Json<Value>, ControlApiError> {
+    if body.text.trim().is_empty() {
+        return Err(ControlApiError::bad_request("text is required"));
+    }
+    let utterance_id = state
+        .tts
+        .speak_with_options(
+            body.text,
+            ordo_tts::SpeakOptions {
+                voice_id: body.voice_id,
+                ..ordo_tts::SpeakOptions::default()
+            },
+        )
+        .await;
+    Ok(Json(json!({ "utterance_id": utterance_id })))
+}
+
+/// The avatar pop-out window page. Framework-free HTML+canvas that
+/// connects to `/sse/avatar` and posts to `/api/avatar/speak`. Served
+/// from the control API so those relative URLs stay same-origin.
+async fn avatar_page() -> Html<&'static str> {
+    Html(AVATAR_HTML)
+}
+
+/// Sprite-atlas layout descriptor consumed by [`avatar_page`].
+async fn avatar_atlas_descriptor() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        AVATAR_ATLAS_JSON,
+    )
+}
+
+/// Serve one of the embedded avatar sprite-atlas PNGs.
+fn png_response(bytes: &'static [u8]) -> Response {
+    (
+        [(axum::http::header::CONTENT_TYPE, "image/png")],
+        bytes,
+    )
+        .into_response()
+}
+
+async fn avatar_mouth_png() -> Response {
+    png_response(AVATAR_MOUTH_PNG)
+}
+
+async fn avatar_expression_png() -> Response {
+    png_response(AVATAR_EXPRESSION_PNG)
+}
+
+async fn avatar_glitch_png() -> Response {
+    png_response(AVATAR_GLITCH_PNG)
 }
 
 // -- files HTTP routes (Phase 1.4) ----------------------------------

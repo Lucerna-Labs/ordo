@@ -43,6 +43,10 @@ $env:ORDO_USER_FILES_PATH = $runtimeUserFiles
 $env:ORDO_MODES_PATH = $modesPath
 $env:ORDO_RUNTIME_PROFILE = "standard"
 $env:ORDO_CONTROL_URL = $controlUrl
+# Avatar performance driver — serves /sse/avatar + /avatar.html so a
+# browser can open http://127.0.0.1:4141/avatar.html as the pop-out.
+# Set to "0" to disable. See docs/avatar.md.
+$env:ORDO_ENABLE_AVATAR = "1"
 $env:RUSTFLAGS = "-D warnings"
 
 # Code-execution capability (code.* / workspace.*). The native runner is

@@ -434,6 +434,10 @@ fn message_kind(message: &OrdoMessage) -> String {
         OrdoMessage::JobTriggered { .. } => "job_triggered",
         OrdoMessage::JobCompleted { .. } => "job_completed",
         OrdoMessage::JobFailed { .. } => "job_failed",
+        OrdoMessage::TtsUtteranceStarted(_) => "tts_utterance_started",
+        OrdoMessage::TtsPhonemeFrame(_) => "tts_phoneme_frame",
+        OrdoMessage::TtsUtteranceEnded(_) => "tts_utterance_ended",
+        OrdoMessage::AvatarFrameEmitted(_) => "avatar_frame_emitted",
     }
     .to_string()
 }

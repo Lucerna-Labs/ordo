@@ -156,6 +156,7 @@ import {
   deleteAssistantMode,
   type AssistantMode,
   type TurnEvent,
+  openAvatarPopout,
 } from "./api";
 import { ExtensionsSurface } from "./extensions/ExtensionsSurface";
 import {
@@ -15392,6 +15393,19 @@ export default function OrdoShell() {
                   }}
                 >
                   <Volume2 size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openAvatarPopout()}
+                  title="Open the avatar in a resizable pop-out window"
+                  className="rounded-full px-2.5 py-1.5 transition-all"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: PARCHMENT,
+                  }}
+                >
+                  <Bot size={13} />
                 </button>
               </div>
 

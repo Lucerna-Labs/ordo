@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 ordo-brain = { path = "../ordo-brain" }
 ordo-bus = { path = "../ordo-bus" }
+ordo-tts = { path = "../ordo-tts" }
 ordo-mcp-host = { path = "../ordo-mcp-host" }
 ordo-memory = { path = "../ordo-memory" }
 ordo-plugins = { path = "../ordo-plugins" }

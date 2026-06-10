@@ -220,7 +220,7 @@ pub async fn speech(
     })
 }
 
-fn content_type_for_format(format: &str) -> &'static str {
+pub(crate) fn content_type_for_format(format: &str) -> &'static str {
     match format {
         "aac" => "audio/aac",
         "flac" => "audio/flac",

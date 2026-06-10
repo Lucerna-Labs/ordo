@@ -1374,6 +1374,24 @@ impl PlanningOrdoRuntime {
             }));
         }
 
+        // Avatar performance driver (opt-in via ORDO_ENABLE_AVATAR=1).
+        // Subscribes to the TTS phoneme stream + system-state changes and
+        // emits `OrdoMessage::AvatarFrameEmitted` at ~30Hz. The avatar
+        // pop-out window subscribes via `/sse/avatar` (see ordo-control)
+        // to drive the on-screen avatar. Gated so idle CPU stays at zero
+        // when the avatar UI isn't in use.
+        if env_bool("ORDO_ENABLE_AVATAR", false) {
+            let avatar_bus = bus.clone();
+            components.push(spawn_component("avatar", async move {
+                ordo_avatar::run(
+                    avatar_bus,
+                    ordo_avatar::AvatarConfig::default(),
+                    ordo_protocol::NodeId::new(),
+                )
+                .await;
+            }));
+        }
+
         // Control API spawn moved below the MCP stack construction
         // so the registry / sandbox / client services can be threaded
         // into the HTTP layer alongside apps / files / webhooks.

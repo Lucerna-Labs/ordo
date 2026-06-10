@@ -1652,3 +1652,59 @@ export const fetchHealth = () =>
   canUseTauriCommands()
     ? invokeLocal<{ status: string }>("get_local_health")
     : api.get<{ status: string }>("/health");
+
+// ─── Avatar pop-out ───────────────────────────────────────────────
+
+/**
+ * Open the avatar in its own resizable pop-out window — the intended
+ * use is dragging it onto a spare monitor. Inside the Tauri desktop
+ * shell this spawns a native OS window via the WebviewWindow API; in a
+ * plain browser it falls back to `window.open`. Either way the window
+ * loads the avatar page served by the control API, so the page's
+ * relative `/sse/avatar` + `/api/avatar/speak` calls stay same-origin.
+ *
+ * The runtime only emits avatar frames when started with
+ * `ORDO_ENABLE_AVATAR=1`; without it the window renders the idle face
+ * and the Speak box still drives the lip-sync stub once enabled.
+ */
+export async function openAvatarPopout(): Promise<void> {
+  const url = `${CONTROL_API_ORIGIN}/avatar.html`;
+  if (canUseTauriCommands()) {
+    try {
+      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const existing = await WebviewWindow.getByLabel("avatar");
+      if (existing) {
+        await existing.show();
+        await existing.setFocus();
+        return;
+      }
+      const win = new WebviewWindow("avatar", {
+        url,
+        title: "Ordo Avatar",
+        width: 380,
+        height: 520,
+        minWidth: 240,
+        minHeight: 320,
+        resizable: true,
+        focus: true,
+      });
+      await new Promise<void>((resolve, reject) => {
+        win.once("tauri://created", () => resolve());
+        win.once("tauri://error", (event) =>
+          reject(
+            new Error(
+              String((event as { payload?: unknown }).payload ?? "window error"),
+            ),
+          ),
+        );
+      });
+      return;
+    } catch (err) {
+      console.warn(
+        "[avatar] Tauri window create failed, falling back to window.open:",
+        err,
+      );
+    }
+  }
+  window.open(url, "ordo-avatar", "width=380,height=520,resizable=yes");
+}

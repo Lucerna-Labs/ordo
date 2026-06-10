@@ -863,7 +863,20 @@ impl AssistantService {
             let credential = match self.credentials.get(service.clone()).await {
                 Ok(Some(credential)) => credential,
                 Ok(None) => {
-                    last_error = Some(AssistantError::NoCredential(service));
+                    // A "no credential for this name" miss is the least
+                    // useful error. Don't let it mask a concrete failure
+                    // from a provider we actually called (e.g. the
+                    // requested MiniMax/OpenAI endpoint returning an auth
+                    // or quota error) — otherwise the caller sees a bare
+                    // "openai" from the hardcoded fallback candidate
+                    // instead of the real reason their provider failed.
+                    if !matches!(
+                        last_error,
+                        Some(AssistantError::LlmFailed(_))
+                            | Some(AssistantError::InvalidArgument(_))
+                    ) {
+                        last_error = Some(AssistantError::NoCredential(service));
+                    }
                     continue;
                 }
                 Err(err) => {
@@ -878,21 +891,29 @@ impl AssistantService {
                 )));
                 continue;
             }
+            // Pick the provider's TTS contract (OpenAI-compatible vs
+            // MiniMax vs …) and resolve model/voice/format against
+            // *that* provider's defaults — so an OpenAI default like
+            // `alloy` never leaks into a MiniMax request. The dispatch
+            // itself lives in `ordo_cloud::voice`.
+            let voice_api = ordo_cloud::voice::voice_api_for(&credential);
+            let (default_model, default_voice, default_format) =
+                ordo_cloud::voice::defaults_for(voice_api);
             let model = request
                 .model
                 .clone()
                 .or_else(|| credential.extras.get("tts_model").cloned())
-                .unwrap_or_else(|| ordo_cloud::openai::DEFAULT_TTS_MODEL.to_string());
+                .unwrap_or_else(|| default_model.to_string());
             let voice = request
                 .voice
                 .clone()
                 .or_else(|| credential.extras.get("tts_voice").cloned())
-                .unwrap_or_else(|| ordo_cloud::openai::DEFAULT_TTS_VOICE.to_string());
+                .unwrap_or_else(|| default_voice.to_string());
             let format = request
                 .format
                 .clone()
                 .or_else(|| credential.extras.get("tts_format").cloned())
-                .unwrap_or_else(|| ordo_cloud::openai::DEFAULT_TTS_FORMAT.to_string());
+                .unwrap_or_else(|| default_format.to_string());
             let args = json!({
                 "input": request.input.clone(),
                 "model": model,
@@ -901,7 +922,7 @@ impl AssistantService {
                 "instructions": request.instructions.clone(),
                 "speed": request.speed,
             });
-            match ordo_cloud::openai::speech(&self.http, &credential, &args).await {
+            match ordo_cloud::voice::synthesize(&self.http, &credential, &args).await {
                 Ok(audio) => {
                     return Ok(SpeechResponse {
                         bytes: audio.bytes,

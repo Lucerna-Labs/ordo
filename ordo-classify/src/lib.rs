@@ -190,6 +190,13 @@ fn classify_message(message: &OrdoMessage) -> TrafficClass {
         OrdoMessage::RequirementMessage { .. } | OrdoMessage::CapabilityMessage { .. } => {
             TrafficClass::Interactive
         }
+        // TTS phoneme stream + avatar performance frames drive the live
+        // avatar window; they must be delivered promptly, so classify them
+        // as Interactive rather than letting them fall to Background.
+        OrdoMessage::TtsUtteranceStarted(_)
+        | OrdoMessage::TtsPhonemeFrame(_)
+        | OrdoMessage::TtsUtteranceEnded(_)
+        | OrdoMessage::AvatarFrameEmitted(_) => TrafficClass::Interactive,
         // New variants added since this code was last touched default to Background.
         _ => TrafficClass::Background,
     }

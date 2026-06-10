@@ -42,6 +42,7 @@ ordo-mcp-provenance = { path = "../ordo-mcp-provenance" }
 ordo-connections = { path = "../ordo-connections" }
 ordo-modes = { path = "../ordo-modes" }
 ordo-skills = { path = "../ordo-skills" }
+ordo-avatar = { path = "../ordo-avatar" }
 ed25519-dalek.workspace = true
 rand.workspace = true
 tokio.workspace = true

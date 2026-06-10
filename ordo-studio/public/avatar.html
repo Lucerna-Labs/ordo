@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ordo Avatar (preview)</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0c0d10;
+        color: #e6e8ec;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      body {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 12px;
+        padding: 16px;
+        box-sizing: border-box;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #a0a4ad;
+      }
+      header .status {
+        font-size: 12px;
+        color: #6b707a;
+      }
+      header .status.live {
+        color: #4ade80;
+      }
+      header .status.error {
+        color: #f87171;
+      }
+      main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        min-height: 0;
+      }
+      #stage {
+        width: 256px;
+        height: 256px;
+        position: relative;
+        background: #16181d;
+        border-radius: 18px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+      }
+      #stage canvas {
+        image-rendering: pixelated;
+        width: 224px;
+        height: 224px;
+      }
+      .debug {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: #8b909a;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 14px;
+        text-align: left;
+      }
+      .debug dt {
+        color: #6b707a;
+      }
+      .debug dd {
+        margin: 0;
+        color: #c8ccd4;
+      }
+      footer {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+      }
+      footer input {
+        flex: 1;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #2a2d34;
+        background: #16181d;
+        color: #e6e8ec;
+        font: inherit;
+      }
+      footer input:focus {
+        outline: 2px solid #4ade80;
+        outline-offset: 2px;
+        border-color: transparent;
+      }
+      footer button {
+        padding: 10px 18px;
+        border-radius: 10px;
+        border: 1px solid #2a2d34;
+        background: #1f2128;
+        color: #e6e8ec;
+        font: inherit;
+        cursor: pointer;
+      }
+      footer button:hover {
+        background: #262932;
+      }
+      footer button:active {
+        background: #303440;
+      }
+      footer button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      footer .voice-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #8b909a;
+        white-space: nowrap;
+        user-select: none;
+        cursor: pointer;
+      }
+      footer .voice-toggle input {
+        flex: none;
+        width: 14px;
+        height: 14px;
+        padding: 0;
+        accent-color: #4ade80;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ordo Avatar · preview</h1>
+      <span id="status" class="status">connecting…</span>
+    </header>
+    <main>
+      <div id="stage">
+        <canvas id="avatar" width="128" height="128"></canvas>
+      </div>
+      <dl class="debug">
+        <dt>mouth</dt><dd id="dbg-mouth">—</dd>
+        <dt>expression</dt><dd id="dbg-expression">—</dd>
+        <dt>glitch</dt><dd id="dbg-glitch">—</dd>
+        <dt>frames</dt><dd id="dbg-frames">0</dd>
+      </dl>
+    </main>
+    <footer>
+      <input
+        id="text"
+        type="text"
+        placeholder="text for the avatar to speak…"
+        autocomplete="off"
+      />
+      <label
+        class="voice-toggle"
+        title="Use the configured cloud voice provider (OpenAI-compatible / MiniMax) instead of the browser voice"
+      >
+        <input id="cloudVoice" type="checkbox" />
+        cloud voice
+      </label>
+      <button id="speak">Speak</button>
+    </footer>
+    <script type="module">
+      // ---------------------------------------------------------------
+      // Ordo Avatar preview window.
+      //
+      // This page is intentionally framework-free — vanilla JS + a
+      // single canvas. The renderer:
+      //
+      //  1. Fetches `/avatar/avatar.json` to learn the atlas layout.
+      //  2. Loads the three atlas PNGs (mouth / expression / glitch).
+      //  3. Opens an EventSource to `/sse/avatar` and paints each
+      //     incoming AvatarFrame by compositing the matching cells.
+      //  4. The "Speak" button POSTs to `/api/avatar/speak`, which
+      //     hands the text to the stub TTS producer; the resulting
+      //     phoneme stream flows through the avatar driver and lands
+      //     here as a stream of frames.
+      //
+      // Step-7 will replace the server-side TTS stub with
+      // `window.speechSynthesis` — at that point this page either
+      // becomes the dev fallback or gets folded into OrdoShell. For
+      // v0.1 it's the test surface.
+      // ---------------------------------------------------------------
+
+      // ARPAbet phoneme → 8-viseme grouping. Mirrors
+      // `ordo_avatar::atlas::phoneme_to_viseme`. Kept in JS so the
+      // renderer can run a "preview" frame even before the server
+      // sends one (and so a future direct-from-Web-Speech-API
+      // wiring stays self-contained on the page).
+      const PHONEME_VISEME = {
+        REST: 0,
+        M: 1, B: 1, P: 1,
+        F: 2, V: 2,
+        T: 3, D: 3, N: 3, S: 3, Z: 3, L: 3, TH: 3, DH: 3,
+        K: 4, G: 4, NG: 4, HH: 4,
+        AA: 5, AE: 5, AH: 5, AY: 5, EH: 5, EY: 5, IH: 5, IY: 5, ER: 5,
+        AO: 6, OW: 6, OY: 6, AW: 6, UH: 6, UW: 6,
+        R: 7, Y: 7, W: 7, CH: 7, JH: 7, SH: 7, ZH: 7,
+      };
+
+      const EXPRESSION_CELL = {
+        Neutral: 0,
+        Speaking: 1,
+        Thinking: 2,
+        Alarmed: 3,
+        Amused: 4,
+        Glitched: 5,
+      };
+
+      const GLITCH_CELL = {
+        None: null,
+        Light: 0,
+        Heavy: 1,
+      };
+
+      const statusEl = document.getElementById("status");
+      const canvas = document.getElementById("avatar");
+      const ctx = canvas.getContext("2d");
+      const dbgMouth = document.getElementById("dbg-mouth");
+      const dbgExpression = document.getElementById("dbg-expression");
+      const dbgGlitch = document.getElementById("dbg-glitch");
+      const dbgFrames = document.getElementById("dbg-frames");
+      const speakBtn = document.getElementById("speak");
+      const textInput = document.getElementById("text");
+      const cloudVoiceEl = document.getElementById("cloudVoice");
+
+      // Remember the cloud-voice preference across window reopens.
+      try {
+        cloudVoiceEl.checked =
+          localStorage.getItem("ordo.avatar.cloudVoice") === "1";
+        cloudVoiceEl.addEventListener("change", () => {
+          localStorage.setItem(
+            "ordo.avatar.cloudVoice",
+            cloudVoiceEl.checked ? "1" : "0",
+          );
+        });
+      } catch (_err) {
+        // localStorage may be unavailable (private mode) — non-fatal.
+      }
+
+      function setStatus(text, kind) {
+        statusEl.textContent = text;
+        statusEl.className = "status" + (kind ? " " + kind : "");
+      }
+
+      async function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = (err) => reject(err);
+          img.src = src;
+        });
+      }
+
+      async function boot() {
+        let descriptor;
+        try {
+          const res = await fetch("/avatar/avatar.json", { cache: "no-store" });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          descriptor = await res.json();
+        } catch (err) {
+          setStatus(`atlas descriptor failed: ${err.message ?? err}`, "error");
+          return;
+        }
+
+        let atlases;
+        try {
+          atlases = {
+            mouth: await loadImage("/" + descriptor.mouth.atlas_path),
+            expression: await loadImage("/" + descriptor.expression.atlas_path),
+            glitch: await loadImage("/" + descriptor.glitch.atlas_path),
+          };
+        } catch (err) {
+          setStatus(`atlas PNGs failed`, "error");
+          return;
+        }
+
+        const cellW = descriptor.cell_width;
+        const cellH = descriptor.cell_height;
+        canvas.width = cellW;
+        canvas.height = cellH;
+
+        let frameCount = 0;
+        let lastFrame = {
+          mouth: "Rest",
+          expression: "Neutral",
+          glitch: "None",
+        };
+
+        function paint(frame) {
+          // Composite: expression backdrop → mouth on top →
+          // glitch overlay (if any). Matches the renderer order
+          // documented on `AvatarFrame`.
+          const exprIdx = EXPRESSION_CELL[frame.expression] ?? 0;
+          const visemeIdx = PHONEME_VISEME[frame.mouth] ?? 0;
+          const glitchIdx = GLITCH_CELL[frame.glitch];
+
+          ctx.clearRect(0, 0, cellW, cellH);
+          ctx.drawImage(
+            atlases.expression,
+            exprIdx * cellW, 0, cellW, cellH,
+            0, 0, cellW, cellH,
+          );
+          ctx.drawImage(
+            atlases.mouth,
+            visemeIdx * cellW, 0, cellW, cellH,
+            0, 0, cellW, cellH,
+          );
+          if (glitchIdx !== null && glitchIdx !== undefined) {
+            ctx.drawImage(
+              atlases.glitch,
+              glitchIdx * cellW, 0, cellW, cellH,
+              0, 0, cellW, cellH,
+            );
+          }
+
+          dbgMouth.textContent = frame.mouth;
+          dbgExpression.textContent = frame.expression;
+          dbgGlitch.textContent = frame.glitch;
+          dbgFrames.textContent = String(++frameCount);
+          lastFrame = frame;
+        }
+
+        // Initial idle paint so the canvas isn't blank while we
+        // wait for the first frame.
+        paint(lastFrame);
+
+        const source = new EventSource("/sse/avatar");
+        source.addEventListener("subscribed", () => {
+          setStatus("live", "live");
+        });
+        source.addEventListener("frame", (e) => {
+          try {
+            const frame = JSON.parse(e.data);
+            paint(frame);
+          } catch (err) {
+            // Bad payload — keep the previous frame on screen.
+            console.error("avatar frame parse failed", err, e.data);
+          }
+        });
+        source.onerror = () => {
+          // EventSource auto-reconnects; surface the gap so the
+          // operator knows the stream blinked.
+          setStatus("reconnecting…", "error");
+        };
+      }
+
+      // Speech is two independent channels timed off the same text:
+      //
+      //  1. Visemes — `POST /api/avatar/speak` always fires. The
+      //     server stub TTS publishes the `ordo.tts.phoneme.frame`
+      //     stream that the avatar driver turns into the frames we
+      //     render here. This drives the lip-sync no matter which
+      //     audio path is used.
+      //
+      //  2. Audio — provider-agnostic:
+      //       - "cloud voice" ON → `POST /api/voice/speech`, which
+      //         routes to whichever voice provider is configured
+      //         (OpenAI-compatible or MiniMax — see
+      //         `ordo_cloud::voice`). The returned audio is played
+      //         in-window; the active provider is shown in the
+      //         status line.
+      //       - OFF (default, zero-config) or on any cloud failure →
+      //         the browser's `speechSynthesis` voice.
+      //
+      // The two channels are timed off the same text, so they stay
+      // roughly aligned without an explicit sync protocol.
+      let currentAudio = null;
+
+      function speakViaBrowser(text) {
+        try {
+          if ("speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+          }
+        } catch (err) {
+          console.warn("speechSynthesis failed", err);
+        }
+      }
+
+      async function speakViaProvider(text) {
+        try {
+          const res = await fetch("/api/voice/speech", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ input: text }),
+          });
+          if (!res.ok) {
+            const body = await res.text();
+            console.warn("voice/speech failed", res.status, body);
+            setStatus(
+              `cloud voice unavailable (${res.status}) — using browser voice`,
+              "error",
+            );
+            return false;
+          }
+          const provider = res.headers.get("x-ordo-tts-provider") || "provider";
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          if (currentAudio) {
+            currentAudio.pause();
+          }
+          currentAudio = new Audio(url);
+          currentAudio.addEventListener("ended", () =>
+            URL.revokeObjectURL(url),
+          );
+          await currentAudio.play();
+          setStatus(`live · voice: ${provider}`, "live");
+          return true;
+        } catch (err) {
+          console.warn("cloud voice error", err);
+          return false;
+        }
+      }
+
+      async function speak() {
+        const text = textInput.value.trim();
+        if (!text) return;
+        speakBtn.disabled = true;
+
+        // Visemes always — independent of the audio path.
+        const visemePost = fetch("/api/avatar/speak", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        })
+          .then(async (res) => {
+            if (!res.ok) {
+              const body = await res.text();
+              setStatus(`speak failed: ${res.status} ${body}`, "error");
+            }
+          })
+          .catch((err) => {
+            setStatus(`speak failed: ${err.message ?? err}`, "error");
+          });
+
+        // Audio: cloud provider when opted in, else (or on failure)
+        // the browser voice.
+        let spoke = false;
+        if (cloudVoiceEl.checked) {
+          spoke = await speakViaProvider(text);
+        }
+        if (!spoke) {
+          speakViaBrowser(text);
+        }
+
+        await visemePost;
+        speakBtn.disabled = false;
+      }
+
+      speakBtn.addEventListener("click", speak);
+      textInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") speak();
+      });
+
+      boot();
+    </script>
+  </body>
+</html>
