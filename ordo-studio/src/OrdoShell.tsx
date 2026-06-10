@@ -158,6 +158,7 @@ import {
   type TurnEvent,
   openAvatarPopout,
   avatarPageUrl,
+  transcribeAudio,
 } from "./api";
 import { ExtensionsSurface } from "./extensions/ExtensionsSurface";
 import {
@@ -13859,143 +13860,128 @@ export default function OrdoShell() {
     }
   };
 
-  // ─── Voice-to-text (Web Speech API) ─────────────────────────
+  // ─── Voice-to-text dictation (agnostic STT) ─────────────────────
   //
-  // Uses the browser-native SpeechRecognition API the WebView (Edge
-  // WebView2 on Windows, WebKit on macOS) already has. No model
-  // download, no extra deps. Feature-detects both prefixed and
-  // unprefixed names. Click toggles recording; while recording, the
-  // mic button pulses red and the recognition's results stream into
-  // the existing chat input.
+  // Tap the mic, speak, tap again — the recorded clip is transcribed via
+  // POST /api/voice/transcribe (OpenAI-compatible STT, local or cloud) and
+  // the text drops into the chat input for you to review/edit/send. This is
+  // voice-to-TEXT only (no spoken reply); the avatar's voice-to-voice loop
+  // is a separate feature.
   //
-  // Privacy note worth knowing: WebView2 routes recognition through
-  // Microsoft's online speech service. That's fine for "I want it
-  // for me right now" but if a fully-local pipeline is needed later,
-  // swap in whisper.cpp via an MCP server (audio capture + transcribe
-  // + return text on a tool call).
-  //
-  // We capture the input value at start-time as a "baseline" so the
-  // operator's pre-typed text stays intact and gets concatenated
-  // with whatever was spoken — they can type, dictate the rest,
-  // edit, then send.
+  // Uses MediaRecorder (works inside Edge WebView2, unlike the browser
+  // SpeechRecognition API which the desktop WebView typically lacks). The
+  // pre-typed input is captured as a baseline so dictation never clobbers
+  // text you'd already started — it's appended after a space.
   const [isListening, setIsListening] = useState(false);
   const [voiceUnsupported, setVoiceUnsupported] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const recognitionRef = useRef<unknown | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
   const voiceBaselineRef = useRef<string>("");
 
   useEffect(() => {
-    // Feature-detect once on mount. If the API isn't there, the mic
-    // button stays visible but disabled with an explanatory tooltip.
+    // Feature-detect once on mount. If capture/recording isn't available
+    // the mic button stays visible but disabled with a tooltip.
     if (typeof window === "undefined") return;
-    const SR =
-      (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: unknown })
-        .webkitSpeechRecognition;
-    if (!SR) setVoiceUnsupported(true);
+    const ok =
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia &&
+      typeof window.MediaRecorder !== "undefined";
+    if (!ok) setVoiceUnsupported(true);
   }, []);
 
   const stopListening = () => {
-    const rec = recognitionRef.current as { stop?: () => void } | null;
+    const rec = mediaRecorderRef.current;
     try {
-      rec?.stop?.();
+      if (rec && rec.state !== "inactive") rec.stop();
     } catch {
-      // Some implementations throw if stop() runs before any audio
-      // arrived. Safe to swallow — onend will fire either way.
+      // stop() before any data arrived is harmless; onstop fires anyway.
     }
   };
 
-  const startListening = () => {
-    if (typeof window === "undefined") return;
+  const startListening = async () => {
     setVoiceError(null);
-    const SR = (
-      (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: unknown })
-        .webkitSpeechRecognition
-    ) as
-      | (new () => {
-          continuous: boolean;
-          interimResults: boolean;
-          lang: string;
-          start: () => void;
-          stop: () => void;
-          onresult: ((event: unknown) => void) | null;
-          onerror: ((event: { error?: string }) => void) | null;
-          onend: (() => void) | null;
-        })
-      | undefined;
-    if (!SR) {
-      setVoiceUnsupported(true);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.warn("getUserMedia failed", err);
+      setVoiceError("microphone blocked — allow mic access for Ordo");
       return;
     }
-    const recognition = new SR();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang =
-      (typeof navigator !== "undefined" && navigator.language) || "en-US";
-    voiceBaselineRef.current = input.length > 0 ? `${input} ` : "";
-    recognition.onresult = (event: unknown) => {
-      // SpeechRecognitionEvent shape: results is a list of
-      // SpeechRecognitionResult, each a list of alternatives.
-      // We walk from event.resultIndex (the first one new this fire)
-      // and build a single transcript: final results commit, interim
-      // results trail behind so the operator sees the words land in
-      // real time.
-      const e = event as {
-        resultIndex: number;
-        results: ArrayLike<{
-          isFinal: boolean;
-          0: { transcript: string };
-        }> & { length: number };
-      };
-      let finalText = "";
-      let interimText = "";
-      for (let i = 0; i < e.results.length; i += 1) {
-        const result = e.results[i];
-        const transcript = result[0]?.transcript ?? "";
-        if (result.isFinal) finalText += transcript;
-        else interimText += transcript;
-      }
-      const composed = `${voiceBaselineRef.current}${finalText}${interimText}`.trimStart();
-      setInput(composed);
-    };
-    recognition.onerror = (event: { error?: string }) => {
-      const code = event?.error ?? "unknown";
-      // Common ones: "not-allowed" (permission denied), "no-speech"
-      // (silence timeout), "audio-capture" (no mic), "network"
-      // (online recognition couldn't reach the speech service).
-      if (code === "no-speech") {
-        // Silence timeout is normal; just stop quietly.
-        setIsListening(false);
-        return;
-      }
-      const friendly =
-        code === "not-allowed" || code === "service-not-allowed"
-          ? "microphone permission denied — grant access in OS settings"
-          : code === "audio-capture"
-          ? "no microphone detected"
-          : code === "network"
-          ? "speech service unreachable (offline?)"
-          : `voice input failed: ${code}`;
-      setVoiceError(friendly);
-      setIsListening(false);
-    };
-    recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
-    };
+    mediaStreamRef.current = stream;
+    recordedChunksRef.current = [];
+    const mime = window.MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : window.MediaRecorder.isTypeSupported("audio/ogg")
+        ? "audio/ogg"
+        : "";
+    let rec: MediaRecorder;
     try {
-      recognition.start();
-      recognitionRef.current = recognition;
+      rec = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+    } catch (err) {
+      console.warn("MediaRecorder failed", err);
+      setVoiceError("recording unsupported in this runtime");
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const format = (rec.mimeType || mime || "audio/webm").includes("ogg")
+      ? "ogg"
+      : "webm";
+    voiceBaselineRef.current = input.trim().length > 0 ? `${input.trimEnd()} ` : "";
+
+    rec.ondataavailable = (e) => {
+      if (e.data && e.data.size) recordedChunksRef.current.push(e.data);
+    };
+    rec.onstop = async () => {
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+      setIsListening(false);
+      const blob = new Blob(recordedChunksRef.current, {
+        type: rec.mimeType || "audio/webm",
+      });
+      if (blob.size === 0) return;
+      try {
+        const reader = new FileReader();
+        const b64: string = await new Promise((resolve, reject) => {
+          reader.onloadend = () => {
+            const s = String(reader.result || "");
+            resolve(s.slice(s.indexOf(",") + 1));
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        const { text } = await transcribeAudio(b64, format);
+        if (text && text.trim()) {
+          setInput(`${voiceBaselineRef.current}${text.trim()}`.trimStart());
+        } else {
+          setVoiceError("didn't catch that — try again");
+        }
+      } catch (err) {
+        setVoiceError(
+          err instanceof ApiError
+            ? `transcription failed (${err.status}) — check your STT provider`
+            : `transcription failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    };
+
+    try {
+      rec.start();
+      mediaRecorderRef.current = rec;
       setIsListening(true);
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : String(err));
+      stream.getTracks().forEach((t) => t.stop());
     }
   };
 
   const toggleListening = () => {
     if (isListening) stopListening();
-    else startListening();
+    else void startListening();
   };
 
   // Make sure recognition stops if the shell unmounts while
@@ -15918,10 +15904,10 @@ export default function OrdoShell() {
                         }}
                         title={
                           voiceUnsupported
-                            ? "Voice input unavailable in this runtime (no SpeechRecognition API)"
+                            ? "Voice input unavailable (microphone/recording not supported here)"
                             : isListening
-                            ? "Stop listening"
-                            : "Start voice input - speech streams into the message field"
+                            ? "Stop & transcribe"
+                            : "Dictate — record speech and transcribe it into the message (needs an STT provider configured)"
                         }
                       >
                         {isListening ? <MicOff size={14} /> : <Mic size={14} />}

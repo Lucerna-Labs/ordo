@@ -1653,6 +1653,24 @@ export const fetchHealth = () =>
     ? invokeLocal<{ status: string }>("get_local_health")
     : api.get<{ status: string }>("/health");
 
+// ─── Voice-to-text (dictation) ────────────────────────────────────
+
+/**
+ * Transcribe recorded audio to text via the agnostic STT endpoint
+ * (OpenAI-compatible `/audio/transcriptions`, local or cloud). Used by the
+ * Studio chat composer's dictation mic — this is voice-to-TEXT only; it does
+ * NOT speak back (that's the avatar's separate voice-to-voice loop).
+ */
+export const transcribeAudio = (
+  audioBase64: string,
+  format: string,
+  service?: string,
+): Promise<{ text: string; provider?: string; model?: string }> =>
+  api.post<{ text: string; provider?: string; model?: string }>(
+    "/api/voice/transcribe",
+    { audio_base64: audioBase64, format, ...(service ? { service } : {}) },
+  );
+
 // ─── Avatar pop-out ───────────────────────────────────────────────
 
 /**

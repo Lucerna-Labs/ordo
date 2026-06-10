@@ -166,10 +166,10 @@
         flex-wrap: wrap;
       }
       #mic {
-        flex: none;
-        width: 46px;
-        padding: 0;
-        font-size: 16px;
+        flex: 1;
+        padding: 12px;
+        font-size: 15px;
+        font-weight: 600;
       }
       #mic.recording {
         background: rgba(248, 113, 113, 0.2);
@@ -227,14 +227,7 @@
     <footer>
       <div id="convo" aria-live="polite"></div>
       <div class="controls-row">
-        <button id="mic" title="Tap to talk — speak, then tap again to send">🎤</button>
-        <input
-          id="text"
-          type="text"
-          placeholder="…or type for the avatar to speak"
-          autocomplete="off"
-        />
-        <button id="speak">Speak</button>
+        <button id="mic" title="Tap to talk — speak, then tap again to send">🎤 Tap to talk</button>
       </div>
       <div class="settings-row">
         <label
@@ -313,8 +306,6 @@
       const dbgExpression = document.getElementById("dbg-expression");
       const dbgGlitch = document.getElementById("dbg-glitch");
       const dbgFrames = document.getElementById("dbg-frames");
-      const speakBtn = document.getElementById("speak");
-      const textInput = document.getElementById("text");
       const cloudVoiceEl = document.getElementById("cloudVoice");
 
       // Remember the cloud-voice preference across window reopens.
@@ -507,8 +498,9 @@
       }
 
       // Speak a given string: drive the lip-sync visemes + play the audio
-      // (cloud provider when opted in, else the browser voice). Reused by
-      // the type-to-speak box AND the voice-to-voice loop's reply.
+      // (cloud provider when opted in, else the browser voice). The avatar
+      // is voice-only — this is called by the voice-to-voice loop to speak
+      // the assistant's reply, never to echo typed text.
       async function speakText(text) {
         const visemePost = fetch("/api/avatar/speak", {
           method: "POST",
@@ -534,22 +526,6 @@
         }
         await visemePost;
       }
-
-      async function speak() {
-        const text = textInput.value.trim();
-        if (!text) return;
-        speakBtn.disabled = true;
-        try {
-          await speakText(text);
-        } finally {
-          speakBtn.disabled = false;
-        }
-      }
-
-      speakBtn.addEventListener("click", speak);
-      textInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") speak();
-      });
 
       // ---------------------------------------------------------------
       // Voice-to-voice loop: tap mic → record → tap again → transcribe
@@ -682,7 +658,7 @@
         if (recording) {
           recording = false;
           micBtn.classList.remove("recording");
-          micBtn.textContent = "🎤";
+          micBtn.textContent = "🎤 Tap to talk";
           if (mediaRecorder && mediaRecorder.state !== "inactive") {
             mediaRecorder.stop();
           }
@@ -737,7 +713,7 @@
         mediaRecorder.start();
         recording = true;
         micBtn.classList.add("recording");
-        micBtn.textContent = "■";
+        micBtn.textContent = "■ Listening… (tap to stop)";
         setStatus("listening… (tap to stop)", "live");
       }
 
