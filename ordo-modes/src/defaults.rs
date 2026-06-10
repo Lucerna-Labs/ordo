@@ -39,6 +39,7 @@ pub fn all_defaults() -> Result<Vec<ModeManifest>, ModeManifestError> {
         SECURITY_LAB_JSON,
         TECH_SPECIALIST_JSON,
         DIAGNOSTIC_JSON,
+        AVATAR_JSON,
     ];
     raw.iter()
         .map(|s| ModeManifest::from_json(s))
@@ -348,12 +349,44 @@ pub const DIAGNOSTIC_JSON: &str = r#"{
   "cross_mode_consult_policy": "deny"
 }"#;
 
+// 8. Avatar ───────────────────────────────────────────────────────────────────
+//
+// The talking-head avatar's own mode. It is spoken aloud, so replies must be
+// short and conversational — not the text-wall a chat surface tolerates. Kept
+// separate from `general` so the avatar never inherits a chat mode's tone, and
+// hidden from the chat mode-picker in the studio (it's the avatar's, not a mode
+// you'd pick for typing).
+pub const AVATAR_JSON: &str = r#"{
+  "id": "avatar",
+  "label": "Avatar",
+  "description": "Spoken voice companion. Concise, conversational replies meant to be heard, not read.",
+  "protected": true,
+  "memory_scope": ["global", "mode:avatar"],
+  "rag_domains": ["general_notes"],
+  "allowed_tool_lanes": [
+    "filesystem.read_",
+    "knowledge.",
+    "skills.get",
+    "memory.list_",
+    "memory.remember_",
+    "web."
+  ],
+  "blocked_tool_capabilities": [],
+  "policies": ["conservative_defaults"],
+  "planner_bias": [
+    "You are spoken aloud through a voice. Reply in one to three short sentences a person can comfortably hear — no markdown, code blocks, bullet lists, tables, or links unless explicitly asked.",
+    "Be warm, direct, and conversational. When a request is ambiguous, ask one brief clarifying question instead of guessing.",
+    "Prefer recall over invention; if you don't know, say so plainly and briefly."
+  ],
+  "persona": ["spoken_companion", "concise_conversationalist"]
+}"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// The protected core set.
-    const EXPECTED: usize = 7;
+    const EXPECTED: usize = 8;
     const CORE_IDS: &[&str] = &[
         "general",
         "rust_vibe_coder",
@@ -362,6 +395,7 @@ mod tests {
         "security_lab",
         "tech_specialist",
         "diagnostic",
+        "avatar",
     ];
 
     #[test]
@@ -486,7 +520,7 @@ mod tests {
         let defaults = all_defaults().unwrap();
         let mut seen = std::collections::HashSet::new();
         for m in &defaults {
-            if matches!(m.id.as_str(), "general" | "diagnostic") {
+            if matches!(m.id.as_str(), "general" | "diagnostic" | "avatar") {
                 continue;
             }
             let rag = m

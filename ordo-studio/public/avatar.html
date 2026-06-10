@@ -171,11 +171,11 @@
         font-size: 15px;
         font-weight: 600;
       }
-      #mic.recording {
-        background: rgba(248, 113, 113, 0.2);
-        border-color: #f87171;
-        color: #f87171;
-        animation: ordo-pulse 1s ease-in-out infinite;
+      #mic.listening {
+        background: rgba(74, 222, 128, 0.16);
+        border-color: #4ade80;
+        color: #4ade80;
+        animation: ordo-pulse 1.4s ease-in-out infinite;
       }
       @keyframes ordo-pulse {
         0%, 100% { opacity: 1; }
@@ -451,15 +451,25 @@
       // roughly aligned without an explicit sync protocol.
       let currentAudio = null;
 
+      // Resolves when speech finishes (so the VAD stays paused until the
+      // avatar is done talking — it never hears itself).
       function speakViaBrowser(text) {
-        try {
-          if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+        return new Promise((resolve) => {
+          try {
+            if ("speechSynthesis" in window) {
+              window.speechSynthesis.cancel();
+              const u = new SpeechSynthesisUtterance(text);
+              u.onend = () => resolve();
+              u.onerror = () => resolve();
+              window.speechSynthesis.speak(u);
+            } else {
+              resolve();
+            }
+          } catch (err) {
+            console.warn("speechSynthesis failed", err);
+            resolve();
           }
-        } catch (err) {
-          console.warn("speechSynthesis failed", err);
-        }
+        });
       }
 
       async function speakViaProvider(text) {
@@ -485,12 +495,27 @@
             currentAudio.pause();
           }
           currentAudio = new Audio(url);
-          currentAudio.addEventListener("ended", () =>
-            URL.revokeObjectURL(url),
-          );
-          await currentAudio.play();
-          setStatus(`live · voice: ${provider}`, "live");
-          return true;
+          setStatus(`speaking · voice: ${provider}`, "live");
+          // Resolve only when playback ENDS, so the caller (and the VAD)
+          // knows the avatar has finished talking.
+          let played = true;
+          await new Promise((resolve) => {
+            currentAudio.addEventListener("ended", () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            });
+            currentAudio.addEventListener("error", () => {
+              URL.revokeObjectURL(url);
+              played = false;
+              resolve();
+            });
+            currentAudio.play().catch((e) => {
+              console.warn("audio play failed", e);
+              played = false;
+              resolve();
+            });
+          });
+          return played;
         } catch (err) {
           console.warn("cloud voice error", err);
           return false;
@@ -522,23 +547,48 @@
           spoke = await speakViaProvider(text);
         }
         if (!spoke) {
-          speakViaBrowser(text);
+          await speakViaBrowser(text);
         }
         await visemePost;
       }
 
       // ---------------------------------------------------------------
-      // Voice-to-voice loop: tap mic → record → tap again → transcribe
-      // (agnostic STT) → assistant turn (dedicated voice session) → speak
-      // the reply. See docs/plans/2026-06-10-avatar-voice-to-voice-design.md
+      // Voice activation (VAD) + mute. The avatar is voice-only: while
+      // UNMUTED it listens continuously, auto-detects when you start/stop
+      // speaking (energy-based VAD over a Web Audio AnalyserNode), then runs
+      // transcribe → assistant turn (dedicated "avatar" mode session) →
+      // spoken reply. A mute button stops listening. VAD pauses while the
+      // avatar is speaking so it never hears itself. Starts MUTED
+      // (privacy-first) — the mic only opens on unmute — and is released when
+      // this page goes away (leaving the avatar tab unmounts it, or the
+      // pop-out closes). See docs/plans/2026-06-10-avatar-voice-to-voice-design.md
       // ---------------------------------------------------------------
       const micBtn = document.getElementById("mic");
       const sttInput = document.getElementById("sttService");
       const convoEl = document.getElementById("convo");
       let voiceSessionId = null;
-      let mediaRecorder = null;
-      let recordedChunks = [];
-      let recording = false;
+
+      // VAD state
+      let muted = true;
+      let micStream = null;
+      let audioCtx = null;
+      let analyser = null;
+      let vadData = null;
+      let vadTimer = null;
+      let recorder = null;
+      let recChunks = [];
+      let recordingActive = false;
+      let processing = false; // transcribing / thinking / speaking → VAD paused
+      let speechFrames = 0;
+      let silenceStart = 0;
+      let recStartTs = 0;
+      let recFormat = "webm";
+
+      const VAD_START_RMS = 0.03; // energy to begin capturing
+      const VAD_SILENCE_RMS = 0.018; // below this counts as silence
+      const VAD_START_FRAMES = 3; // consecutive loud ticks to trigger a start
+      const VAD_SILENCE_MS = 900; // trailing silence that ends an utterance
+      const VAD_MIN_MS = 350; // ignore blips shorter than this
 
       try {
         sttInput.value = localStorage.getItem("ordo.avatar.sttService") || "";
@@ -567,7 +617,7 @@
         const res = await fetch("/api/assistant/sessions", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ title: "Avatar voice", mode: "general" }),
+          body: JSON.stringify({ title: "Avatar voice", mode: "avatar" }),
         });
         if (!res.ok) throw new Error(`session create failed: ${res.status}`);
         const s = await res.json();
@@ -654,70 +704,171 @@
         await speakText(reply);
       }
 
-      async function toggleMic() {
-        if (recording) {
-          recording = false;
-          micBtn.classList.remove("recording");
-          micBtn.textContent = "🎤 Tap to talk";
-          if (mediaRecorder && mediaRecorder.state !== "inactive") {
-            mediaRecorder.stop();
-          }
-          return;
+      function setMicUI() {
+        if (muted) {
+          micBtn.classList.remove("listening");
+          micBtn.textContent = "🔇 Muted — tap to talk";
+        } else {
+          micBtn.classList.add("listening");
+          micBtn.textContent = "🎙 Listening — tap to mute";
         }
+      }
 
-        let stream;
+      function readRms() {
+        analyser.getByteTimeDomainData(vadData);
+        let sum = 0;
+        for (let i = 0; i < vadData.length; i += 1) {
+          const v = (vadData[i] - 128) / 128;
+          sum += v * v;
+        }
+        return Math.sqrt(sum / vadData.length);
+      }
+
+      function startUtterance() {
+        recChunks = [];
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          recorder = new MediaRecorder(
+            micStream,
+            recFormat === "ogg" ? { mimeType: "audio/ogg" } : { mimeType: "audio/webm" },
+          );
+        } catch (_e) {
+          try {
+            recorder = new MediaRecorder(micStream);
+          } catch (_e2) {
+            return;
+          }
+        }
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size) recChunks.push(e.data);
+        };
+        recorder.onstop = async () => {
+          recordingActive = false;
+          if (muted) return; // muted mid-utterance — discard
+          const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
+          const elapsed = Date.now() - recStartTs;
+          if (blob.size === 0 || elapsed < VAD_MIN_MS) {
+            setStatus("listening…", "live");
+            return;
+          }
+          processing = true; // pause VAD while we transcribe / think / speak
+          try {
+            await runVoiceLoop(blob, recFormat);
+          } finally {
+            processing = false;
+            if (!muted) setStatus("listening…", "live");
+          }
+        };
+        recorder.start();
+        recordingActive = true;
+        recStartTs = Date.now();
+        silenceStart = 0;
+        setStatus("hearing you…", "live");
+      }
+
+      function vadTick() {
+        if (muted || processing || !analyser) return;
+        const level = readRms();
+        if (!recordingActive) {
+          if (level >= VAD_START_RMS) {
+            speechFrames += 1;
+            if (speechFrames >= VAD_START_FRAMES) {
+              speechFrames = 0;
+              startUtterance();
+            }
+          } else {
+            speechFrames = 0;
+          }
+        } else if (level < VAD_SILENCE_RMS) {
+          if (silenceStart === 0) silenceStart = Date.now();
+          else if (Date.now() - silenceStart >= VAD_SILENCE_MS) {
+            silenceStart = 0;
+            if (recorder && recorder.state !== "inactive") recorder.stop();
+          }
+        } else {
+          silenceStart = 0; // continued speech resets the silence timer
+        }
+      }
+
+      async function unmute() {
+        try {
+          micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
         } catch (err) {
           console.warn("getUserMedia failed", err);
-          setStatus("mic blocked — allow microphone access for this window", "error");
+          setStatus("mic blocked — allow microphone access", "error");
           return;
         }
-
-        recordedChunks = [];
+        try {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          audioCtx = new Ctx();
+          const source = audioCtx.createMediaStreamSource(micStream);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 1024;
+          source.connect(analyser);
+          vadData = new Uint8Array(analyser.fftSize);
+        } catch (err) {
+          console.warn("audio analyser failed", err);
+          setStatus("voice activation unsupported here", "error");
+          micStream.getTracks().forEach((t) => t.stop());
+          micStream = null;
+          return;
+        }
         const mime = MediaRecorder.isTypeSupported("audio/webm")
           ? "audio/webm"
           : MediaRecorder.isTypeSupported("audio/ogg")
             ? "audio/ogg"
             : "";
-        try {
-          mediaRecorder = mime
-            ? new MediaRecorder(stream, { mimeType: mime })
-            : new MediaRecorder(stream);
-        } catch (err) {
-          console.warn("MediaRecorder failed", err);
-          setStatus("recording unsupported in this window", "error");
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        const format = (mediaRecorder.mimeType || mime || "audio/webm").includes("ogg")
-          ? "ogg"
-          : "webm";
-
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size) recordedChunks.push(e.data);
-        };
-        mediaRecorder.onstop = async () => {
-          stream.getTracks().forEach((t) => t.stop());
-          micBtn.disabled = true;
-          try {
-            const blob = new Blob(recordedChunks, {
-              type: mediaRecorder.mimeType || "audio/webm",
-            });
-            if (blob.size > 0) await runVoiceLoop(blob, format);
-          } finally {
-            micBtn.disabled = false;
-          }
-        };
-
-        mediaRecorder.start();
-        recording = true;
-        micBtn.classList.add("recording");
-        micBtn.textContent = "■ Listening… (tap to stop)";
-        setStatus("listening… (tap to stop)", "live");
+        recFormat = mime.includes("ogg") ? "ogg" : "webm";
+        muted = false;
+        recordingActive = false;
+        speechFrames = 0;
+        silenceStart = 0;
+        setMicUI();
+        setStatus("listening…", "live");
+        vadTimer = window.setInterval(vadTick, 50);
       }
 
-      micBtn.addEventListener("click", () => void toggleMic());
+      function muteMic() {
+        muted = true;
+        if (vadTimer) {
+          clearInterval(vadTimer);
+          vadTimer = null;
+        }
+        try {
+          if (recorder && recorder.state !== "inactive") recorder.stop();
+        } catch (_e) {
+          // ignore
+        }
+        recordingActive = false;
+        if (micStream) {
+          micStream.getTracks().forEach((t) => t.stop());
+          micStream = null;
+        }
+        if (audioCtx) {
+          audioCtx.close().catch(() => {});
+          audioCtx = null;
+        }
+        analyser = null;
+        setMicUI();
+        setStatus("muted");
+      }
+
+      micBtn.addEventListener("click", () => {
+        if (muted) void unmute();
+        else muteMic();
+      });
+      setMicUI();
+
+      // Release the mic when the surface goes away: leaving the avatar tab
+      // unmounts this iframe, and closing the pop-out fires pagehide.
+      window.addEventListener("pagehide", () => {
+        if (!muted) muteMic();
+      });
 
       boot();
     </script>

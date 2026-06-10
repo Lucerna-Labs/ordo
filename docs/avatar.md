@@ -152,13 +152,22 @@ curl -s -X POST http://127.0.0.1:4141/api/avatar/speak \
 - The MiniMax adapter is now exercised end-to-end by the mock harness (request
   shaping, GroupId encoding, hex decode, byte round-trip), but still needs a
   **live key + `group_id`** to confirm against the real service.
-- **Voice-to-voice is wired (beta).** The avatar pop-out has a tap-to-talk mic:
-  record → `POST /api/voice/transcribe` (agnostic OpenAI-compatible STT, local
-  or cloud) → an assistant turn in a dedicated voice session → the reply is
-  spoken + lip-synced. STT provider is configured like the TTS one (a credential
-  with `base_url`; set the `STT provider` field in the pop-out to target it).
-  See `docs/plans/2026-06-10-avatar-voice-to-voice-design.md`. Deferred: MiniMax
-  ASR, VAD/wake-word, tight audio↔viseme sync, barge-in.
+- **Voice-only, voice-activated (beta).** The avatar is voice-only — no
+  typing. A **mute** button gates a continuous **voice-activation** loop
+  (energy-based VAD over a Web Audio `AnalyserNode`): while unmuted it
+  auto-detects when you start/stop speaking, then `POST /api/voice/transcribe`
+  (agnostic OpenAI-compatible STT, local or cloud) → an assistant turn in the
+  dedicated **`avatar` mode** session → the reply is spoken + lip-synced. It
+  **starts muted** (the mic only opens on unmute), **pauses while it's speaking**
+  so it never hears itself, and releases the mic when the avatar tab/pop-out
+  closes (scoped to the avatar surface only). STT provider is configured like
+  the TTS one (a credential with `base_url`; set the `STT provider` field).
+- **The avatar has its own mode.** A protected, built-in **`avatar`** mode
+  (`ordo-modes` defaults) with a concise spoken-companion persona (short replies
+  meant to be heard, not read), hidden from the chat mode-picker. Separate from
+  the Studio's **voice-to-text dictation** (composer mic → transcribe → fills the
+  message box; no spoken reply). Deferred: MiniMax ASR, wake-word, tight
+  audio↔viseme sync, barge-in.
 
 ## Known sharp-edges (surfaced by the test harness)
 

@@ -15028,7 +15028,10 @@ export default function OrdoShell() {
             activeSessionId={sessionId}
             sessionsBusy={sessionsBusy}
             onSessionChange={(next) => void handleSessionChange(next)}
-            modes={modes.filter((mode) => modeUiSetting(modeUiSettings, mode).enabled)}
+            modes={modes.filter(
+              (mode) =>
+                mode.id !== "avatar" && modeUiSetting(modeUiSettings, mode).enabled,
+            )}
             activeMode={activeMode}
             onModeChange={handleModeChange}
             collaboratorRequest={collaboratorRequest}
