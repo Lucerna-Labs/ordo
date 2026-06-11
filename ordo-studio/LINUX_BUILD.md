@@ -39,12 +39,18 @@ sudo apt install -y \
   librsvg2-dev \
   libsoup-3.0-dev \
   libssl-dev \
+  libtss2-dev \
   libwebkit2gtk-4.1-dev \
   patchelf \
   pkg-config
 ```
 
-(This matches the dependency set the release CI installs in
+`libtss2-dev` provides the TPM 2.0 TSS system library that the secrets vault uses
+on Linux (the `tss-esapi` crate, gated to `cfg(target_os = "linux")` in
+`ordo-secrets-vault`). Without it the workspace fails to build with
+`Package 'tss2-sys' ... not found`.
+
+(The webview deps match the set the release CI installs in
 `.github/workflows/release.yml`.)
 
 Install the project dependencies:

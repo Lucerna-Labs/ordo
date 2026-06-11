@@ -14,6 +14,8 @@
 
 #![cfg(target_os = "linux")]
 
+use std::str::FromStr;
+
 use argon2::{Algorithm, Argon2, Params, Version};
 use async_trait::async_trait;
 use ordo_protocol::SealingTier;
