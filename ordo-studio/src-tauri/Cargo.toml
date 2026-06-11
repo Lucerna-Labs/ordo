@@ -29,3 +29,9 @@ tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+
+# Linux renders with webkit2gtk (not WebView2), which denies getUserMedia unless
+# the host grants it. Pinned to wry's version so we share the same crate
+# instance. Used by the avatar mic permission handler in main.rs.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "=2.0.2"

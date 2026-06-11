@@ -88,12 +88,13 @@ npm run tauri:dev
 
 ## Platform Notes
 
-- **Avatar microphone.** On Linux the shell renders with webkit2gtk, which does
-  not yet have a host-side microphone permission grant wired in, so the avatar's
-  *in-tab* "tap to talk" is blocked. Use the **avatar pop-out** (the Bot button)
-  — it opens the avatar page in your default browser via `xdg-open`, where the
-  OS grants the mic normally. The WebView2-only `additionalBrowserArgs` in
-  `tauri.conf.json` are ignored on webkit2gtk (harmless).
+- **Avatar microphone.** On Linux the shell renders with webkit2gtk, which (unlike
+  WebView2) denies `getUserMedia` until the host grants it. `main.rs` installs a
+  `cfg(target_os = "linux")` permission handler that auto-allows microphone/camera
+  requests, so the avatar's in-tab "tap to talk" works. The **avatar pop-out**
+  (the Bot button → `xdg-open` → your browser) also works. The WebView2-only
+  `additionalBrowserArgs` in `tauri.conf.json` are ignored on webkit2gtk
+  (harmless).
 
 - Do not hard-code `.exe` paths in the UI or backend. The MCP binary is
   `ordo-mcp.exe` on Windows and `ordo-mcp` on Linux.

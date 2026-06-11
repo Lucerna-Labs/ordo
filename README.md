@@ -456,9 +456,9 @@ On Linux/macOS, the launcher scripts start the runtime and the Studio together
 ```
 
 The Studio builds and runs on Linux via WebKitGTK (see
-[`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md)). One caveat: the
-avatar's *in-tab* microphone is not yet granted on webkit2gtk — use the avatar
-pop-out (it opens in your browser, where the mic works).
+[`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md)). The avatar's in-tab
+microphone is granted by a webkit2gtk permission handler in the shell (the
+avatar pop-out, which opens in your browser, also works).
 
 ### Run Checks
 

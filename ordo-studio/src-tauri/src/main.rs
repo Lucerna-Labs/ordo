@@ -34,6 +34,31 @@ fn main() {
                 "Ordo Studio online. Liquid Glass 2026 shell aligned.",
                 LogLevel::Info,
             )?;
+
+            // On Linux the webview is webkit2gtk, which (unlike WebView2 on
+            // Windows) denies getUserMedia until the host grants it. Auto-allow
+            // microphone/camera permission requests so the avatar's in-tab
+            // "tap to talk" works. (Windows grants it via the
+            // --use-fake-ui-for-media-stream arg in tauri.conf.json.)
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager;
+                use webkit2gtk::glib::ObjectExt;
+                use webkit2gtk::{PermissionRequestExt, WebViewExt};
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.with_webview(|webview| {
+                        webview.inner().connect_permission_request(|_wv, req| {
+                            if req.is::<webkit2gtk::UserMediaPermissionRequest>() {
+                                req.allow();
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                    });
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
