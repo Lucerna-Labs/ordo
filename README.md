@@ -6,7 +6,26 @@ It is built around a Rust/Tokio message bus, explicit capability boundaries,
 mode-scoped agents, local memory, retrieval, automation, and a desktop UXI for
 operating the system without handing control to a remote platform.
 
-Ordo is currently beta software.
+Ordo is currently beta software, available for **Windows and Linux** (the
+headless runtime is cross-platform; the desktop Studio ships as a Windows
+installer and as a Linux `deb` / `AppImage`).
+
+## Screenshots
+
+**The operator Studio** — local-first control over the runtime, modes, providers,
+memory, automation, MCP, and more.
+
+![Ordo Studio](docs/screenshots/studio.png)
+
+**The talking avatar** — an optional, experimental voice companion that listens,
+"researches" on her PC, and answers aloud.
+
+![Ordo avatar](docs/screenshots/avatar.png)
+
+**Avatar customization** — give her a persona, scope her skills, and manage her
+appearance.
+
+![Avatar persona](docs/screenshots/avatar-persona.png)
 
 ## What Makes Ordo Different
 
