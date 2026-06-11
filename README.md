@@ -37,6 +37,66 @@ appearance.
 
 ![Avatar persona](docs/screenshots/avatar-persona.png)
 
+## Install & Run
+
+> **Beta — build from source.** There is no prebuilt download yet (no GitHub
+> Release with attached installers). You clone the repo and run it. Both
+> platforms need **Rust (stable)** and **Node.js 18+**; a first build compiles
+> the workspace, so expect a few minutes the first time.
+
+Ordo is two pieces: the headless **runtime** (serves the local control API on
+`127.0.0.1:4141`) and the **Studio** desktop app. The launcher scripts start
+both for you and wait for the runtime to report healthy before opening Studio.
+
+### Windows
+
+```powershell
+git clone https://github.com/Lucerna-Labs/ordo
+cd ordo
+.\Launch-Ordo-Studio.cmd          # installs deps, starts runtime + Studio
+```
+
+`Launch-Ordo-Studio.cmd` (just double-click it, or run it from a terminal)
+installs the frontend deps, clears stale dev listeners, starts the runtime,
+waits for `/health`, then opens Studio. `Install-Desktop-Shortcut.cmd` adds a
+Start-menu/desktop shortcut. To produce a Windows **MSI** installer instead, see
+the WiX setup in [`ordo-cli/wix/`](ordo-cli/wix).
+
+### Linux
+
+```bash
+# 1. WebKitGTK + TPM build deps — full list in ordo-studio/LINUX_BUILD.md
+#    Ubuntu/Debian: sudo apt install -y build-essential libwebkit2gtk-4.1-dev \
+#      libtss2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev \
+#      libayatana-appindicator3-dev patchelf file pkg-config libssl-dev
+#    Fedora: webkit2gtk4.1-devel libsoup3-devel javascriptcoregtk4.1-devel \
+#      tpm2-tss-devel librsvg2-devel libayatana-appindicator-gtk3-devel patchelf
+
+git clone https://github.com/Lucerna-Labs/ordo
+cd ordo
+./Launch-Ordo-Studio.sh           # starts runtime + Studio (waits for /health)
+```
+
+To build an installable package instead of running the dev shell:
+
+```bash
+cd ordo-studio && npm install && npm run tauri:build:linux
+#   → src-tauri/target/release/bundle/appimage/Ordo_0.1.0_amd64.AppImage  (any distro)
+#   → src-tauri/target/release/bundle/deb/Ordo_0.1.0_amd64.deb            (Debian/Ubuntu)
+```
+
+The **AppImage** is portable across distributions (best for Fedora); the `.deb`
+is for Debian/Ubuntu-family systems. Full Linux notes — including the avatar
+microphone permission handler — are in
+[`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md).
+
+> The talking avatar is **experimental** and gated behind `ORDO_ENABLE_AVATAR=1`
+> (the launchers set this for you). Voice-to-voice needs either a **paid cloud
+> API plan** or a **local model** — see the [Avatar](#avatar) section below.
+
+For the full developer workflow (running the runtime and Studio separately,
+checks, and packaging), see [Getting Started](#getting-started).
+
 ## What Makes Ordo Different
 
 Ordo is not just a chat UI around a model. Its unique pieces are the runtime
