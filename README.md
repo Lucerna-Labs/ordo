@@ -12,13 +12,23 @@ installer and as a Linux `deb` / `AppImage`).
 
 ## Screenshots
 
-**The operator Studio** — local-first control over the runtime, modes, providers,
-memory, automation, MCP, and more.
+**The operator Studio** — every surface for running the system locally:
+assistant, modes, providers, memory, automation, MCP, review, and more.
 
-![Ordo Studio](docs/screenshots/studio.png)
+![Ordo Studio — all surfaces](docs/screenshots/studio.png)
 
-**The talking avatar** — an optional, experimental voice companion that listens,
-"researches" on her PC, and answers aloud.
+**Mode-scoped agents** — each mode carries its own memory scope, RAG domains,
+allowed tools, and persona.
+
+![Ordo modes](docs/screenshots/modes.png)
+
+**Automation** — manual routines, schedules, heartbeats, webhooks, and reviews,
+all operator-gated.
+
+![Ordo automation](docs/screenshots/automation.png)
+
+**The talking avatar** *(experimental)* — an optional voice companion that
+listens, "researches" on her PC, and answers aloud.
 
 ![Ordo avatar](docs/screenshots/avatar.png)
 
