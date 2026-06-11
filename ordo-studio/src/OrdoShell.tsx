@@ -1,4 +1,4 @@
-// Ordo by Lucerna Labs — main studio shell.
+// Ordo by Lucerna Labs, a division of Lucerna Media — main studio shell.
 //
 // 41-tab UXI mapping one-to-one onto the ordo-* crate set, plus Bus as
 // cross-cutting telemetry. All controls are stubbed; wiring notes:
@@ -816,7 +816,7 @@ const Lamp = () => (
     </div>
     <div style={{ lineHeight: 1.05 }}>
       <Mono size={9} color="rgba(255,255,255,0.45)" upper track="0.3em">
-        Lucerna Labs
+        Lucerna Labs · a division of Lucerna Media
       </Mono>
       <div
         style={{

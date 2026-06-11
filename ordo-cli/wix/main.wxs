@@ -62,7 +62,7 @@
         Id='*'
         Name='Ordo (WebView Beta)'
         UpgradeCode='3F2A8E1B-9C4D-4F7A-A1B5-7E2D8C9F0123'
-        Manufacturer='Lucerna Labs'
+        Manufacturer='Lucerna Labs, a division of Lucerna Media'
         Language='1033'
         Codepage='1252'
         Version='$(var.Version)'>
@@ -70,7 +70,7 @@
         <Package Id='*'
             Keywords='Installer'
             Description='Ordo — local-first AI runtime + WebView2 UI host.'
-            Manufacturer='Lucerna Labs'
+            Manufacturer='Lucerna Labs, a division of Lucerna Media'
             InstallerVersion='500'
             Languages='1033'
             Compressed='yes'

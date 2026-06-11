@@ -432,6 +432,16 @@ def kill_port_listener(port):
             for pid in pids:
                 subprocess.run(["taskkill", "/PID", pid, "/F"],
                                capture_output=True, text=True)
+        else:
+            # POSIX (Linux/macOS): prefer lsof, fall back to fuser.
+            try:
+                out = subprocess.run(["lsof", "-ti", f":{port}", "-sTCP:LISTEN"],
+                                     capture_output=True, text=True).stdout
+                for pid in out.split():
+                    subprocess.run(["kill", "-9", pid], capture_output=True, text=True)
+            except FileNotFoundError:
+                subprocess.run(["fuser", "-k", f"{port}/tcp"],
+                               capture_output=True, text=True)
     except Exception:
         pass
 

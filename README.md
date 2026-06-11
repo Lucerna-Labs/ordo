@@ -1,6 +1,6 @@
 # Ordo
 
-Ordo is a local-first AI runtime and operator studio by Lucerna Labs (a division of Lucerna Media).
+Ordo is a local-first AI runtime and operator studio by Lucerna Labs, a division of Lucerna Media.
 
 It is built around a Rust/Tokio message bus, explicit capability boundaries,
 mode-scoped agents, local memory, retrieval, automation, and a desktop UXI for
@@ -117,15 +117,17 @@ The UXI talks to the local Ordo control API instead of bypassing the runtime.
 
 ### Avatar
 
+> **Experimental.** The avatar is an early, opt-in feature (gated behind
+> `ORDO_ENABLE_AVATAR=1`) and is the surface most likely to change.
+
 Ordo includes an optional **talking companion avatar** — a second assistant you
 talk to by voice, rendered as an animated character in the Studio's Avatar tab
 or in its own resizable pop-out window.
 
 - **Voice to voice.** Voice-activated (energy-based VAD, starts muted): you
   speak, she listens, works on your answer, and replies aloud. Speech-to-text
-  and text-to-speech are provider-agnostic — the browser voice is the
-  zero-config default, with OpenAI-compatible and MiniMax endpoints pluggable,
-  local or cloud.
+  and text-to-speech are provider-agnostic — browser, OpenAI-compatible, or
+  MiniMax, local or cloud.
 - **State-driven presence.** She is a set of looping behavior clips switched by
   what is happening: idle (working at her desk / watching you), listening when
   you speak, "researching" while she works on your answer, speaking when she
@@ -140,6 +142,20 @@ or in its own resizable pop-out window.
 - **Customizable.** Edit her persona (name, tone, spoken style), scope her
   skills (tool lanes), and preview her appearance from the Avatar tab. The
   avatar is its own protected mode, kept out of the chat mode picker.
+
+**Running voice to voice.** The full spoken loop needs three pieces:
+speech-to-text (to hear you), a chat model (to answer), and text-to-speech (to
+reply). Provide them one of two ways:
+
+- **Paid API plan (simplest).** Point Ordo at an OpenAI-compatible provider that
+  offers a Whisper-class transcription model, a chat model, and a TTS voice.
+  Cloud voice-to-voice **requires a paid plan** on that provider — a free tier
+  that exposes only, say, a single TTS model is not enough for the whole loop.
+- **Fully local (no API plan, no per-use cost).** Run it entirely on your own
+  machine: a local Whisper-compatible STT server set as the avatar's STT
+  provider, a local chat model (Ollama / llama.cpp) bound as the avatar's
+  **Brain** in the Avatar tab, and the built-in browser voice for TTS. No keys,
+  no cloud.
 
 ### Modes
 
@@ -206,6 +222,25 @@ Ordo separates these concepts:
 
 The UXI keeps these surfaces separate so the operator can manage them without
 catalog confusion.
+
+**MCP servers are treated as untrusted capability providers by default**, with a
+research-informed, defense-in-depth security model:
+
+- **Signed lockfiles** pin a server's identity, declared capabilities, and
+  resource limits at install time; the registry signs the lockfile and the
+  runtime refuses tampered or drifted installs.
+- **Trust graduation** — servers start untrusted and earn trust through clean
+  invocations instead of being trusted on install.
+- **Quarantine and re-authorization** — a server can be quarantined, and any
+  drift in its declaration or tool catalog forces re-authorization before it
+  runs again.
+- **Sandboxed workers** — tool calls run in isolated, fuel-metered sandbox
+  workers, not in the runtime process.
+- **Provenance tracking, pre/post-call scanning, and redaction** — inputs and
+  outputs are scanned, tainted data is tracked through the strainer, and secrets
+  are redacted at the boundary.
+- **Audit logs** — every install, invocation, trust change, and policy decision
+  is recorded in the security audit ring.
 
 ### Providers And Models
 
@@ -347,7 +382,12 @@ without spending a model turn. Use `-Strict` for release gating.
 
 - Rust stable
 - Node.js and npm
-- Tauri prerequisites for your OS
+- Tauri prerequisites for your OS — on Linux, the WebKitGTK build dependencies
+  in [`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md)
+
+The PowerShell snippets below are for Windows; the Bash equivalent is shown where
+it differs. On Linux/macOS use `export RUSTFLAGS='-D warnings'` instead of
+`$env:RUSTFLAGS=...`.
 
 ### Run The Runtime
 
@@ -377,6 +417,19 @@ cd ordo-studio
 npm install
 npm run tauri:dev
 ```
+
+On Linux/macOS, the launcher scripts start the runtime and the Studio together
+(and wait for `/health`):
+
+```bash
+./Launch-Ordo-Studio.sh      # runtime + Studio dev shell
+./Launch-Ordo-Portable.sh    # build + run just the headless runtime
+```
+
+The Studio builds and runs on Linux via WebKitGTK (see
+[`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md)). One caveat: the
+avatar's *in-tab* microphone is not yet granted on webkit2gtk — use the avatar
+pop-out (it opens in your browser, where the mic works).
 
 ### Run Checks
 

@@ -1,10 +1,15 @@
 # Ordo (WebView Beta)
 
-Lucerna Labs · local-first AI runtime with the Ordo Studio React UI hosted in
-a Tauri WebView2 window. The desktop app is **Ordo Studio**; the headless
+Lucerna Labs, a division of Lucerna Media · local-first AI runtime with the Ordo
+Studio React UI hosted in a Tauri WebView2 window. The desktop app is **Ordo Studio**; the headless
 runtime (control API on `127.0.0.1:4141`) is the `ordo` binary.
 
 This folder is the full workspace. Three ways to use it:
+
+> **Linux / macOS:** the steps below are Windows-centric (`.exe`, PowerShell).
+> Use the `Launch-Ordo-Studio.sh` / `Launch-Ordo-Portable.sh` scripts, and see
+> [`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md) for the build
+> prerequisites.
 
 ---
 

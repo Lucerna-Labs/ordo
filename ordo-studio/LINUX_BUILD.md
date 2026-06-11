@@ -35,11 +35,17 @@ sudo apt install -y \
   curl \
   file \
   libayatana-appindicator3-dev \
+  libjavascriptcoregtk-4.1-dev \
   librsvg2-dev \
+  libsoup-3.0-dev \
   libssl-dev \
   libwebkit2gtk-4.1-dev \
+  patchelf \
   pkg-config
 ```
+
+(This matches the dependency set the release CI installs in
+`.github/workflows/release.yml`.)
 
 Install the project dependencies:
 
@@ -61,13 +67,27 @@ src-tauri/target/release/bundle/
 
 ## Development Run
 
-For live Linux development:
+For live Linux development, from the repo root:
+
+```bash
+./Launch-Ordo-Studio.sh     # runtime + Studio dev shell (waits for /health first)
+./Launch-Ordo-Portable.sh   # build + run just the headless runtime
+```
+
+Or directly, from `ordo-studio/`:
 
 ```bash
 npm run tauri:dev
 ```
 
 ## Platform Notes
+
+- **Avatar microphone.** On Linux the shell renders with webkit2gtk, which does
+  not yet have a host-side microphone permission grant wired in, so the avatar's
+  *in-tab* "tap to talk" is blocked. Use the **avatar pop-out** (the Bot button)
+  — it opens the avatar page in your default browser via `xdg-open`, where the
+  OS grants the mic normally. The WebView2-only `additionalBrowserArgs` in
+  `tauri.conf.json` are ignored on webkit2gtk (harmless).
 
 - Do not hard-code `.exe` paths in the UI or backend. The MCP binary is
   `ordo-mcp.exe` on Windows and `ordo-mcp` on Linux.
