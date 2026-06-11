@@ -2000,6 +2000,8 @@ const DEFAULT_CLIPS_JSON: &str = r#"{
     "watching": "avatar/clips/watching.mp4",
     "thinking": "avatar/clips/working.mp4",
     "listening": "avatar/clips/watching.mp4",
+    "found": "avatar/clips/found.mp4",
+    "pleased": "avatar/clips/happy.mp4",
     "speaking": "avatar/clips/speaking.mp4"
   },
   "idle_rotation": ["working", "watching"]

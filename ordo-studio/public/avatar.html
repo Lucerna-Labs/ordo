@@ -366,6 +366,10 @@
           playClip(pickClip("thinking", "idle"), true);
         } else if (state === "annoyed") {
           playClip(pickClip("annoyed", "idle"), true);
+        } else if (state === "pleased") {
+          playClip(pickClip("pleased", "idle"), true);
+        } else if (state === "found") {
+          playClip(pickClip("found", "speaking", "idle"), true);
         } else {
           idleIdx = 0;
           // If there's a rotation, play each once and advance on end;
@@ -657,20 +661,24 @@
       // Annoyed reaction — a brief flash she shows when something fails, when
       // you're short/rude with her, or when you make her repeat herself. Falls
       // back to idle until an `annoyed` clip exists in the manifest.
-      const ANNOYED_MS = 1700;
+      const REACTION_MS = 1600; // how long an emotional reaction flashes
+      const FOUND_MS = 1100;    // the brief "I found it!" beat before answering
       let lastUserMessage = "";
       const RUDE_RE =
         /\b(shut\s*up|stupid|idiot|dumb|dummy|moron|useless|hate you|shut it|hurry up|whatever|nevermind|never mind|you'?re wrong|ur wrong|so dumb|be quiet|don'?t care)\b/i;
+      const PRAISE_RE =
+        /\b(thank\s*(you|u)|thanks|thx|appreciate|great job|good job|well done|nice job|awesome|amazing|perfect|brilliant|love (it|that|you)|you'?re the best|nailed it|excellent|wonderful|so helpful|much appreciated)\b/i;
       const normalizeMsg = (t) =>
         t.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
       const isRudeMessage = (t) => RUDE_RE.test(t);
+      const isPraiseMessage = (t) => PRAISE_RE.test(t);
       const isRepeatMessage = (t) => {
         const n = normalizeMsg(t);
         return n.length > 0 && n === lastUserMessage;
       };
-      async function flashAnnoyed() {
-        setAvatarState("annoyed");
-        await new Promise((r) => setTimeout(r, ANNOYED_MS));
+      async function flashState(state, ms) {
+        setAvatarState(state);
+        await new Promise((r) => setTimeout(r, ms));
       }
 
       async function runVoiceLoop(blob, format) {
@@ -709,10 +717,13 @@
         }
         addConvo("user", text);
 
-        // Annoyed reactions: if you're short/rude or you just asked the same
-        // thing again, she flashes annoyed before (still) helping.
+        // Emotional reactions before she answers: annoyed if you're short/rude
+        // or you just repeated yourself; pleased if you thanked/praised her.
         if (isRudeMessage(text) || isRepeatMessage(text)) {
-          await flashAnnoyed();
+          await flashState("annoyed", REACTION_MS);
+          setAvatarState("thinking");
+        } else if (isPraiseMessage(text)) {
+          await flashState("pleased", REACTION_MS);
           setAvatarState("thinking");
         }
         lastUserMessage = normalizeMsg(text);
@@ -745,14 +756,15 @@
         }
         addConvo("ordo", reply);
 
-        // 3. speak the reply (visemes + audio)
+        // 3. she "found it" (brief aha beat), then speaks the reply
         failed = false; // we have a real reply — this turn succeeded
+        await flashState("found", FOUND_MS);
         await speakText(reply);
         } finally {
           if (failed) {
             // Something went wrong (couldn't hear you / model failed / no
             // reply) — she gets annoyed, then settles back to idle.
-            await flashAnnoyed();
+            await flashState("annoyed", REACTION_MS);
             setAvatarState("idle");
           } else if (avatarState === "thinking") {
             // speakText already flips speaking→idle on success.
