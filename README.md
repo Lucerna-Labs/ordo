@@ -99,6 +99,7 @@ rules around the model:
 `ordo-studio` is the desktop UXI. It gives operators tabs for:
 
 - Assistant
+- Avatar
 - Provider setup
 - Modes
 - Hooks
@@ -113,6 +114,32 @@ rules around the model:
 - Docs and Dev Docs
 
 The UXI talks to the local Ordo control API instead of bypassing the runtime.
+
+### Avatar
+
+Ordo includes an optional **talking companion avatar** — a second assistant you
+talk to by voice, rendered as an animated character in the Studio's Avatar tab
+or in its own resizable pop-out window.
+
+- **Voice to voice.** Voice-activated (energy-based VAD, starts muted): you
+  speak, she listens, works on your answer, and replies aloud. Speech-to-text
+  and text-to-speech are provider-agnostic — the browser voice is the
+  zero-config default, with OpenAI-compatible and MiniMax endpoints pluggable,
+  local or cloud.
+- **State-driven presence.** She is a set of looping behavior clips switched by
+  what is happening: idle (working at her desk / watching you), listening when
+  you speak, "researching" while she works on your answer, speaking when she
+  replies — plus emotional reactions: pleased when you thank her, annoyed on a
+  failure, rudeness, or a repeated question, and a brief "found it" beat the
+  moment she has an answer. Clips are swappable on disk; the renderer never
+  hard-codes the character.
+- **Its own brain, shared mind.** The avatar can run on its **own model** (a
+  local Ollama/llama.cpp server or a cloud endpoint) concurrently with the main
+  assistant, while sharing the same memory, RAG, skills, and modes — so it works
+  alongside you on a spare monitor without competing with the generalist.
+- **Customizable.** Edit her persona (name, tone, spoken style), scope her
+  skills (tool lanes), and preview her appearance from the Avatar tab. The
+  avatar is its own protected mode, kept out of the chat mode picker.
 
 ### Modes
 
@@ -305,7 +332,8 @@ without spending a model turn. Use `-Strict` for release gating.
 - `ordo-operator-sim` - pre-ship operator simulator
 - `ordo-mcp-*` - MCP host, registry, client, sandbox, worker, provenance
 - `ordo-plugins` - plugin manifest and stdio provider system
-- `ordo-cloud` - OpenAI/Anthropic/OpenAI-compatible cloud boundary
+- `ordo-cloud` - OpenAI/Anthropic/OpenAI-compatible cloud boundary, including provider-agnostic voice (STT/TTS)
+- `ordo-avatar`, `ordo-tts` - talking-companion avatar driver (behavior state) and phoneme/TTS support
 - `ordo-connections` - configured external connection records
 - `ordo-memory-*` - hierarchical memory log, router, and projection
 - `ordo-rag` - retrieval indexing and search
@@ -339,6 +367,9 @@ Health endpoint:
 http://127.0.0.1:4141/health
 ```
 
+The talking-companion avatar driver is gated behind `ORDO_ENABLE_AVATAR=1`
+(the desktop launcher sets this for you).
+
 ### Run The Studio
 
 ```powershell
@@ -360,6 +391,14 @@ Studio build:
 ```powershell
 cd ordo-studio
 npm run build
+```
+
+End-to-end harnesses (Python, stdlib only — each self-launches a runtime on
+`127.0.0.1:4142` with a mock provider and tears it down):
+
+```powershell
+python scripts/ordo_full_test.py     # comprehensive: every subsystem, one PASS/WARN/FAIL verdict
+python scripts/ordo_avatar_test.py   # avatar + provider-agnostic voice
 ```
 
 Operator simulator:
