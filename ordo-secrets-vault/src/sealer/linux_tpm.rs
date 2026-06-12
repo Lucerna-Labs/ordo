@@ -11,8 +11,9 @@
 //! RNG, passphrase layer is present for the "DEK is not extractable
 //! without both TPM presence AND the passphrase" property. Upgrade
 //! path to persistent-key wrapping is a local change to this file.
-
-#![cfg(target_os = "linux")]
+//!
+//! Compiled only on Linux via the `#[cfg(target_os = "linux")] pub mod` gate in
+//! `sealer.rs` (matching the `windows_tbs` pattern — no redundant inner `cfg`).
 
 use std::str::FromStr;
 

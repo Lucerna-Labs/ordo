@@ -29,6 +29,14 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install Linux system deps
+        # ordo-secrets-vault's Tier-1 sealer pulls tss-esapi, gated to
+        # cfg(target_os = "linux"). Its -sys crate links libtss2 via pkg-config,
+        # so the Linux runner needs the dev headers. Windows uses TBS and macOS
+        # the Secure Enclave, so this is the Linux-only native dependency.
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libtss2-dev
+
       - name: Cache cargo registry + target
         uses: Swatinem/rust-cache@v2
 

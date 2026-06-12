@@ -17,7 +17,15 @@
 //! SEP key is non-exportable, per-device, and every unwrap
 //! requires an on-chip signing operation.
 
-#![cfg(target_os = "macos")]
+// Compiled only on macOS via the `#[cfg(target_os = "macos")] pub mod` gate in
+// `sealer.rs` (matching the `windows_tbs` pattern — no redundant inner `cfg`).
+//
+// Scaffold module: wrap/unwrap/probe deliberately return `Unavailable` until the
+// security-framework SEP wiring lands (see `sep_sign`). The wrapped-blob layout
+// constants and key-derivation helpers below are the stable shape of that pending
+// implementation, so they read as dead code today. macOS is the only target that
+// compiles this file, and CI runs with `-D warnings`; allow until SEP goes live.
+#![allow(dead_code)]
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use async_trait::async_trait;
