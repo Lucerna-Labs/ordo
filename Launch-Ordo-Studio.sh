@@ -51,7 +51,10 @@ export RUSTFLAGS="-D warnings"
 
 if [ ! -d "$STUDIO_DIR/node_modules" ]; then
   echo "Installing Ordo Studio frontend dependencies..."
-  ( cd "$STUDIO_DIR" && npm ci )
+  # `npm ci` is strict and aborts when package-lock.json doesn't exactly match
+  # the resolver's view (varies by npm/node version + platform). Fall back to
+  # `npm install`, which reconciles the lockfile and installs. Mirrors CI.
+  ( cd "$STUDIO_DIR" && { npm ci || npm install; } )
 fi
 
 echo "Clearing stale Ordo dev listeners on ports 4141 and 1420..."

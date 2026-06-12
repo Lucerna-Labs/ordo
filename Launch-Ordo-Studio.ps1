@@ -78,7 +78,18 @@ try {
         Write-Host "Installing Ordo Studio frontend dependencies..." -ForegroundColor Yellow
         & npm ci
         if ($LASTEXITCODE -ne 0) {
-            throw "npm ci failed"
+            # `npm ci` is deliberately strict: it aborts when package-lock.json
+            # doesn't exactly match the resolver's view. That view varies by
+            # npm/node version and platform (a newer npm, or Windows-on-ARM
+            # pulling the wasm @emnapi fallback), so a lockfile that is in sync
+            # on one machine can be rejected on another. Fall back to a regular
+            # `npm install`, which reconciles the lockfile and installs. Mirrors
+            # the CI step (`npm ci || npm install`).
+            Write-Host "npm ci failed (lockfile/toolchain mismatch) - falling back to npm install..." -ForegroundColor Yellow
+            & npm install
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm install failed"
+            }
         }
     }
 } finally {
