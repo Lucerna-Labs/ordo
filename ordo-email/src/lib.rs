@@ -16,13 +16,13 @@
 //!   │ (lettre)     │     │              │     │ EmailReplyReq│
 //!   └─────────────┘     └──────────────┘     └──────────────┘
 
+mod bus_bridge;
+mod command;
 mod config;
 mod imap_poller;
 mod smtp_sender;
-mod command;
-mod bus_bridge;
 
-pub use config::EmailConfig;
-pub use command::ParsedCommand;
 pub use bus_bridge::EmailBridge;
+pub use command::ParsedCommand;
+pub use config::EmailConfig;
 pub use smtp_sender::{send_notification, send_reply};

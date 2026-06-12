@@ -213,8 +213,9 @@ mod tests {
             in_flight: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
         });
-        let subtasks: Vec<Subtask> =
-            (0..3).map(|i| Subtask::new(format!("t{i}"), None)).collect();
+        let subtasks: Vec<Subtask> = (0..3)
+            .map(|i| Subtask::new(format!("t{i}"), None))
+            .collect();
         let results = dispatch_subtasks(probe.clone(), subtasks, 0).await;
         assert_eq!(results.len(), 3);
         // Clamped to 1 → strictly serial.

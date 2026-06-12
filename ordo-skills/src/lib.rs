@@ -25,10 +25,13 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Coarse risk rank used by a mode's `max_skill_risk` veto.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
     Low,
+    /// Unmarked skills are treated as medium risk: not trusted enough to bypass
+    /// a low-ceiling isolation mode, not so high they're vetoed everywhere.
+    #[default]
     Medium,
     High,
 }
@@ -52,15 +55,6 @@ impl RiskLevel {
             "high" => Some(RiskLevel::High),
             _ => None,
         }
-    }
-}
-
-impl Default for RiskLevel {
-    fn default() -> Self {
-        // Unmarked skills are treated as medium risk: not trusted enough to
-        // bypass a low-ceiling isolation mode, not so high they're vetoed
-        // everywhere.
-        RiskLevel::Medium
     }
 }
 
@@ -215,7 +209,9 @@ fn skill_file_in(dir: &Path) -> Option<PathBuf> {
 fn frontmatter_block(content: &str) -> Option<&str> {
     let rest = content.strip_prefix("---")?;
     // require the delimiter to be its own line
-    let rest = rest.strip_prefix('\n').or_else(|| rest.strip_prefix("\r\n"))?;
+    let rest = rest
+        .strip_prefix('\n')
+        .or_else(|| rest.strip_prefix("\r\n"))?;
     let end = rest.find("\n---")?;
     Some(&rest[..end])
 }
@@ -364,8 +360,7 @@ fn markdown_section(content: &str, heading: &str) -> Option<String> {
 /// (`available_to_modes: [a, b]`) are intentionally NOT touched — those are left
 /// for the operator, so the transform can never misparse one.
 pub fn remove_modes_from_frontmatter(content: &str, remove: &[String]) -> (String, usize) {
-    let remove_set: std::collections::BTreeSet<&str> =
-        remove.iter().map(String::as_str).collect();
+    let remove_set: std::collections::BTreeSet<&str> = remove.iter().map(String::as_str).collect();
     let mut out = String::with_capacity(content.len());
     let mut removed = 0usize;
     let mut in_modes_block = false;
@@ -570,7 +565,10 @@ available_to_modes:
 ";
         let (out, removed) = remove_modes_from_frontmatter(md, &["legal_admin".into()]);
         assert_eq!(removed, 2, "both blocks' phantom entry removed");
-        assert_eq!(SkillManifest::from_markdown("x", &out).modes, vec!["coding"]);
+        assert_eq!(
+            SkillManifest::from_markdown("x", &out).modes,
+            vec!["coding"]
+        );
     }
 
     #[test]

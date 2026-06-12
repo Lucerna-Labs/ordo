@@ -110,13 +110,13 @@ pub fn evaluate_gate_with_policy(input: &GateInput, policy: &GatePolicy) -> Gate
         }
     }
 
-    if policy.require_launch_round_trip {
-        if !input.screenshot_captured || !input.ui_round_trip_observed {
-            return fail(
-                BuildErrorClass::LaunchProofMissing,
-                "launch proof requires both a screenshot and a UiInput round trip",
-            );
-        }
+    if policy.require_launch_round_trip
+        && (!input.screenshot_captured || !input.ui_round_trip_observed)
+    {
+        return fail(
+            BuildErrorClass::LaunchProofMissing,
+            "launch proof requires both a screenshot and a UiInput round trip",
+        );
     }
 
     GateOutcome::Pass {

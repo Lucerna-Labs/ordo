@@ -114,7 +114,10 @@ impl Orchestrator {
         let mut feedback: HashMap<Uuid, String> = HashMap::new();
         let mut rounds = 0usize;
 
-        let outcome = |phase, succeeded, rounds, reason: Option<String>,
+        let outcome = |phase,
+                       succeeded,
+                       rounds,
+                       reason: Option<String>,
                        accepted: &HashMap<Uuid, (String, String)>,
                        failed: &HashMap<Uuid, (String, String)>| {
             OrchestrationOutcome {
@@ -144,14 +147,24 @@ impl Orchestrator {
 
         loop {
             if plan.is_complete(&completed) {
-                return outcome(OrchestratorPhase::Done, true, rounds, None, &accepted, &failed);
+                return outcome(
+                    OrchestratorPhase::Done,
+                    true,
+                    rounds,
+                    None,
+                    &accepted,
+                    &failed,
+                );
             }
             if rounds >= self.budget.max_rounds {
                 return outcome(
                     OrchestratorPhase::Halted,
                     false,
                     rounds,
-                    Some(format!("budget exhausted: max_rounds={}", self.budget.max_rounds)),
+                    Some(format!(
+                        "budget exhausted: max_rounds={}",
+                        self.budget.max_rounds
+                    )),
                     &accepted,
                     &failed,
                 );
@@ -197,7 +210,8 @@ impl Orchestrator {
                 ready.iter().map(|s| (s.id, s.clone())).collect();
 
             let results =
-                dispatch_subtasks(Arc::clone(&self.runner), ready, self.budget.max_concurrent).await;
+                dispatch_subtasks(Arc::clone(&self.runner), ready, self.budget.max_concurrent)
+                    .await;
 
             for result in results {
                 let id = result.id;
@@ -220,33 +234,31 @@ impl Orchestrator {
                             );
                         } // else: stays pending → retried next round
                     }
-                    Ok(output) => {
-                        match verify(subtask, &output, self.critic.as_deref()).await {
-                            TaskVerdict::Pass { .. } => {
-                                completed.insert(id);
-                                accepted.insert(id, (subtask.goal.clone(), output));
+                    Ok(output) => match verify(subtask, &output, self.critic.as_deref()).await {
+                        TaskVerdict::Pass { .. } => {
+                            completed.insert(id);
+                            accepted.insert(id, (subtask.goal.clone(), output));
+                            feedback.remove(&id);
+                        }
+                        TaskVerdict::Revise { feedback: fb } => {
+                            if exhausted {
+                                failed.insert(
+                                    id,
+                                    (
+                                        subtask.goal.clone(),
+                                        format!("rejected after {attempted} attempts: {fb}"),
+                                    ),
+                                );
                                 feedback.remove(&id);
-                            }
-                            TaskVerdict::Revise { feedback: fb } => {
-                                if exhausted {
-                                    failed.insert(
-                                        id,
-                                        (
-                                            subtask.goal.clone(),
-                                            format!("rejected after {attempted} attempts: {fb}"),
-                                        ),
-                                    );
-                                    feedback.remove(&id);
-                                } else {
-                                    feedback.insert(id, fb);
-                                }
-                            }
-                            TaskVerdict::Fail { reason } => {
-                                failed.insert(id, (subtask.goal.clone(), reason));
-                                feedback.remove(&id);
+                            } else {
+                                feedback.insert(id, fb);
                             }
                         }
-                    }
+                        TaskVerdict::Fail { reason } => {
+                            failed.insert(id, (subtask.goal.clone(), reason));
+                            feedback.remove(&id);
+                        }
+                    },
                 }
             }
         }
@@ -312,14 +324,24 @@ mod tests {
                 *c
             };
             match self.behavior {
-                Behavior::AlwaysPass => TaskVerdict::Pass { evidence: "ok".into() },
-                Behavior::AlwaysFail => TaskVerdict::Fail { reason: "wrong".into() },
-                Behavior::AlwaysRevise => TaskVerdict::Revise { feedback: "fix it".into() },
+                Behavior::AlwaysPass => TaskVerdict::Pass {
+                    evidence: "ok".into(),
+                },
+                Behavior::AlwaysFail => TaskVerdict::Fail {
+                    reason: "wrong".into(),
+                },
+                Behavior::AlwaysRevise => TaskVerdict::Revise {
+                    feedback: "fix it".into(),
+                },
                 Behavior::ReviseThenPass => {
                     if n == 1 {
-                        TaskVerdict::Revise { feedback: "tighten it".into() }
+                        TaskVerdict::Revise {
+                            feedback: "tighten it".into(),
+                        }
                     } else {
-                        TaskVerdict::Pass { evidence: "ok now".into() }
+                        TaskVerdict::Pass {
+                            evidence: "ok now".into(),
+                        }
                     }
                 }
             }

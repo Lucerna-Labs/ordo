@@ -175,7 +175,7 @@ fn extract_json(raw: &str) -> &str {
         return body.trim();
     }
     // No fence: scan for the first '{' or '[' and trim to that.
-    if let Some(i) = raw.find(|c: char| c == '{' || c == '[') {
+    if let Some(i) = raw.find(['{', '[']) {
         return raw[i..].trim();
     }
     raw.trim()

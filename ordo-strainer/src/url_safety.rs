@@ -205,7 +205,7 @@ fn extract_raw_host(input: &str) -> Option<&str> {
         .unwrap_or(after_scheme);
     // Cut at the first delimiter.
     let host_end = after_userinfo
-        .find(|c: char| matches!(c, '/' | '?' | '#' | ':'))
+        .find(['/', '?', '#', ':'])
         .unwrap_or(after_userinfo.len());
     Some(&after_userinfo[..host_end])
 }
@@ -221,11 +221,11 @@ fn host_is_mixed_script(host: &str) -> bool {
     for c in host.chars() {
         let cp = c as u32;
         // Latin range: ASCII letters + Latin-1 Supplement letters
-        if (b'a'..=b'z').contains(&(cp as u8 & 0xff)) && cp < 0x80 {
+        if (cp as u8).is_ascii_lowercase() && cp < 0x80 {
             latin = true;
-        } else if cp >= 0x0410 && cp <= 0x044F {
+        } else if (0x0410..=0x044F).contains(&cp) {
             cyrillic = true;
-        } else if cp >= 0x0370 && cp <= 0x03FF {
+        } else if (0x0370..=0x03FF).contains(&cp) {
             greek = true;
         }
     }

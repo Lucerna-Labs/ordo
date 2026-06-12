@@ -529,7 +529,10 @@ mod tests {
                 .find(|d| d.starts_with("research_"))
                 .cloned()
                 .unwrap_or_else(|| panic!("{} missing research_* RAG collection", m.id));
-            assert!(seen.insert(rag.clone()), "duplicate research RAG domain: {rag}");
+            assert!(
+                seen.insert(rag.clone()),
+                "duplicate research RAG domain: {rag}"
+            );
         }
     }
 }

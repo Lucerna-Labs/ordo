@@ -1,4 +1,7 @@
-use axum::{extract::{Path, State}, Json};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use ordo_protocol::BuildGateResult;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -138,8 +141,14 @@ mod tests {
             .await
             .expect("start body");
         let start_json: Value = serde_json::from_slice(&start_body).expect("start json");
-        let build_id = start_json["build_id"].as_str().expect("build id").to_string();
-        assert_eq!(start_json["ledger"]["current_step"].as_str(), Some("intake"));
+        let build_id = start_json["build_id"]
+            .as_str()
+            .expect("build id")
+            .to_string();
+        assert_eq!(
+            start_json["ledger"]["current_step"].as_str(),
+            Some("intake")
+        );
 
         let list_response = app
             .clone()
@@ -185,7 +194,10 @@ mod tests {
             .expect("gate body");
         let gate_json: Value = serde_json::from_slice(&gate_body).expect("gate json");
         assert_eq!(gate_json["decision"].as_str(), Some("advance"));
-        assert_eq!(gate_json["ledger"]["current_step"].as_str(), Some("blueprint"));
+        assert_eq!(
+            gate_json["ledger"]["current_step"].as_str(),
+            Some("blueprint")
+        );
 
         let get_response = app
             .oneshot(

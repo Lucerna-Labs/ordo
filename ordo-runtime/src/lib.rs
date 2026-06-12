@@ -1074,9 +1074,10 @@ impl PlanningOrdoRuntime {
                     allow_native: cfg!(feature = "native-exec") && config.code_allow_native,
                 },
             );
-            let code_adapter: Arc<dyn ordo_mcp_host::CapabilityProvider> = Arc::new(
-                ordo_mcp_host::CodeCapabilityAdapter::new(ordo_code::CodeProvider::new(code_service)),
-            );
+            let code_adapter: Arc<dyn ordo_mcp_host::CapabilityProvider> =
+                Arc::new(ordo_mcp_host::CodeCapabilityAdapter::new(
+                    ordo_code::CodeProvider::new(code_service),
+                ));
             let code_gated = security.gate(code_adapter, "code".to_string());
             host.add_provider(Arc::new(code_gated));
 
@@ -1113,7 +1114,7 @@ impl PlanningOrdoRuntime {
             // ordo-mcp-provenance) is not wired yet â€” the seam is
             // in StrainedContent.source for the next session.
             let strainer_adapter: Arc<dyn ordo_mcp_host::CapabilityProvider> =
-                Arc::new(ordo_mcp_host::StrainerCapabilityAdapter::default());
+                Arc::new(ordo_mcp_host::StrainerCapabilityAdapter);
             let strainer_gated = security.gate(strainer_adapter, "strainer".to_string());
             host.add_provider(Arc::new(strainer_gated));
         }
@@ -1343,7 +1344,10 @@ impl PlanningOrdoRuntime {
                     }
                     if autofix {
                         match brain
-                            .invoke_tool("skills.repair_routing", serde_json::json!({ "apply": true }))
+                            .invoke_tool(
+                                "skills.repair_routing",
+                                serde_json::json!({ "apply": true }),
+                            )
                             .await
                         {
                             Ok(result) => {

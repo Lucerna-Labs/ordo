@@ -133,8 +133,7 @@ pub async fn tavily_search(
     }
     let max_results = max_results
         .unwrap_or(DEFAULT_MAX_RESULTS)
-        .min(MAX_RESULTS_CAP)
-        .max(1);
+        .clamp(1, MAX_RESULTS_CAP);
     let fetched_at = Utc::now();
 
     let body = TavilyRequest {

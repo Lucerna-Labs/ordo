@@ -129,12 +129,7 @@ impl AvatarModel {
     /// Update the system state inputs. Records the transition
     /// instant when health changes so [`Self::derive_frame`] can
     /// fire a brief `Light` glitch.
-    pub fn on_system_state(
-        &mut self,
-        health: HealthState,
-        activity: ActivityState,
-        now: Instant,
-    ) {
+    pub fn on_system_state(&mut self, health: HealthState, activity: ActivityState, now: Instant) {
         if self.health != health {
             self.last_health_transition = Some(now);
         }
@@ -235,7 +230,12 @@ impl AvatarModel {
 mod tests {
     use super::*;
 
-    fn frame(utterance_id: Uuid, phoneme: Phoneme, timestamp_ms: u64, duration_ms: u32) -> PhonemeFrame {
+    fn frame(
+        utterance_id: Uuid,
+        phoneme: Phoneme,
+        timestamp_ms: u64,
+        duration_ms: u32,
+    ) -> PhonemeFrame {
         PhonemeFrame {
             utterance_id,
             phoneme,
@@ -270,17 +270,26 @@ mod tests {
         model.on_phoneme_frame(frame(id, Phoneme::Ih, 100, 100));
 
         // 50ms in — middle of Hh.
-        let f = model.derive_frame(start_at + Duration::from_millis(50), &AvatarConfig::default());
+        let f = model.derive_frame(
+            start_at + Duration::from_millis(50),
+            &AvatarConfig::default(),
+        );
         assert_eq!(f.mouth, Phoneme::Hh);
         assert_eq!(f.expression, Expression::Speaking);
 
         // 150ms in — middle of Ih.
-        let f = model.derive_frame(start_at + Duration::from_millis(150), &AvatarConfig::default());
+        let f = model.derive_frame(
+            start_at + Duration::from_millis(150),
+            &AvatarConfig::default(),
+        );
         assert_eq!(f.mouth, Phoneme::Ih);
 
         // 250ms in — past the end of the schedule, mouth rests
         // but expression stays Speaking until UtteranceEnd.
-        let f = model.derive_frame(start_at + Duration::from_millis(250), &AvatarConfig::default());
+        let f = model.derive_frame(
+            start_at + Duration::from_millis(250),
+            &AvatarConfig::default(),
+        );
         assert_eq!(f.mouth, Phoneme::Rest);
         assert_eq!(f.expression, Expression::Speaking);
     }
@@ -310,8 +319,15 @@ mod tests {
         );
         // Stale frame for id_a should not influence id_b.
         model.on_phoneme_frame(frame(id_a, Phoneme::Ae, 0, 500));
-        let f = model.derive_frame(start_b + Duration::from_millis(10), &AvatarConfig::default());
-        assert_eq!(f.mouth, Phoneme::Rest, "stale frame must not bleed into new utterance");
+        let f = model.derive_frame(
+            start_b + Duration::from_millis(10),
+            &AvatarConfig::default(),
+        );
+        assert_eq!(
+            f.mouth,
+            Phoneme::Rest,
+            "stale frame must not bleed into new utterance"
+        );
     }
 
     #[test]
@@ -335,7 +351,11 @@ mod tests {
     #[test]
     fn processing_activity_with_no_utterance_shows_thinking() {
         let mut model = AvatarModel::new();
-        model.on_system_state(HealthState::Healthy, ActivityState::Processing, Instant::now());
+        model.on_system_state(
+            HealthState::Healthy,
+            ActivityState::Processing,
+            Instant::now(),
+        );
         // The transition from default (Healthy) to Healthy isn't
         // a change, so no glitch should fire.
         let f = model.derive_frame(Instant::now(), &AvatarConfig::default());

@@ -41,10 +41,7 @@ impl AgentProfile {
     }
 
     /// Scope this agent to specific memory scopes.
-    pub fn with_memory_scopes(
-        mut self,
-        scopes: impl IntoIterator<Item = MemoryScope>,
-    ) -> Self {
+    pub fn with_memory_scopes(mut self, scopes: impl IntoIterator<Item = MemoryScope>) -> Self {
         self.memory_scopes = scopes.into_iter().collect();
         self
     }
@@ -233,7 +230,10 @@ impl AgentRegistry {
             RiskLevel::ReadOnly,
         )
         .with_tools(["chat", "classify_intent", "delegate_task"])
-        .with_memory_scopes([MemoryScope::GlobalUserPreferences, MemoryScope::ProjectContext]);
+        .with_memory_scopes([
+            MemoryScope::GlobalUserPreferences,
+            MemoryScope::ProjectContext,
+        ]);
         let _general_id = registry.register(general);
 
         // Planner Agent — breaks goals into plans
@@ -282,7 +282,11 @@ impl AgentRegistry {
             "Compares sources, checks assumptions, and produces structured analysis.",
             RiskLevel::LocalFileWrite,
         )
-        .with_tools(["cloud.openai.chat", "cloud.anthropic.messages", "knowledge.analyze"])
+        .with_tools([
+            "cloud.openai.chat",
+            "cloud.anthropic.messages",
+            "knowledge.analyze",
+        ])
         .with_memory_scopes([
             MemoryScope::GlobalUserPreferences,
             MemoryScope::ProjectContext,
@@ -311,10 +315,7 @@ impl AgentRegistry {
             "plugins.list",
             "skills.list",
         ])
-        .with_memory_scopes([
-            MemoryScope::ProjectContext,
-            MemoryScope::OperationsContext,
-        ]);
+        .with_memory_scopes([MemoryScope::ProjectContext, MemoryScope::OperationsContext]);
         let _operations_id = registry.register_with_routing(operations, [TaskType::Operations]);
 
         // Automation Agent — designs visible, bounded autonomous work
@@ -323,7 +324,12 @@ impl AgentRegistry {
             "Designs and reviews cron jobs, heartbeats, routines, webhooks, and local event jobs.",
             RiskLevel::LocalFileWrite,
         )
-        .with_tools(["jobs.describe", "jobs.validate", "jobs.plan", "review.request"])
+        .with_tools([
+            "jobs.describe",
+            "jobs.validate",
+            "jobs.plan",
+            "review.request",
+        ])
         .with_memory_scopes([
             MemoryScope::AutomationHistory,
             MemoryScope::ProjectContext,
@@ -406,11 +412,12 @@ impl AgentRegistry {
             "Checks quality, contradictions, and factual accuracy.",
             RiskLevel::ReadOnly,
         )
-        .with_tools(["cloud.openai.chat", "cloud.anthropic.messages", "logic.evaluate"])
-        .with_memory_scopes([
-            MemoryScope::ProjectContext,
-            MemoryScope::SecurityRules,
-        ]);
+        .with_tools([
+            "cloud.openai.chat",
+            "cloud.anthropic.messages",
+            "logic.evaluate",
+        ])
+        .with_memory_scopes([MemoryScope::ProjectContext, MemoryScope::SecurityRules]);
         let _critic_id = registry.register(critic);
 
         registry
@@ -490,7 +497,9 @@ mod tests {
     #[test]
     fn privileged_actions_require_approval() {
         let registry = AgentRegistry::default_registry();
-        let security = registry.find_for_task_type(&TaskType::SecurityReview).unwrap();
+        let security = registry
+            .find_for_task_type(&TaskType::SecurityReview)
+            .unwrap();
         assert_eq!(security.risk_level, RiskLevel::ReadOnly);
         assert!(!security.risk_level.requires_approval());
         assert!(RiskLevel::PrivilegedAction.requires_approval());

@@ -12,6 +12,7 @@ pub mod mcp;
 pub mod memory;
 pub mod secrets;
 pub mod tts;
+pub use avatar::{avatar_topics, AvatarFrame, Expression, GlitchLevel};
 pub use build::{
     build_topics, BuildArtifactRef, BuildErrorClass, BuildGateEvidence, BuildGateResult,
     BuildPlannerEvent, BuildStep, BuildStepCompletedSignal, GateOutcome,
@@ -38,7 +39,6 @@ pub use secrets::{
     SecretAuditEventType, SecretClass, SecretRecord, StructuralOutputCheck,
     ThresholdShareAnnouncement, ThresholdSigningRequest, TransparencyReceipt,
 };
-pub use avatar::{avatar_topics, AvatarFrame, Expression, GlitchLevel};
 pub use tts::{tts_topics, Phoneme, PhonemeFrame, UtteranceEnd, UtteranceStart};
 
 pub mod topics {

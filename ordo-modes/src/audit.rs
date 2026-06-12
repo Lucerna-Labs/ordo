@@ -77,7 +77,11 @@ impl RoutingAudit {
     pub fn orphaned(&self) -> Vec<&str> {
         self.skills
             .iter()
-            .filter(|s| s.anomalies.iter().any(|a| matches!(a, RoutingAnomaly::Orphaned)))
+            .filter(|s| {
+                s.anomalies
+                    .iter()
+                    .any(|a| matches!(a, RoutingAnomaly::Orphaned))
+            })
             .map(|s| s.skill_id.as_str())
             .collect()
     }
@@ -191,7 +195,10 @@ mod tests {
         let h = &audit.skills[0];
         // permissive default → admitted everywhere, but flagged Undeclared (info)
         assert_eq!(h.admitting_modes.len(), 2);
-        assert!(h.anomalies.iter().any(|a| matches!(a, RoutingAnomaly::Undeclared)));
+        assert!(h
+            .anomalies
+            .iter()
+            .any(|a| matches!(a, RoutingAnomaly::Undeclared)));
         assert!(audit.orphaned().is_empty());
     }
 

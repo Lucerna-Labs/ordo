@@ -6439,8 +6439,13 @@ mod tests {
         assert_eq!(dry["deferred"][0]["skill_id"], "only_phantom");
         // nothing written yet
         assert_eq!(
-            ordo_skills::discover_skills(&skills_dir).unwrap()
-                .iter().find(|s| s.id == "fixable").unwrap().modes.len(),
+            ordo_skills::discover_skills(&skills_dir)
+                .unwrap()
+                .iter()
+                .find(|s| s.id == "fixable")
+                .unwrap()
+                .modes
+                .len(),
             3
         );
 
@@ -6454,9 +6459,15 @@ mod tests {
         };
         assert_eq!(applied["applied"], json!(true));
         let after = ordo_skills::discover_skills(&skills_dir).unwrap();
-        assert_eq!(after.iter().find(|s| s.id == "fixable").unwrap().modes, vec!["coding"]);
+        assert_eq!(
+            after.iter().find(|s| s.id == "fixable").unwrap().modes,
+            vec!["coding"]
+        );
         // the all-phantom skill is untouched
-        assert_eq!(after.iter().find(|s| s.id == "only_phantom").unwrap().modes, vec!["orchestration"]);
+        assert_eq!(
+            after.iter().find(|s| s.id == "only_phantom").unwrap().modes,
+            vec!["orchestration"]
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 
@@ -6505,7 +6516,10 @@ mod tests {
         );
         match missing.expect("some result") {
             ToolCallResult::Failed { error } => {
-                assert!(error.contains("goal"), "error should name the field: {error}")
+                assert!(
+                    error.contains("goal"),
+                    "error should name the field: {error}"
+                )
             }
             ToolCallResult::Completed { .. } => {
                 panic!("missing 'goal' should fail validation, not complete")
@@ -6540,7 +6554,10 @@ mod tests {
         );
         match missing.expect("some result") {
             ToolCallResult::Failed { error } => {
-                assert!(error.contains("path"), "error should name the field: {error}")
+                assert!(
+                    error.contains("path"),
+                    "error should name the field: {error}"
+                )
             }
             ToolCallResult::Completed { .. } => {
                 panic!("missing 'path' should fail validation, not complete")
@@ -7647,7 +7664,10 @@ mod cloud_credentials_secret_tests {
             .await
             .expect("get")
             .expect("credential exists");
-        assert_eq!(cred.secret, "sk-keep-me", "omitted secret preserves the key");
+        assert_eq!(
+            cred.secret, "sk-keep-me",
+            "omitted secret preserves the key"
+        );
         assert_eq!(cred.label, "OpenAI (renamed)");
     }
 

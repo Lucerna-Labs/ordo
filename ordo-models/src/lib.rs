@@ -326,8 +326,8 @@ impl EmbeddingClient for OllamaEmbedder {
 /// `/api/embeddings` -> `{"embedding": [...]}`; OpenAI-compatible
 /// `/v1/embeddings` -> `{"data": [{"embedding": [...]}]}`.
 fn parse_ollama_embedding(raw: &str, expected_dimensions: usize) -> ModelResult<Vec<f32>> {
-    let value: serde_json::Value = serde_json::from_str(raw)
-        .map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|err| -> Box<dyn std::error::Error + Send + Sync> {
             format!("invalid ollama embedding JSON: {err}").into()
         })?;
 

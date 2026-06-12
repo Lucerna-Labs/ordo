@@ -27,7 +27,9 @@ use serde_json::{json, Value};
 use reqwest::Method;
 
 use crate::openai::{self, SpeechAudio};
-use crate::{apply_auth_only, resolve_url, timeout_for, CloudCredential, CloudError, CloudHttp, CloudResult};
+use crate::{
+    apply_auth_only, resolve_url, timeout_for, CloudCredential, CloudError, CloudHttp, CloudResult,
+};
 
 /// Default OpenAI-compatible speech-to-text model.
 const DEFAULT_STT_MODEL: &str = "whisper-1";
@@ -374,7 +376,7 @@ fn percent_encode_query(value: &str) -> String {
 /// Tolerates surrounding whitespace; rejects odd lengths / non-hex.
 fn decode_hex(input: &str) -> Result<Vec<u8>, String> {
     let trimmed = input.trim();
-    if trimmed.len() % 2 != 0 {
+    if !trimmed.len().is_multiple_of(2) {
         return Err("odd-length hex string".into());
     }
     (0..trimmed.len())
@@ -415,7 +417,10 @@ mod tests {
 
     #[test]
     fn infers_minimax_from_name_or_url() {
-        assert_eq!(voice_api_for(&cred("minimax", None, None)), VoiceApi::MiniMax);
+        assert_eq!(
+            voice_api_for(&cred("minimax", None, None)),
+            VoiceApi::MiniMax
+        );
         assert_eq!(
             voice_api_for(&cred("voice", Some("https://api.minimax.io/v1"), None)),
             VoiceApi::MiniMax

@@ -47,21 +47,41 @@ pub struct EmailConfig {
     pub mailbox: String,
 }
 
-fn default_imap_port() -> u16 { 993 }
-fn default_smtp_port() -> u16 { 587 }
-fn default_poll_seconds() -> u64 { 30 }
-fn default_command_prefix() -> String { "ordo:".to_string() }
-fn default_mailbox() -> String { "INBOX".to_string() }
+fn default_imap_port() -> u16 {
+    993
+}
+fn default_smtp_port() -> u16 {
+    587
+}
+fn default_poll_seconds() -> u64 {
+    30
+}
+fn default_command_prefix() -> String {
+    "ordo:".to_string()
+}
+fn default_mailbox() -> String {
+    "INBOX".to_string()
+}
 
 impl EmailConfig {
     /// Quick sanity checks. Returns a list of problems, empty = ok.
     pub fn validate(&self) -> Vec<String> {
         let mut issues = Vec::new();
-        if self.address.is_empty() { issues.push("address is empty".into()); }
-        if self.imap_host.is_empty() { issues.push("imap_host is empty".into()); }
-        if self.imap_username.is_empty() { issues.push("imap_username is empty".into()); }
-        if self.imap_password.is_empty() { issues.push("imap_password is empty".into()); }
-        if self.smtp_host.is_empty() { issues.push("smtp_host is empty".into()); }
+        if self.address.is_empty() {
+            issues.push("address is empty".into());
+        }
+        if self.imap_host.is_empty() {
+            issues.push("imap_host is empty".into());
+        }
+        if self.imap_username.is_empty() {
+            issues.push("imap_username is empty".into());
+        }
+        if self.imap_password.is_empty() {
+            issues.push("imap_password is empty".into());
+        }
+        if self.smtp_host.is_empty() {
+            issues.push("smtp_host is empty".into());
+        }
         issues
     }
 }

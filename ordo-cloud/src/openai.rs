@@ -176,7 +176,10 @@ pub async fn speech(
         "input": input,
         "response_format": format,
     });
-    if let Some(instructions) = arguments.get("instructions").and_then(|value| value.as_str()) {
+    if let Some(instructions) = arguments
+        .get("instructions")
+        .and_then(|value| value.as_str())
+    {
         if !instructions.trim().is_empty() {
             body["instructions"] = json!(instructions);
         }
@@ -186,13 +189,7 @@ pub async fn speech(
     }
 
     let response = http
-        .send_request(
-            credential,
-            Method::POST,
-            "/audio/speech",
-            Some(&body),
-            &[],
-        )
+        .send_request(credential, Method::POST, "/audio/speech", Some(&body), &[])
         .await?;
     let status = response.status();
     let content_type = response

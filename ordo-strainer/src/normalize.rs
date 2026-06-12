@@ -371,7 +371,7 @@ mod tests {
     fn nfkc_collapses_ligature() {
         // ﬁ (U+FB01, ligature) → "fi" (two ASCII chars) under NFKC.
         let out = normalize("oﬃce");
-        assert!(out.contains("ffi") || out.contains("office") || out.contains("ﬃ") == false);
+        assert!(out.contains("ffi") || out.contains("office") || !out.contains("ﬃ"));
         assert_ne!(out, "oﬃce", "NFKC should have decomposed ligature");
     }
 

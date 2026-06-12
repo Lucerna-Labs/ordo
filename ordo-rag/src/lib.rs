@@ -1103,7 +1103,8 @@ mod tests {
         assert_eq!(summaries[0].name, "main");
         assert_eq!(summaries[0].document_count, 1);
         assert_eq!(summaries[1].name, "seo");
-        assert_eq!(summaries[1].label, "SEO");
+        // "seo" is not one of the built-in domain slots, so it's a Custom collection.
+        assert_eq!(summaries[1].label, "Custom");
         assert_eq!(summaries[1].chunk_count, 1);
     }
 

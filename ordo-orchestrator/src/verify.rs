@@ -53,8 +53,9 @@ pub fn deterministic_check(output: &str) -> Option<TaskVerdict> {
     ];
     if REFUSALS.iter().any(|marker| lowered.contains(marker)) {
         return Some(TaskVerdict::Revise {
-            feedback: "the subagent refused or did not attempt the task; retry with a direct attempt"
-                .into(),
+            feedback:
+                "the subagent refused or did not attempt the task; retry with a direct attempt"
+                    .into(),
         });
     }
 
@@ -73,11 +74,7 @@ pub trait Critic: Send + Sync {
 /// Run the gate: deterministic floor first (cheap reject, no model call);
 /// if it clears and a `critic` is configured, defer to the critic;
 /// otherwise `Pass`.
-pub async fn verify(
-    subtask: &Subtask,
-    output: &str,
-    critic: Option<&dyn Critic>,
-) -> TaskVerdict {
+pub async fn verify(subtask: &Subtask, output: &str, critic: Option<&dyn Critic>) -> TaskVerdict {
     if let Some(verdict) = deterministic_check(output) {
         return verdict;
     }
@@ -174,7 +171,10 @@ mod tests {
     #[test]
     fn deterministic_passes_a_real_answer() {
         // Mentions "todo" inside real content — must NOT be rejected.
-        assert!(deterministic_check("Add a TODO comment above the handler and wire the route.").is_none());
+        assert!(
+            deterministic_check("Add a TODO comment above the handler and wire the route.")
+                .is_none()
+        );
     }
 
     /// Records whether `critique` was called, so we can assert the
@@ -196,18 +196,25 @@ mod tests {
     async fn verify_short_circuits_before_critic_on_deterministic_reject() {
         let spy = SpyCritic {
             called: AtomicBool::new(false),
-            verdict: TaskVerdict::Pass { evidence: "x".into() },
+            verdict: TaskVerdict::Pass {
+                evidence: "x".into(),
+            },
         };
         let verdict = verify(&subtask(), "", Some(&spy)).await;
         assert!(matches!(verdict, TaskVerdict::Revise { .. }));
-        assert!(!spy.called.load(Ordering::SeqCst), "critic must not run after a deterministic reject");
+        assert!(
+            !spy.called.load(Ordering::SeqCst),
+            "critic must not run after a deterministic reject"
+        );
     }
 
     #[tokio::test]
     async fn verify_defers_to_critic_when_floor_passes() {
         let spy = SpyCritic {
             called: AtomicBool::new(false),
-            verdict: TaskVerdict::Fail { reason: "fabricated".into() },
+            verdict: TaskVerdict::Fail {
+                reason: "fabricated".into(),
+            },
         };
         let verdict = verify(&subtask(), "a plausible but wrong answer", Some(&spy)).await;
         assert!(matches!(verdict, TaskVerdict::Fail { .. }));

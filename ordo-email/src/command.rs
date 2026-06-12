@@ -48,10 +48,7 @@ mod tests {
 
     #[test]
     fn case_insensitive_prefix() {
-        assert_eq!(
-            parse_subject("ORDO: Hello", "ordo:"),
-            Some("Hello".into())
-        );
+        assert_eq!(parse_subject("ORDO: Hello", "ordo:"), Some("Hello".into()));
     }
 
     #[test]

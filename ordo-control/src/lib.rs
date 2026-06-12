@@ -11,8 +11,8 @@ use axum::{
 };
 use parking_lot::Mutex;
 
-mod build_api;
 pub mod auth;
+mod build_api;
 pub mod metrics;
 pub use auth::AuthConfig;
 pub use metrics::{MetricsHandle, RateLimiterHandle};
@@ -471,9 +471,15 @@ pub fn build_router_with_plugins(
                 .post(upsert_cloud_credential)
                 .delete(delete_cloud_credential),
         )
-        .route("/api/builds", get(build_api::list_builds_route).post(build_api::start_build_route))
+        .route(
+            "/api/builds",
+            get(build_api::list_builds_route).post(build_api::start_build_route),
+        )
         .route("/api/builds/:id", get(build_api::get_build_route))
-        .route("/api/builds/:id/gate", post(build_api::submit_gate_result_route))
+        .route(
+            "/api/builds/:id/gate",
+            post(build_api::submit_gate_result_route),
+        )
         .route(
             "/api/automations",
             get(list_automations_route).post(create_automation_route),
@@ -810,20 +816,19 @@ fn build_planner_from_plugins(
         return ordo_build_planner::BuildPlannerPeer::new(bus);
     };
 
-    let ledgers = match ordo_build_planner::BuildLedgerStore::open(&path)
-        .and_then(|store| store.list())
-    {
-        Ok(ledgers) => ledgers,
-        Err(err) => {
-            tracing::warn!(
-                target: "ordo_control::builds",
-                error = %err,
-                path = %path.display(),
-                "failed to load build ledgers; using in-memory build planner"
-            );
-            return ordo_build_planner::BuildPlannerPeer::new(bus);
-        }
-    };
+    let ledgers =
+        match ordo_build_planner::BuildLedgerStore::open(&path).and_then(|store| store.list()) {
+            Ok(ledgers) => ledgers,
+            Err(err) => {
+                tracing::warn!(
+                    target: "ordo_control::builds",
+                    error = %err,
+                    path = %path.display(),
+                    "failed to load build ledgers; using in-memory build planner"
+                );
+                return ordo_build_planner::BuildPlannerPeer::new(bus);
+            }
+        };
 
     match ordo_build_planner::BuildLedgerTask::open(&path) {
         Ok(task) => ordo_build_planner::BuildPlannerPeer::with_store(bus, task, ledgers),
@@ -1612,8 +1617,9 @@ async fn orchestrate_route(
     let Some(orchestrator) = state.orchestrator.clone() else {
         return Err(ControlApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
-            message: "orchestrator is disabled (set ORDO_ENABLE_ORCHESTRATOR=1 and wire an assistant)"
-                .into(),
+            message:
+                "orchestrator is disabled (set ORDO_ENABLE_ORCHESTRATOR=1 and wire an assistant)"
+                    .into(),
         });
     };
     let goal = body.goal.trim();
@@ -1693,7 +1699,10 @@ async fn post_voice_speech(
     Json(body): Json<ordo_assistant::SpeechRequest>,
 ) -> Result<Response, ControlApiError> {
     let service = require_assistant(&state)?;
-    let audio = service.speak_text(body).await.map_err(map_assistant_error)?;
+    let audio = service
+        .speak_text(body)
+        .await
+        .map_err(map_assistant_error)?;
     let mut response = Response::new(axum::body::Body::from(audio.bytes));
     let headers = response.headers_mut();
     let content_type = axum::http::HeaderValue::from_str(&audio.content_type)
@@ -1962,11 +1971,7 @@ async fn avatar_atlas_descriptor() -> impl IntoResponse {
 
 /// Serve one of the embedded avatar sprite-atlas PNGs.
 fn png_response(bytes: &'static [u8]) -> Response {
-    (
-        [(axum::http::header::CONTENT_TYPE, "image/png")],
-        bytes,
-    )
-        .into_response()
+    ([(axum::http::header::CONTENT_TYPE, "image/png")], bytes).into_response()
 }
 
 async fn avatar_mouth_png() -> Response {
@@ -2032,11 +2037,7 @@ async fn avatar_clip_file(Path(name): Path<String>) -> Response {
         _ => "application/octet-stream",
     };
     match std::fs::read(avatar_clips_dir().join(&name)) {
-        Ok(bytes) => (
-            [(axum::http::header::CONTENT_TYPE, content_type)],
-            bytes,
-        )
-            .into_response(),
+        Ok(bytes) => ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "clip not found").into_response(),
     }
 }

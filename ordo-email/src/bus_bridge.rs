@@ -3,10 +3,10 @@ use std::sync::Arc;
 use ordo_bus::Bus;
 use ordo_protocol::{BusEnvelope, Envelope, NodeId, OrdoMessage};
 use tokio::task::JoinHandle;
-use tracing::{error, info, debug};
+use tracing::{debug, error, info};
 
 use crate::config::EmailConfig;
-use crate::imap_poller::{self, ImapPoller, poll_inbox};
+use crate::imap_poller::{self, poll_inbox, ImapPoller};
 use crate::smtp_sender;
 
 /// The main email bridge — polls IMAP, publishes commands on the bus,
@@ -36,7 +36,10 @@ impl InProcessBusWrapper {
         }
     }
 
-    async fn subscribe(&self, topic: &str) -> Result<
+    async fn subscribe(
+        &self,
+        topic: &str,
+    ) -> Result<
         Box<dyn futures::Stream<Item = BusEnvelope> + Unpin + Send>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
@@ -45,11 +48,7 @@ impl InProcessBusWrapper {
 }
 
 impl EmailBridge {
-    pub fn new(
-        config: EmailConfig,
-        bus: Arc<dyn Bus>,
-        node_id: NodeId,
-    ) -> Self {
+    pub fn new(config: EmailConfig, bus: Arc<dyn Bus>, node_id: NodeId) -> Self {
         let wrapper = InProcessBusWrapper::new(bus);
         Self {
             config,
@@ -66,9 +65,7 @@ impl EmailBridge {
         self.start_reply_listener();
         info!(
             "ordo-email: bridge started (addr={}, poll={}s, prefix=\"{}\")",
-            self.config.address,
-            self.config.poll_seconds,
-            self.config.command_prefix
+            self.config.address, self.config.poll_seconds, self.config.command_prefix
         );
     }
 
@@ -106,10 +103,8 @@ impl EmailBridge {
                                 continue;
                             }
 
-                            let commands = imap_poller::filter_commands(
-                                vec![email.clone()],
-                                &config,
-                            );
+                            let commands =
+                                imap_poller::filter_commands(vec![email.clone()], &config);
 
                             for (email, cmd) in commands {
                                 info!(
@@ -128,7 +123,8 @@ impl EmailBridge {
                                         received_at: chrono::Utc::now(),
                                     },
                                     &node_id,
-                                ).await;
+                                )
+                                .await;
                             }
                         }
                     }
@@ -147,10 +143,7 @@ impl EmailBridge {
         let bus = Arc::clone(&self.bus);
 
         self.reply_handle = Some(tokio::spawn(async move {
-            let mut stream = match bus
-                .subscribe("ordo.email.reply.requested")
-                .await
-            {
+            let mut stream = match bus.subscribe("ordo.email.reply.requested").await {
                 Ok(s) => s,
                 Err(e) => {
                     error!("ordo-email: failed to subscribe: {e}");
@@ -160,36 +153,34 @@ impl EmailBridge {
 
             use futures::StreamExt;
             while let Some(envelope) = stream.next().await {
-                match envelope.payload {
-                    OrdoMessage::EmailReplyRequested {
-                        email_id: _,
-                        to_address,
-                        subject,
-                        body_plain,
-                        body_html,
-                        in_reply_to_subject,
-                    } => {
-                        info!(
-                            "ordo-email: sending reply to {to_address} — subject: {subject}"
-                        );
+                if let OrdoMessage::EmailReplyRequested {
+                    email_id: _,
+                    to_address,
+                    subject,
+                    body_plain,
+                    body_html,
+                    in_reply_to_subject,
+                } = envelope.payload
+                {
+                    info!("ordo-email: sending reply to {to_address} — subject: {subject}");
 
-                        match smtp_sender::send_reply(
-                            &config,
-                            &to_address,
-                            &subject,
-                            &body_plain,
-                            body_html.as_deref(),
-                            in_reply_to_subject.as_deref(),
-                        ).await {
-                            Ok(()) => {
-                                info!("ordo-email: reply sent to {to_address}");
-                            }
-                            Err(e) => {
-                                error!("ordo-email: failed to send reply: {e}");
-                            }
+                    match smtp_sender::send_reply(
+                        &config,
+                        &to_address,
+                        &subject,
+                        &body_plain,
+                        body_html.as_deref(),
+                        in_reply_to_subject.as_deref(),
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            info!("ordo-email: reply sent to {to_address}");
+                        }
+                        Err(e) => {
+                            error!("ordo-email: failed to send reply: {e}");
                         }
                     }
-                    _ => {}
                 }
             }
         }));

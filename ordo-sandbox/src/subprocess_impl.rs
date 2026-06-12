@@ -109,9 +109,9 @@ impl Sandbox for SubprocessSandbox {
         let cwd = resolve_within(&self.config.root, spec.cwd.as_deref())?;
         // The workspace root exists (created at boot), but a nested cwd
         // may not — create it so callers can target subdirectories.
-        tokio::fs::create_dir_all(&cwd)
-            .await
-            .map_err(|e| SandboxError::Internal(format!("could not create cwd {}: {e}", cwd.display())))?;
+        tokio::fs::create_dir_all(&cwd).await.map_err(|e| {
+            SandboxError::Internal(format!("could not create cwd {}: {e}", cwd.display()))
+        })?;
 
         let mut cmd = Command::new(&spec.program);
         cmd.args(&spec.args)
@@ -137,9 +137,9 @@ impl Sandbox for SubprocessSandbox {
         }
 
         let started = Instant::now();
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| SandboxError::Internal(format!("failed to spawn '{}': {e}", spec.program)))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            SandboxError::Internal(format!("failed to spawn '{}': {e}", spec.program))
+        })?;
 
         let pid = child.id();
         // Feed stdin CONCURRENTLY with collecting stdout/stderr. Writing
@@ -327,7 +327,10 @@ mod tests {
             ..Default::default()
         });
         let err = sandbox
-            .execute(request(json!({ "program": "definitely-not-allowed" }), 5_000))
+            .execute(request(
+                json!({ "program": "definitely-not-allowed" }),
+                5_000,
+            ))
             .await
             .expect_err("should reject");
         assert!(matches!(err, SandboxError::Unavailable(_)), "got {err:?}");

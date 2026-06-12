@@ -74,8 +74,8 @@ mod futures_box {
 #[derive(Debug, Clone, Deserialize)]
 pub struct FormalizationOutput {
     pub formalizable: bool,
-    /// Which formal layer the LLM picked. "fol" → use the FOL parser
-    /// + grounder; "propositional" → use the propositional parser
+    /// Which formal layer the LLM picked. "fol" → use the FOL parser +
+    /// grounder; "propositional" → use the propositional parser
     /// directly. Default to "fol" when missing — FOL parses
     /// propositional inputs cleanly (a propositional formula is
     /// just FOL with zero quantifiers and zero-arity predicates),
@@ -202,8 +202,7 @@ impl LogicProvider for HybridLogicProvider {
         conclusion: &str,
     ) -> LogicResult<ChainValidation> {
         // Step 1: ask the LLM to formalize.
-        let formal =
-            (self.formalize)(premises.iter().cloned().collect(), conclusion.to_string()).await;
+        let formal = (self.formalize)(premises.to_vec(), conclusion.to_string()).await;
 
         // If the formalize call itself failed (LLM error, parse error
         // on the formalize JSON), don't fail the whole capability —

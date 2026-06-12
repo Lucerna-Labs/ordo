@@ -123,7 +123,11 @@ impl CodeService {
                 .to_string(),
             limits,
         };
-        let exec = self.wasm.execute(request).await.map_err(|e| e.to_string())?;
+        let exec = self
+            .wasm
+            .execute(request)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(json!({
             "backend": self.wasm.name(),
             "output": exec.output,
@@ -137,9 +141,11 @@ impl CodeService {
 
     pub async fn run_native(&self, args: &Value) -> Result<Value, String> {
         if !self.policy.allow_native {
-            return Err("native code execution is disabled (build the runtime with --features \
+            return Err(
+                "native code execution is disabled (build the runtime with --features \
                         native-exec and set ORDO_CODE_ALLOW_NATIVE=true)"
-                .into());
+                    .into(),
+            );
         }
         let language = args
             .get("language")
@@ -160,13 +166,20 @@ impl CodeService {
             }
         }
         let cwd = args.get("cwd").and_then(|v| v.as_str()).map(str::to_string);
-        let stdin = args.get("stdin").and_then(|v| v.as_str()).map(str::to_string);
+        let stdin = args
+            .get("stdin")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         let source = args.get("source").and_then(|v| v.as_str());
         let explicit_program = args.get("program").and_then(|v| v.as_str());
         let extra_args: Vec<String> = args
             .get("args")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let (program, run_args) = self
@@ -264,9 +277,11 @@ impl CodeService {
             }
             "rust" | "cargo" => {
                 if source.is_some() {
-                    return Err("for Rust, write project files with workspace.write_file then run \
+                    return Err(
+                        "for Rust, write project files with workspace.write_file then run \
                                 program=\"cargo\" args=[\"run\"]; inline `source` isn't supported"
-                        .into());
+                            .into(),
+                    );
                 }
                 let run_args = if extra_args.is_empty() {
                     vec!["run".to_string()]

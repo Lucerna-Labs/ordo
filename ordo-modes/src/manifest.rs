@@ -568,7 +568,12 @@ mod tests {
         }
     }
 
-    fn skill(id: &str, modes: &[&str], tags: &[&str], risk: ordo_skills::RiskLevel) -> ordo_skills::SkillManifest {
+    fn skill(
+        id: &str,
+        modes: &[&str],
+        tags: &[&str],
+        risk: ordo_skills::RiskLevel,
+    ) -> ordo_skills::SkillManifest {
         ordo_skills::SkillManifest {
             id: id.into(),
             name: id.into(),
@@ -607,7 +612,12 @@ mod tests {
         // undeclared but tagged rust → admitted despite restrictive default
         assert!(m.allows_skill(&skill("s", &[], &["rust"], ordo_skills::RiskLevel::Medium)));
         // a skill declared for another mode is broadened in here via its tag
-        assert!(m.allows_skill(&skill("s", &["other"], &["rust"], ordo_skills::RiskLevel::Medium)));
+        assert!(m.allows_skill(&skill(
+            "s",
+            &["other"],
+            &["rust"],
+            ordo_skills::RiskLevel::Medium
+        )));
     }
 
     #[test]
@@ -615,12 +625,22 @@ mod tests {
         let mut m = minimal_manifest();
         // blocked by id even though self-declared for this mode
         m.blocked_skills = vec!["danger".into()];
-        assert!(!m.allows_skill(&skill("danger", &["test"], &[], ordo_skills::RiskLevel::Low)));
+        assert!(!m.allows_skill(&skill(
+            "danger",
+            &["test"],
+            &[],
+            ordo_skills::RiskLevel::Low
+        )));
         // blocked by tag even though self-declared + allowed by tag
         let mut m2 = minimal_manifest();
         m2.blocked_skill_tags = vec!["exploit".into()];
         m2.allowed_skill_tags = vec!["exploit".into()];
-        assert!(!m2.allows_skill(&skill("s", &["test"], &["exploit"], ordo_skills::RiskLevel::Low)));
+        assert!(!m2.allows_skill(&skill(
+            "s",
+            &["test"],
+            &["exploit"],
+            ordo_skills::RiskLevel::Low
+        )));
     }
 
     #[test]

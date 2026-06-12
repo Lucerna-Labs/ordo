@@ -436,7 +436,10 @@ impl AssistantService {
 
     /// The skills routed to a given mode (filtered by `mode.allows_skill`),
     /// sorted by id. Discovery only — surfacing a skill grants no capability.
-    pub fn skills_for_mode(&self, mode: &ordo_modes::ModeManifest) -> Vec<ordo_skills::SkillManifest> {
+    pub fn skills_for_mode(
+        &self,
+        mode: &ordo_modes::ModeManifest,
+    ) -> Vec<ordo_skills::SkillManifest> {
         let mut out: Vec<ordo_skills::SkillManifest> = self
             .skills
             .iter()
@@ -487,11 +490,7 @@ impl AssistantService {
     }
 
     /// Delete a mode. Refuses a protected mode unless `force`.
-    pub fn delete_mode(
-        &self,
-        id: &str,
-        force: bool,
-    ) -> Result<(), ordo_modes::ModeMutationError> {
+    pub fn delete_mode(&self, id: &str, force: bool) -> Result<(), ordo_modes::ModeMutationError> {
         self.modes
             .as_ref()
             .ok_or(ordo_modes::ModeMutationError::Unavailable)?
@@ -1009,8 +1008,14 @@ impl AssistantService {
                 "model": request.model.clone(),
                 "language": request.language.clone(),
             });
-            match ordo_cloud::voice::transcribe(&self.http, &credential, audio.clone(), &format, &args)
-                .await
+            match ordo_cloud::voice::transcribe(
+                &self.http,
+                &credential,
+                audio.clone(),
+                &format,
+                &args,
+            )
+            .await
             {
                 Ok(transcript) => {
                     return Ok(TranscriptResponse {
@@ -2277,7 +2282,8 @@ impl AssistantService {
         // retry and the reasoning fallback.
         if acc.trim().is_empty() {
             return Err(AssistantError::LlmFailed(
-                "streaming produced no visible content (reasoning-only); retrying non-streamed".into(),
+                "streaming produced no visible content (reasoning-only); retrying non-streamed"
+                    .into(),
             ));
         }
         Ok((acc, model_name))
@@ -2603,10 +2609,7 @@ impl AssistantService {
                     scopes.push(tag);
                 }
             }
-            let scoped = self
-                .facts
-                .recall_in_scopes(&query, top_k, &scopes)
-                .await?;
+            let scoped = self.facts.recall_in_scopes(&query, top_k, &scopes).await?;
             // Telemetry: surface the scope filter to the insight
             // trace so an operator inspecting "why didn't fact X
             // surface?" can see the active scope set + visible
@@ -3508,7 +3511,10 @@ mod taint_helpers_tests {
         assert!(capability_in_lanes("web.fetch", &lanes));
         assert!(!capability_in_lanes("code.run_native", &lanes));
         // Bare lane matches only on a segment boundary — no sibling bleed.
-        assert!(capability_in_lanes("files.read", &["files.read".to_string()])); // exact
+        assert!(capability_in_lanes(
+            "files.read",
+            &["files.read".to_string()]
+        )); // exact
         assert!(capability_in_lanes(
             "files.read.all",
             &["files.read".to_string()]
@@ -3518,7 +3524,7 @@ mod taint_helpers_tests {
             &["files.read".to_string()]
         )); // boundary: must NOT bleed into a sibling capability
         assert!(!capability_in_lanes("webhook.send", &["web".to_string()])); // boundary
-        // Empty allow-list matches nothing (fail-closed).
+                                                                             // Empty allow-list matches nothing (fail-closed).
         assert!(!capability_in_lanes("files.read_file", &[]));
     }
 
@@ -3535,7 +3541,10 @@ mod taint_helpers_tests {
             ..Default::default()
         };
         let clean = sanitize_untrusted_turn_request(req);
-        assert!(clean.session_id.is_none(), "must not target an existing session");
+        assert!(
+            clean.session_id.is_none(),
+            "must not target an existing session"
+        );
         assert!(clean.memory_scope.is_none());
         assert!(clean.allowed_lanes.is_none());
         assert!(clean.inherit_taint.is_empty());

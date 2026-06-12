@@ -143,7 +143,7 @@ fn style_hides_content(style: &str) -> bool {
         let prop = parts.next().unwrap_or("").trim();
         let value = parts.next().unwrap_or("").trim();
         match (prop, value) {
-            ("display", v) if v == "none" => return true,
+            ("display", "none") => return true,
             ("visibility", v) if v == "hidden" || v == "collapse" => return true,
             ("opacity", v) => {
                 if let Some(num) = parse_opacity(v) {

@@ -381,8 +381,11 @@ mod tests {
 
     #[test]
     fn empty_names_are_dropped() {
-        let names =
-            candidate_service_names(Some(String::new()), "openai", vec![String::new(), "x".into()]);
+        let names = candidate_service_names(
+            Some(String::new()),
+            "openai",
+            vec![String::new(), "x".into()],
+        );
         assert_eq!(names, vec!["openai".to_string(), "x".to_string()]);
     }
 }

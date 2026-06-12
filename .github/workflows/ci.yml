@@ -23,7 +23,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # Pinned (not @stable) so a new rustc/clippy release can't silently turn
+        # CI red on unchanged code via newly-added lints. Bump deliberately.
+        uses: dtolnay/rust-toolchain@1.93.0
         with:
           components: rustfmt, clippy
 

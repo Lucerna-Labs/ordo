@@ -3,8 +3,8 @@ use std::net::TcpStream;
 
 use tracing::debug;
 
-use crate::config::EmailConfig;
 use crate::command;
+use crate::config::EmailConfig;
 
 #[derive(Debug, Clone)]
 pub struct ReceivedEmail {
@@ -23,7 +23,10 @@ pub struct ImapPoller {
 
 impl ImapPoller {
     pub fn new(config: EmailConfig) -> Self {
-        Self { config, seen_ids: HashSet::new() }
+        Self {
+            config,
+            seen_ids: HashSet::new(),
+        }
     }
 
     pub fn process_new_messages(&mut self, msg: &ReceivedEmail) -> Option<ReceivedEmail> {
@@ -44,7 +47,10 @@ impl ImapPoller {
 
         if !self.config.authorized_senders.is_empty() {
             let from_lower = msg.from.to_lowercase();
-            let authorized = self.config.authorized_senders.iter()
+            let authorized = self
+                .config
+                .authorized_senders
+                .iter()
                 .any(|auth| from_lower == auth.to_lowercase());
             if !authorized {
                 debug!("ordo-email: skipped unauthorized: {}", msg.from);
@@ -64,15 +70,17 @@ pub async fn poll_inbox(config: &EmailConfig) -> Result<Vec<ReceivedEmail>, Stri
     let password = config.imap_password.clone();
     let mailbox = config.mailbox.clone();
 
-    tokio::task::spawn_blocking(move || {
-        poll_sync(&host, port, &username, &password, &mailbox)
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
+    tokio::task::spawn_blocking(move || poll_sync(&host, port, &username, &password, &mailbox))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 fn poll_sync(
-    host: &str, port: u16, username: &str, password: &str, mailbox: &str,
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    mailbox: &str,
 ) -> Result<Vec<ReceivedEmail>, String> {
     let addr = format!("{host}:{port}");
 
@@ -80,8 +88,7 @@ fn poll_sync(
         .build()
         .map_err(|e| format!("TLS builder: {e}"))?;
 
-    let stream = TcpStream::connect(&addr)
-        .map_err(|e| format!("IMAP connect {addr}: {e}"))?;
+    let stream = TcpStream::connect(&addr).map_err(|e| format!("IMAP connect {addr}: {e}"))?;
 
     let tls_stream = tls
         .connect(host, stream)
@@ -106,7 +113,8 @@ fn poll_sync(
     }
 
     let to_fetch: Vec<u32> = uids.into_iter().take(20).collect();
-    let uid_set = to_fetch.iter()
+    let uid_set = to_fetch
+        .iter()
         .map(|u: &u32| u.to_string())
         .collect::<Vec<_>>()
         .join(",");
@@ -122,16 +130,16 @@ fn poll_sync(
             Some(b) => b,
             None => continue,
         };
-        if body_raw.is_empty() { continue; }
+        if body_raw.is_empty() {
+            continue;
+        }
 
         let uid = fetch.uid.unwrap_or(0);
 
         // Simple header+body extraction — parse RFC2822 headers manually
-        let (subject, from, body_text, body_html) =
-            extract_email_fields(body_raw);
+        let (subject, from, body_text, body_html) = extract_email_fields(body_raw);
 
-        let message_id = extract_header(body_raw, "message-id")
-            .unwrap_or_default();
+        let message_id = extract_header(body_raw, "message-id").unwrap_or_default();
 
         emails.push(ReceivedEmail {
             seq: uid,
@@ -149,10 +157,8 @@ fn poll_sync(
 
 /// Extract key fields from raw RFC2822 email bytes without a full MIME parser.
 fn extract_email_fields(raw: &[u8]) -> (String, String, String, Option<String>) {
-    let subject = extract_header(raw, "subject")
-        .unwrap_or_else(|| "(no subject)".to_string());
-    let from = extract_header(raw, "from")
-        .unwrap_or_else(|| "(unknown)".to_string());
+    let subject = extract_header(raw, "subject").unwrap_or_else(|| "(no subject)".to_string());
+    let from = extract_header(raw, "from").unwrap_or_else(|| "(unknown)".to_string());
 
     // Find the end of headers (blank line)
     let header_end = find_header_end(raw);
@@ -171,12 +177,12 @@ fn extract_email_fields(raw: &[u8]) -> (String, String, String, Option<String>) 
 /// Find the end of RFC2822 headers (first blank line: \r\n\r\n or \n\n)
 fn find_header_end(raw: &[u8]) -> usize {
     for i in 0..raw.len().saturating_sub(3) {
-        if &raw[i..i+4] == b"\r\n\r\n" {
+        if &raw[i..i + 4] == b"\r\n\r\n" {
             return i + 4;
         }
     }
     for i in 0..raw.len().saturating_sub(1) {
-        if &raw[i..i+2] == b"\n\n" {
+        if &raw[i..i + 2] == b"\n\n" {
             return i + 2;
         }
     }
@@ -209,7 +215,7 @@ fn extract_header(raw: &[u8], name: &str) -> Option<String> {
         if let Some(colon_pos) = trimmed.find(':') {
             let key = &trimmed[..colon_pos];
             if key.to_lowercase() == name_lower {
-                value = trimmed[colon_pos+1..].trim().to_string();
+                value = trimmed[colon_pos + 1..].trim().to_string();
                 in_header = true;
             }
         }
@@ -229,13 +235,13 @@ fn decode_rfc2047(input: &str) -> String {
         result.push_str(&rest[..start]);
         let encoded = &rest[start..];
         if let Some(end) = encoded.find("?=") {
-            let word = &encoded[..end+2]; // Include "?="
+            let word = &encoded[..end + 2]; // Include "?="
             if let Some(decoded) = decode_single_rfc2047(word) {
                 result.push_str(&decoded);
             } else {
                 result.push_str(word);
             }
-            rest = &encoded[end+2..];
+            rest = &encoded[end + 2..];
         } else {
             result.push_str(rest);
             break;
@@ -249,7 +255,9 @@ fn decode_single_rfc2047(word: &str) -> Option<String> {
     // Format: =?charset?encoding?text?=
     let inner = word.strip_prefix("=?")?.strip_suffix("?=")?;
     let parts: Vec<&str> = inner.splitn(3, '?').collect();
-    if parts.len() != 3 { return None; }
+    if parts.len() != 3 {
+        return None;
+    }
     let (_, encoding, encoded_text) = (parts[0], parts[1], parts[2]);
     match encoding.to_lowercase().as_str() {
         "b" | "b64" => {
@@ -267,25 +275,45 @@ fn decode_single_rfc2047(word: &str) -> Option<String> {
 
 fn base64_decode(input: &str) -> Option<Vec<u8>> {
     use std::collections::HashMap;
-    let charset: HashMap<char, u8> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-        .chars().enumerate().map(|(i, c)| (c, i as u8)).collect();
+    let charset: HashMap<char, u8> =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            .chars()
+            .enumerate()
+            .map(|(i, c)| (c, i as u8))
+            .collect();
 
-    let clean: String = input.chars().filter(|c| *c != ' ' && *c != '\n' && *c != '\r').collect();
-    if clean.len() % 4 != 0 { return None; }
+    let clean: String = input
+        .chars()
+        .filter(|c| *c != ' ' && *c != '\n' && *c != '\r')
+        .collect();
+    if !clean.len().is_multiple_of(4) {
+        return None;
+    }
 
     let mut buf = Vec::new();
-    let bytes: Vec<u8> = clean.chars().filter_map(|c| charset.get(&c).copied()).collect();
-    if bytes.len() != clean.len() { return None; }
+    let bytes: Vec<u8> = clean
+        .chars()
+        .filter_map(|c| charset.get(&c).copied())
+        .collect();
+    if bytes.len() != clean.len() {
+        return None;
+    }
 
     for chunk in bytes.chunks(4) {
-        if chunk.len() < 2 { break; }
+        if chunk.len() < 2 {
+            break;
+        }
         let b0 = chunk[0] as u32;
         let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
         let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
         let b3 = chunk.get(3).copied().unwrap_or(0) as u32;
         buf.push(((b0 << 2) | (b1 >> 4)) as u8);
-        if chunk.len() > 2 { buf.push(((b1 << 4) | (b2 >> 2)) as u8); }
-        if chunk.len() > 3 { buf.push(((b2 << 6) | b3) as u8); }
+        if chunk.len() > 2 {
+            buf.push(((b1 << 4) | (b2 >> 2)) as u8);
+        }
+        if chunk.len() > 3 {
+            buf.push(((b2 << 6) | b3) as u8);
+        }
     }
     Some(buf)
 }
@@ -299,7 +327,7 @@ fn decode_q_encoding(input: &str) -> String {
             result.push(' ');
             i += 1;
         } else if chars[i] == '=' && i + 2 < chars.len() {
-            let hex = format!("{}{}", chars[i+1], chars[i+2]);
+            let hex = format!("{}{}", chars[i + 1], chars[i + 2]);
             if let Ok(byte) = u8::from_str_radix(&hex, 16) {
                 result.push(byte as char);
             }
@@ -345,7 +373,7 @@ fn clean_text_body(raw: &str) -> String {
     }
 
     // Trim trailing empty lines
-    while lines.last().map_or(false, |l| l.is_empty()) {
+    while lines.last().is_some_and(|l| l.is_empty()) {
         lines.pop();
     }
 
@@ -384,7 +412,11 @@ fn extract_html_part(raw: &str) -> Option<String> {
         }
     }
 
-    if html_lines.is_empty() { None } else { Some(html_lines.join("\n")) }
+    if html_lines.is_empty() {
+        None
+    } else {
+        Some(html_lines.join("\n"))
+    }
 }
 
 /// Find the MIME boundary from Content-Type header.
@@ -394,10 +426,7 @@ fn find_multipart_boundary(input: &str) -> Option<String> {
         if lower.starts_with("content-type:") && lower.contains("boundary=") {
             if let Some(pos) = lower.find("boundary=") {
                 let rest = &line[pos + 9..];
-                let boundary = rest.trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string();
+                let boundary = rest.trim().trim_matches('"').trim_matches('\'').to_string();
                 return Some(boundary);
             }
         }
@@ -414,12 +443,15 @@ pub fn filter_commands(
         .into_iter()
         .filter_map(|email| {
             let cmd_raw = command::parse_subject(&email.subject, &config.command_prefix)?;
-            Some((email.clone(), command::ParsedCommand {
-                raw: cmd_raw,
-                from_address: email.from.clone(),
-                body_plain: email.body_plain.clone(),
-                body_html: email.body_html.clone(),
-            }))
+            Some((
+                email.clone(),
+                command::ParsedCommand {
+                    raw: cmd_raw,
+                    from_address: email.from.clone(),
+                    body_plain: email.body_plain.clone(),
+                    body_html: email.body_html.clone(),
+                },
+            ))
         })
         .collect()
 }

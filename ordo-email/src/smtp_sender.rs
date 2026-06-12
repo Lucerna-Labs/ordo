@@ -1,9 +1,9 @@
+use lettre::transport::smtp::authentication::Credentials;
 use lettre::{
     message::Mailbox,
     transport::smtp::client::{Tls, TlsParameters},
     AsyncSmtpTransport, AsyncTransport, Message,
 };
-use lettre::transport::smtp::authentication::Credentials;
 
 /// Send an email reply via SMTP.
 pub async fn send_reply(
@@ -16,16 +16,17 @@ pub async fn send_reply(
 ) -> Result<(), String> {
     let from_name = config.display_name.as_deref().unwrap_or("");
     let from_mbox: Mailbox = if from_name.is_empty() {
-        config.address.parse().map_err(|e| format!("invalid from: {e}"))?
+        config
+            .address
+            .parse()
+            .map_err(|e| format!("invalid from: {e}"))?
     } else {
         format!("{} <{}>", from_name, config.address)
             .parse()
             .map_err(|e| format!("invalid from: {e}"))?
     };
 
-    let to_mbox: Mailbox = to_address
-        .parse()
-        .map_err(|e| format!("invalid to: {e}"))?;
+    let to_mbox: Mailbox = to_address.parse().map_err(|e| format!("invalid to: {e}"))?;
 
     let mut builder = Message::builder()
         .from(from_mbox)
@@ -59,10 +60,7 @@ pub async fn send_reply(
             .map_err(|e| format!("build plain: {e}"))?
     };
 
-    let creds = Credentials::new(
-        config.address.clone(),
-        config.imap_password.clone(),
-    );
+    let creds = Credentials::new(config.address.clone(), config.imap_password.clone());
 
     // Use rustls-tls path
     let tls_params = TlsParameters::builder(config.smtp_host.clone())

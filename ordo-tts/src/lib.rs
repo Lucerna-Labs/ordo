@@ -162,9 +162,7 @@ pub fn schedule_phonemes(text: &str, options: &SpeakOptions) -> Vec<ScheduledPho
     let phoneme_dur = options
         .phoneme_duration_ms
         .unwrap_or(DEFAULT_PHONEME_DURATION_MS);
-    let rest_dur = options
-        .rest_duration_ms
-        .unwrap_or(DEFAULT_REST_DURATION_MS);
+    let rest_dur = options.rest_duration_ms.unwrap_or(DEFAULT_REST_DURATION_MS);
 
     let mut schedule: Vec<ScheduledPhoneme> = Vec::new();
     let mut cursor_ms: u64 = 0;
@@ -233,8 +231,7 @@ async fn run_schedule(
                 timestamp_ms: entry.timestamp_ms,
                 duration_ms: entry.duration_ms,
             };
-            let envelope =
-                Envelope::new(node_id.clone(), OrdoMessage::TtsPhonemeFrame(frame));
+            let envelope = Envelope::new(node_id.clone(), OrdoMessage::TtsPhonemeFrame(frame));
             if let Err(err) = bus.publish(tts_topics::PHONEME_FRAME, envelope).await {
                 tracing::warn!(target: "ordo_tts", error = %err, "phoneme.frame publish failed");
             }

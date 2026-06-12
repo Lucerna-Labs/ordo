@@ -365,8 +365,6 @@ mod tests {
         assert!(matches!(out, Some(ToolCallResult::Completed { .. })));
         // code.* is owned too.
         let descs = adapter.capability_descriptors();
-        assert!(descs
-            .iter()
-            .any(|d| d.capability == "code.run_native"));
+        assert!(descs.iter().any(|d| d.capability == "code.run_native"));
     }
 }

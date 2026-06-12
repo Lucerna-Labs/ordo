@@ -35,10 +35,10 @@ pub use summarizer::{
 
 pub use events::{EventBroadcaster, TurnEvent};
 pub use knowledge::KnowledgeStore;
+pub use orchestration::AssistantOrchestration;
 pub use prompt::{KNOWLEDGE_PREAMBLE, MEMORY_PREAMBLE};
 pub use recall::FactStore;
 pub use seeder::{KnowledgeSeeder, SeedReport};
-pub use orchestration::AssistantOrchestration;
 pub use service::{sanitize_untrusted_turn_request, AssistantService};
 pub use store::{embedding_from_bytes, embedding_to_bytes, fact_summaries, AssistantStore};
 pub use tools::{ToolGateway, DEFAULT_ALLOWED_LANES, RESERVED_FROM_ASSISTANT};

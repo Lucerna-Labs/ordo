@@ -381,7 +381,11 @@ impl ModeRegistry {
 
     /// Whether the given mode id is a protected (built-in) mode.
     pub fn is_protected(&self, id: &str) -> bool {
-        self.inner.read().get(id).map(|m| m.protected).unwrap_or(false)
+        self.inner
+            .read()
+            .get(id)
+            .map(|m| m.protected)
+            .unwrap_or(false)
     }
 
     fn persist(&self, manifest: &ModeManifest) -> Result<(), ModeMutationError> {
@@ -558,12 +562,16 @@ mod tests {
     fn delete_removes_unprotected_mode_and_file() {
         let tmp = tempfile::tempdir().unwrap();
         let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        r.create(ModeManifest::new_user_mode("Scratch").unwrap()).unwrap();
+        r.create(ModeManifest::new_user_mode("Scratch").unwrap())
+            .unwrap();
         assert!(tmp.path().join("scratch.json").exists());
 
         r.delete("scratch", false).unwrap();
         assert!(r.get("scratch").is_none());
-        assert!(!tmp.path().join("scratch.json").exists(), "delete should remove the file");
+        assert!(
+            !tmp.path().join("scratch.json").exists(),
+            "delete should remove the file"
+        );
     }
 
     #[test]
@@ -578,7 +586,10 @@ mod tests {
         )
         .unwrap();
         let r = ModeRegistry::load_with_defaults(tmp.path()).unwrap();
-        assert!(r.is_protected("general"), "stale core file must be re-protected on load");
+        assert!(
+            r.is_protected("general"),
+            "stale core file must be re-protected on load"
+        );
         assert!(matches!(
             r.delete("general", false),
             Err(ModeMutationError::Protected(_))
@@ -594,7 +605,10 @@ mod tests {
             r.delete("general", false),
             Err(ModeMutationError::Protected(id)) if id == "general"
         ));
-        assert!(r.get("general").is_some(), "protected mode must survive a casual delete");
+        assert!(
+            r.get("general").is_some(),
+            "protected mode must survive a casual delete"
+        );
         // force deletes it
         r.delete("general", true).unwrap();
         assert!(r.get("general").is_none());

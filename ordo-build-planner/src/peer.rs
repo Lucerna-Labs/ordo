@@ -144,7 +144,6 @@ impl BuildPlannerPeer {
         self.bus
             .publish(topics::BUILD_PLANNER_EVENT, envelope)
             .await
-            .map_err(|err| err.into())
     }
 }
 
