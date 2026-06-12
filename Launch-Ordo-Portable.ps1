@@ -47,7 +47,10 @@ $env:ORDO_CONTROL_URL = $controlUrl
 # browser can open http://127.0.0.1:4141/avatar.html as the pop-out.
 # Set to "0" to disable. See docs/avatar.md.
 $env:ORDO_ENABLE_AVATAR = "1"
-$env:RUSTFLAGS = "-D warnings"
+# NOTE: we deliberately do NOT set RUSTFLAGS="-D warnings" here. This launcher
+# builds with the user's own (unpinned) rustc, so a newer compiler's new lint
+# would turn a warning into a hard build failure at launch. Warning strictness
+# is enforced in CI under the pinned toolchain, not when an end user runs this.
 
 # Code-execution capability (code.* / workspace.*). The native runner is
 # compiled in via the `native-exec` feature (in the build step below) and

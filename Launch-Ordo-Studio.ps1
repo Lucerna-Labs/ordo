@@ -70,7 +70,10 @@ $env:ORDO_CONTROL_URL = $controlUrl
 # (the Bot button next to the voice controls) lip-syncs out of the
 # box. One ~30Hz task; set to "0" to disable. See docs/avatar.md.
 $env:ORDO_ENABLE_AVATAR = "1"
-$env:RUSTFLAGS = "-D warnings"
+# NOTE: we deliberately do NOT set RUSTFLAGS="-D warnings" here. This launcher
+# builds with the user's own (unpinned) rustc, so a newer compiler's new lint
+# would turn a warning into a hard build failure at launch. Warning strictness
+# is enforced in CI under the pinned toolchain, not when an end user runs this.
 
 Push-Location $studioDir
 try {

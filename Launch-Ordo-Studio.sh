@@ -47,7 +47,10 @@ export ORDO_CONTROL_URL="$CONTROL_URL"
 # Run the avatar performance driver (~30Hz) so the avatar pop-out lip-syncs out
 # of the box. Set to "0" to disable. See docs/avatar.md.
 export ORDO_ENABLE_AVATAR="1"
-export RUSTFLAGS="-D warnings"
+# NOTE: we deliberately do NOT set RUSTFLAGS="-D warnings" here. This launcher
+# builds with the user's own (unpinned) rustc, so a newer compiler's new lint
+# would turn a warning into a hard build failure at launch. Warning strictness
+# is enforced in CI under the pinned toolchain, not when an end user runs this.
 
 if [ ! -d "$STUDIO_DIR/node_modules" ]; then
   echo "Installing Ordo Studio frontend dependencies..."
