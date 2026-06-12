@@ -18,7 +18,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Ordo targets Windows + Linux only — macOS is not a supported platform,
+        # so we don't gate CI on it. (The sealer's macOS SEP/Keychain tiers stay
+        # in-tree as cfg-gated scaffolds; they're simply not built or tested here.)
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
