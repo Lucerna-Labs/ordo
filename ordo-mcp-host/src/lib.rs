@@ -7246,11 +7246,20 @@ mod planning_llm_tests {
 
     /// Stand in for the real RagPeer: listen for `RagQueryRequested` and
     /// reply with a fixed hit on `RAG_QUERY_RESPONSE`.
-    async fn fake_rag_peer(bus: Arc<dyn Bus>, fixture_snippet: &'static str) {
+    async fn fake_rag_peer(
+        bus: Arc<dyn Bus>,
+        fixture_snippet: &'static str,
+        ready: tokio::sync::oneshot::Sender<()>,
+    ) {
         let mut sub = bus
             .subscribe(topics::RAG_QUERY_REQUEST)
             .await
             .expect("subscribe RAG_QUERY_REQUEST");
+        // Signal that we are subscribed BEFORE the caller publishes any query.
+        // The bus is a broadcast channel with no replay, so a request published
+        // before this subscribe completes is dropped — which made the retrieval
+        // intermittently return 0 hits under scheduling load (a flaky test).
+        let _ = ready.send(());
         while let Some(event) = sub.next().await {
             if let OrdoMessage::RagQueryRequested { query, .. } = &event.payload {
                 let mut reply = Envelope::new(
@@ -7307,13 +7316,19 @@ mod planning_llm_tests {
 
         let bus: Arc<dyn Bus> = Arc::new(InProcessBus::new());
         let rag_bus = bus.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {
             fake_rag_peer(
                 rag_bus,
                 "BRAND VOICE: Confident, grounded, technical. Never sales-y.",
+                ready_tx,
             )
             .await;
         });
+        // Wait until the fake RAG peer is actually subscribed before issuing the
+        // query. The bus has no replay, so without this the request can be
+        // published into the void → 0 hits → the assertions below flake.
+        ready_rx.await.expect("rag peer subscribed");
 
         let provider = OrdoLlmProvider::new(task).with_bus(bus);
         let result = provider
