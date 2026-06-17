@@ -31,6 +31,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -44,11 +45,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ordo_avatar_test as av  # noqa: E402
 
-try:
+with contextlib.suppress(Exception):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-except Exception:
-    pass
 
 BOGUS = "00000000-0000-0000-0000-000000000000"
 # Deterministic reply the mock LLM returns — asserted byte-for-byte in the turn.
@@ -956,11 +955,9 @@ def main():
         if not av.wait_health(60):
             print(f"runtime not healthy at {av.BASE}/health", file=sys.stderr)
             if tmpdir:
-                try:
+                with contextlib.suppress(Exception):
                     with open(os.path.join(tmpdir, "runtime.log")) as f:
                         print(f.read()[-2000:], file=sys.stderr)
-                except Exception:
-                    pass
             return 2
 
         srv, mock_port = start_full_mock()
@@ -1027,11 +1024,9 @@ def main():
     finally:
         if proc and not args.keep:
             print("# stopping test runtime")
-            try:
+            with contextlib.suppress(Exception):
                 proc.terminate()
                 proc.wait(timeout=10)
-            except Exception:
-                pass
             # Belt-and-suspenders on Windows: terminate() can return before the
             # binary's file lock is released (or leave an orphan), which blocks
             # the next `cargo build`. Always sweep the :4142 listener too.
