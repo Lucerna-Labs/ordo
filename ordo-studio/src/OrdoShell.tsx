@@ -189,8 +189,6 @@ import {
   PinOff,
   RefreshCcw,
   Plus,
-  Lock,
-  Unlock,
   Check,
   X,
   Cloud,
@@ -240,7 +238,6 @@ const LAMP = "#f4c95d";
 const LAMP_HOT = "#f4a13d";
 const JADE = "#7fd1c5";
 const VIOLET = "#a99af0";
-const ROSE = "#f07f9f";
 const PEACH = "#f0b67f";
 const SLATE = "#9aa4b2";
 const RED = "#e85d5d";
@@ -695,10 +692,6 @@ const STATIC_SIGNAL_DEFS: SignalDef[] = [
   { id: "heal", label: "heal", state: "ok", detail: "nominal" },
 ];
 
-// Kept as a const so the rest of the shell (rescue mode trigger,
-// initial signal lookup) can find the gateway entry by id without
-// touching every reader.
-const SIGNAL_DEFS: SignalDef[] = STATIC_SIGNAL_DEFS;
 
 const SIGNAL_COLOR: Record<SignalState, string> = {
   ok: JADE,
@@ -708,29 +701,6 @@ const SIGNAL_COLOR: Record<SignalState, string> = {
 };
 
 // ─── Primitives ───
-const Glass = ({
-  children,
-  className = "",
-  style = {},
-}: {
-  children: ReactNode;
-  className?: string;
-  style?: CSSProperties;
-}) => (
-  <div
-    className={`relative rounded-xl ${className}`}
-    style={{
-      background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.01) 100%)",
-      backdropFilter: "blur(20px) saturate(140%)",
-      WebkitBackdropFilter: "blur(20px) saturate(140%)",
-      border: "1px solid rgba(255,255,255,0.06)",
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04), 0 20px 40px -20px rgba(0,0,0,0.5)",
-      ...style,
-    }}
-  >
-    {children}
-  </div>
-);
 
 const Mono = ({
   children,
@@ -2560,23 +2530,6 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
     );
   }, [custom, filter]);
 
-  const grouped = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const groups = new Map<string, Map<string, CapabilityDescriptor[]>>();
-    for (const cap of caps ?? []) {
-      if (cap.lane.group !== "domain" && cap.lane.group !== "interface") continue;
-      if (q && !cap.capability.toLowerCase().includes(q) && !cap.description.toLowerCase().includes(q)) {
-        continue;
-      }
-      const groupName = cap.lane.group === "domain" ? "domain skills" : "interface skills";
-      const lanes = groups.get(groupName) ?? new Map<string, CapabilityDescriptor[]>();
-      const items = lanes.get(cap.lane.label) ?? [];
-      items.push(cap);
-      lanes.set(cap.lane.label, items);
-      groups.set(groupName, lanes);
-    }
-    return groups;
-  }, [caps, filter]);
 
   const builtInSkills = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -4133,7 +4086,7 @@ const RagSurface = () => {
 const MemorySurface = () => {
   const [pinned, setPinned] = useState<string[] | null>(null);
   const [working, setWorking] = useState<string[] | null>(null);
-  const [storage, setStorage] = useState<RuntimeStorage | null>(null);
+  const [, setStorage] = useState<RuntimeStorage | null>(null);
   const [pinnedGb, setPinnedGb] = useState(0);
   const [workingGb, setWorkingGb] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -7121,117 +7074,6 @@ const ProviderConfigureModal = ({
   );
 };
 
-const ConnectionsSurface = () => {
-  const [types, setTypes] = useState<ConnectionType[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, { ok: boolean; body: string }>>({});
-
-  const refresh = async () => {
-    try {
-      const res = await listConnectionTypes();
-      setTypes(res.types);
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const runTest = async (id: string) => {
-    setBusy(id);
-    try {
-      const out = await testConnection(id, {});
-      setResults((r) => ({ ...r, [id]: { ok: true, body: JSON.stringify(out, null, 2) } }));
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setResults((r) => ({ ...r, [id]: { ok: false, body: msg } }));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
-      <SectionHeader
-        icon={<Network size={22} />}
-        title="Connections"
-        sub="Outbound integrations Ordo can reach. Each type can be tested live to verify wiring."
-        trailing={
-          <Button onClick={() => void refresh()} size="sm">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <RefreshCcw size={11} /> Refresh
-            </span>
-          </Button>
-        }
-      />
-      {error && <Alert variant="danger">{error}</Alert>}
-      <div className="space-y-2">
-        {(types ?? []).map((t) => {
-          const result = results[t.id];
-          const dotColor =
-            result === undefined ? UI.slate : result.ok ? UI.jade : UI.red;
-          return (
-            <div key={t.id}>
-              <ConfiguredRow
-                icon={<Dot color={dotColor} size={9} />}
-                name={t.label}
-                subtitle={
-                  <span>
-                    {t.id}
-                    {t.service ? ` · ${t.service}` : ""}
-                    {t.description ? ` — ${t.description}` : ""}
-                  </span>
-                }
-                actions={
-                  <Button
-                    onClick={() => void runTest(t.id)}
-                    disabled={!!busy}
-                    size="sm"
-                  >
-                    {busy === t.id ? "Testing…" : "Test"}
-                  </Button>
-                }
-              />
-              {result && (
-                <div style={{ marginTop: 6 }}>
-                  <Alert variant={result.ok ? "success" : "danger"}>
-                    <pre
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: 10,
-                        color: result.ok ? UI.jade : UI.red,
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                        maxHeight: 220,
-                        overflow: "auto",
-                        margin: 0,
-                      }}
-                    >
-                      {result.body}
-                    </pre>
-                  </Alert>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {(types ?? []).length === 0 && (
-          <Card>
-            <div style={{ textAlign: "center", padding: "16px 0" }}>
-              <Serif size={14} italic color={UI.textMuted}>
-                No connection types registered.
-              </Serif>
-            </div>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-};
 
 const DirectoryConnectionsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: DirectoryTabId) => void }) => {
   const [types, setTypes] = useState<ConnectionType[] | null>(null);
@@ -7392,94 +7234,6 @@ const DirectoryConnectionsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTa
   );
 };
 
-const PluginsSurface = () => {
-  const [plugs, setPlugs] = useState<PluginStatus[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = async () => {
-    try {
-      const res = await listPlugins();
-      setPlugs(res.plugins);
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  return (
-    <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
-      <SectionHeader
-        icon={<Plug size={22} />}
-        title="Plugins"
-        sub="External providers, stdio-bridged. Each plugin advertises capabilities."
-        trailing={
-          <Button onClick={() => void refresh()} size="sm">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <RefreshCcw size={11} /> Refresh
-            </span>
-          </Button>
-        }
-      />
-      {error && <Alert variant="danger">{error}</Alert>}
-      <div className="space-y-2">
-        {(plugs ?? []).map((p) => {
-          const variant: "success" | "warn" | "danger" | "neutral" =
-            p.state === "Active" || p.state === "active"
-              ? "success"
-              : p.state === "Disabled" || p.state === "disabled"
-              ? "neutral"
-              : "danger";
-          return (
-            <div key={p.name}>
-              <ConfiguredRow
-                icon={<Plug size={14} />}
-                name={p.name}
-                subtitle={
-                  <span>
-                    v{p.version} · {p.tool_count} tool{p.tool_count === 1 ? "" : "s"}
-                    {p.description ? ` — ${p.description}` : ""}
-                  </span>
-                }
-                rightBadge={<Badge variant={variant}>{p.state}</Badge>}
-                actions={
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {p.expected_lanes.map((lane) => (
-                      <Badge key={lane} variant="warn">
-                        {lane}
-                      </Badge>
-                    ))}
-                  </div>
-                }
-              />
-              {p.failure && (
-                <div style={{ marginTop: 6 }}>
-                  <Alert variant="danger">failure: {p.failure}</Alert>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {(plugs ?? []).length === 0 && (
-          <Card>
-            <div style={{ textAlign: "center", padding: "16px 0" }}>
-              <Serif size={14} italic color={UI.textMuted}>
-                No plugins installed. Drop a plugin.json under{" "}
-                <code style={{ fontFamily: MONO, color: UI.parchment }}>
-                  user-files/plugins/&lt;name&gt;/
-                </code>{" "}
-                and restart Ordo.
-              </Serif>
-            </div>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-};
 
 // ─── MCP — Ordo as MCP server + external MCP server registry ────
 
@@ -13772,7 +13526,7 @@ export default function OrdoShell() {
   const [ttsVoice, setTtsVoiceState] = useState(() =>
     readStoredString(TTS_VOICE_KEY, DEFAULT_TTS_VOICE),
   );
-  const [ttsFormat, setTtsFormatState] = useState(() =>
+  const [ttsFormat] = useState(() =>
     readStoredString(TTS_FORMAT_KEY, DEFAULT_TTS_FORMAT),
   );
   const [ttsBusy, setTtsBusy] = useState(false);
@@ -15411,10 +15165,6 @@ export default function OrdoShell() {
   const setTtsVoice = (voice: string) => {
     setTtsVoiceState(voice);
     if (typeof window !== "undefined") window.localStorage.setItem(TTS_VOICE_KEY, voice);
-  };
-  const setTtsFormat = (format: string) => {
-    setTtsFormatState(format);
-    if (typeof window !== "undefined") window.localStorage.setItem(TTS_FORMAT_KEY, format);
   };
   const speakText = async (text: string, reason: "auto" | "manual") => {
     const clean = text.trim();

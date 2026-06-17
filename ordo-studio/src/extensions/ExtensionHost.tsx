@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { UiExtension, UiExtensionSurface } from "./useUiExtensions";
 
@@ -8,13 +8,6 @@ interface ExtensionHostProps {
   origin: string;
   onClose?: () => void;
 }
-
-type PendingRequest = {
-  id: number;
-  type: "call";
-  method: string;
-  params: unknown;
-};
 
 type Toast = { text: string; tone: "info" | "success" | "warn" | "error" };
 
