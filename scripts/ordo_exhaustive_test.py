@@ -34,6 +34,7 @@ Usage:
 """
 
 import argparse
+import contextlib
 import json
 import sys
 import time
@@ -196,10 +197,8 @@ def main():
     ap.add_argument("--orchestrate", action="store_true",
                     help="run a live goal through POST /api/orchestrate")
     args = ap.parse_args()
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
-        pass
     base = args.base_url.rstrip("/")
     rep = Report()
 

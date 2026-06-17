@@ -24,9 +24,9 @@ Usage:
 
 import argparse
 import base64
+import contextlib
 import json
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -44,11 +44,9 @@ from urllib.parse import unquote
 
 # Force UTF-8 stdout so non-cp1252 chars (→, —, …) in test names don't crash
 # the run on a Windows console.
-try:
+with contextlib.suppress(Exception):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-except Exception:
-    pass
 
 BASE = "http://127.0.0.1:4142"
 RUNID = uuid.uuid4().hex[:8]
@@ -329,7 +327,7 @@ class MockHandler(BaseHTTPRequestHandler):
             }).encode()
             return self._send(200, body, "application/json")
 
-        self._send(404, b'{"error":"unknown mock endpoint"}', "application/json")
+        return self._send(404, b'{"error":"unknown mock endpoint"}', "application/json")
 
 
 def start_mock():
@@ -422,7 +420,7 @@ def find_binary(explicit):
 
 def kill_port_listener(port):
     """Kill ONLY the process listening on `port` (never blanket-kill)."""
-    try:
+    with contextlib.suppress(Exception):
         if os.name == "nt":
             out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
             pids = set()
@@ -442,8 +440,6 @@ def kill_port_listener(port):
             except FileNotFoundError:
                 subprocess.run(["fuser", "-k", f"{port}/tcp"],
                                capture_output=True, text=True)
-    except Exception:
-        pass
 
 
 def launch_runtime(bin_path, port):
@@ -544,10 +540,8 @@ def parse_frames(events):
     frames = []
     for ev, data in events:
         if ev == "frame":
-            try:
+            with contextlib.suppress(Exception):
                 frames.append(json.loads(data))
-            except Exception:
-                pass
     return frames
 
 
@@ -947,7 +941,7 @@ def test_voice_candidate(mock_port):
     register_cred(mmx, base, {"voice_api": "minimax", "group_id": "g"})
 
     # explicit service is honored exactly — no cross-contamination to the other.
-    o0, m0 = MOCK.count("openai"), MOCK.count("minimax")
+    m0 = MOCK.count("minimax")
     s, h, _, _ = req("POST", "/api/voice/speech", {"input": "x", "service": oai})
     check("explicit service served by THAT provider", h.get("x-ordo-tts-provider") == oai,
           h.get("x-ordo-tts-provider"))
@@ -1029,7 +1023,7 @@ def test_credentials_lifecycle(mock_port):
     print("\n## /api/cloud/credentials — lifecycle (redaction / list / delete)")
     purge_creds()
     svc = f"lifecycle{RUNID}"
-    ok = register_cred(svc, f"http://127.0.0.1:{mock_port}/ok/v1", {"voice_api": "openai"})
+    register_cred(svc, f"http://127.0.0.1:{mock_port}/ok/v1", {"voice_api": "openai"})
     s, p = getattr(register_cred, "last_response", (None, None))
     check("upsert returns 200", s == 200, f"HTTP {s}")
     cred = (p or {}).get("credential") if isinstance(p, dict) else None
@@ -1220,11 +1214,9 @@ def main():
             print(f"runtime not healthy at {BASE}/health", file=sys.stderr)
             if logf:
                 logf.flush()
-                try:
+                with contextlib.suppress(Exception):
                     with open(os.path.join(tmpdir, "runtime.log")) as f:
                         print(f.read()[-2000:], file=sys.stderr)
-                except Exception:
-                    pass
             return 2
 
         srv, mock_port = start_mock()

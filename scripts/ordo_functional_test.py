@@ -16,6 +16,7 @@ Stdlib only. Exit non-zero if any subsystem FAILed.
 """
 import argparse
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -129,7 +130,6 @@ def test_webhooks():
     wid = (body or {}).get("id") or (body or {}).get("subscription", {}).get("id")
     rec("PASS", "webhooks.register", f"id={wid} → {target}")
     s, got = req("GET", f"/api/webhooks/{wid}")
-    redacted = ok(s) and "secret" not in json.dumps(got or {}).lower().replace('"secret":null', '')
     rec("PASS" if ok(s) else "FAIL", "webhooks.get", f"HTTP {s}")
     # fire: create an app (emits apps event) then check the receiver got a POST
     before = len(_received)
@@ -266,10 +266,8 @@ def main():
     args = ap.parse_args()
     global BASE
     BASE = args.base_url.rstrip("/")
-    try:
+    with contextlib.suppress(Exception):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
-        pass
 
     s, _ = req("GET", "/health")
     if s != 200:
