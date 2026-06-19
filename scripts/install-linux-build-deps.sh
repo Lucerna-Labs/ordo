@@ -4,6 +4,10 @@ set -Eeuo pipefail
 RUST_TOOLCHAIN="${ORDO_RUST_TOOLCHAIN:-1.93.0}"
 NODE_MAJOR="${ORDO_NODE_MAJOR:-24}"
 
+cargo_home() {
+  printf '%s\n' "${CARGO_HOME:-$HOME/.cargo}"
+}
+
 as_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
     "$@"
@@ -85,6 +89,9 @@ ensure_node() {
 }
 
 ensure_rust() {
+  export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+  export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+
   if command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1; then
     echo "Cargo is available: $(cargo --version)"
     echo "rustc is available: $(rustc --version)"
@@ -101,9 +108,11 @@ ensure_rust() {
       | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
   fi
 
-  if [[ -f "$HOME/.cargo/env" ]]; then
+  if [[ -f "$(cargo_home)/env" ]]; then
     # shellcheck disable=SC1091
-    source "$HOME/.cargo/env"
+    source "$(cargo_home)/env"
+  elif [[ -d "$(cargo_home)/bin" ]]; then
+    export PATH="$(cargo_home)/bin:$PATH"
   fi
 
   if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
