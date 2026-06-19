@@ -204,7 +204,7 @@ mod tests {
 
     fn sample() -> NewReviewRequest {
         NewReviewRequest {
-            origin_capability: "workflow.generate_copy".into(),
+            origin_capability: "orchestration.draft_notes".into(),
             origin_plugin: None,
             title: "Draft".into(),
             content_type: "text/markdown".into(),

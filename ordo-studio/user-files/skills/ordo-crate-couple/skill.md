@@ -1,6 +1,16 @@
 ---
 name: ordo-crate-couple
 description: "Step 4 of the Ordo build pipeline. Use this skill to wire the already-built crates onto the Tokio bus, one wiring at a time, verifying after each. This is the orchestrator phase — the crates are sealed primitives and coupling composes them on the bus. It handles the deferred-unverifiable case (a wiring you cannot confirm until more is built) as tracked debt, NOT as a failure, and it clears the COUPLE markers left by the build step. Trigger it whenever the planner releases step 4, after every blueprint crate has passed its build gate. Do NOT couple before all crates are built. Do NOT wire everything at once and check at the end. Do NOT treat 'can't verify yet' as either a pass or a failure — it is deferred debt."
+category:
+  - build
+  - pipeline
+  - coding
+  - rust
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: high
+requires_tools: true
 ---
 
 # Ordo Build — Couple

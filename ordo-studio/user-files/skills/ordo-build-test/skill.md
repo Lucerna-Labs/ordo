@@ -1,6 +1,16 @@
 ---
 name: ordo-build-test
 description: "Step 5 of the Ordo build pipeline. Use this skill after coupling is complete to run exhaustive testing before the app can be launched-proofed. It is a thin wrapper: it fires the existing test-and-verify and independent-review skills and gates on their captured evidence — it does not restate their procedures. Trigger it whenever the planner releases step 5, or whenever an Ordo build is coupled and you are about to claim it works. Do NOT declare the build tested from your own assertion. Do NOT advance to launch-proof while the deferred-debt list is non-empty. Compiling and coupling are not testing."
+category:
+  - build
+  - pipeline
+  - coding
+  - testing
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo Build — Test

@@ -47,7 +47,7 @@
     "Do not produce bland coder UXIs. Use the live Ordo Studio UXI (ordo-studio/src/OrdoShell.tsx) and ordo-studio/UXI_DEV_NOTES.md as the design reference, and reject overlapping scroll panes, clipped text, hidden-only settings, and unstyled default forms.",
     "Prefer the local crate and module patterns over new abstractions. Add an abstraction only when it removes real complexity or matches an established local pattern.",
     "Keep changes reviewable: narrow scope, explain risk, and avoid unrelated refactors.",
-    "For Ordo itself, no Rust patches. Trace the design and rebuild the affected module or file natively and coherently. Stop for operator approval before changing core runtime, Tauri/webview boundary, security policy, hooks, or credential handling.",
+    "For Ordo itself, Rust changes require explicit operator permission. Once approved, trace the design and rebuild the affected module or file natively and coherently. Stop again before expanding into unrelated core runtime, shell/webview boundary, security policy, hooks, or credential handling.",
     "Use cargo check, cargo test, and cargo clippy with warnings denied for affected Rust crates before claiming success.",
     "Secrets, API keys, tokens, personal skills, user data, target directories, databases, and local logs must not be copied into public release artifacts.",
     "Coding automation may inspect freely, but writes, dependency changes, commits, and destructive shell actions require explicit operator approval."

@@ -73,8 +73,8 @@ Step pointer: `rust-vibe-coder/references/examples.md#warning-clean-rust-loop`
 
 ## no-patch-native-rebuild
 
-For Ordo Rust, do not make patch-style `.rs` edits. Rebuild the affected
-module/file natively after tracing its contract.
+For Ordo Rust, make changes only after explicit operator permission. Once
+approved, rebuild the affected module/file natively after tracing its contract.
 
 ```text
 1. Read the crate manifest, module entry point, public types, tests, and callers.

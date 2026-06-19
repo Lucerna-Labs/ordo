@@ -1,8 +1,8 @@
-// Tiny client for Ordo's browser and desktop data planes.
+// Tiny client for Ordo's Servo Studio data plane.
 //
-// Browser/dev mode talks to the control API. The packaged Tauri shell
-// reads desktop-owned state through native commands so UI tabs do not
-// depend on a sidecar HTTP runtime being present.
+// The renderer talks to Ordo through the local control API. Local filesystem,
+// provider, and maintenance operations belong behind runtime endpoints so the
+// UI has one path instead of shell-specific native fallbacks.
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown, message?: string) {
@@ -15,64 +15,31 @@ const CONTROL_API_ORIGIN =
     (window as Window & { __ORDO_CONTROL_ORIGIN__?: string }).__ORDO_CONTROL_ORIGIN__) ||
   "http://127.0.0.1:4141";
 
-const isTauriAssetOrigin = () =>
-  typeof window !== "undefined" && window.location.hostname === "tauri.localhost";
-
-const isTauriDevOrigin = () =>
-  typeof window !== "undefined" &&
-  (window.location.origin.includes("://localhost:1420") ||
-    window.location.origin.includes("://127.0.0.1:1420") ||
-    window.location.host === "localhost:1420" ||
-    window.location.host === "127.0.0.1:1420");
-
-const canUseTauriCommands = () =>
-  typeof window !== "undefined" &&
-  (isTauriAssetOrigin() ||
-    "__TAURI_INTERNALS__" in window ||
-    "__TAURI__" in window ||
-    "__TAURI_IPC__" in window ||
-    "__TAURI_METADATA__" in window);
-
-const shouldTryTauriCommands = () => canUseTauriCommands() || isTauriDevOrigin();
+const isServoAssetOrigin = () =>
+  typeof window !== "undefined" && window.location.protocol === "file:";
 
 function apiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
-  if (isTauriAssetOrigin() && (path.startsWith("/api") || path === "/health")) {
+  if (isServoAssetOrigin() && (path.startsWith("/api") || path === "/health")) {
     return `${CONTROL_API_ORIGIN}${path}`;
   }
   return path;
 }
 
 function websocketUrl(path: string): string {
-  if (isTauriAssetOrigin()) {
+  if (isServoAssetOrigin()) {
     return `${CONTROL_API_ORIGIN.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}${path}`;
   }
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}${path}`;
 }
 
-async function invokeLocal<T>(command: string, args?: Record<string, unknown>, force = false): Promise<T> {
-  if (!force && !canUseTauriCommands()) {
-    throw new Error(`${command} is only available inside the Ordo desktop shell`);
-  }
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(command, args);
-}
-
 async function localOrRemote<T>(
-  command: string,
-  args: Record<string, unknown> | undefined,
+  _command: string,
+  _args: Record<string, unknown> | undefined,
   remote: () => Promise<T>,
-  fallback?: () => T,
+  _fallback?: () => T,
 ): Promise<T> {
-  if (shouldTryTauriCommands()) {
-    try {
-      return await invokeLocal<T>(command, args, isTauriDevOrigin());
-    } catch (err) {
-      if (canUseTauriCommands()) throw err;
-      if (isTauriDevOrigin() && fallback) return fallback();
-    }
-  }
   return remote();
 }
 
@@ -243,6 +210,39 @@ export const updateRuntimeSettings = (patch: Record<string, unknown>) =>
 
 // ─── RAG ─────────────────────────────────────────────────────────
 
+// Agent Teams
+export interface AgentTeamsSnapshot {
+  teams: unknown[];
+  active_team_id: string;
+  path?: string;
+}
+
+const normalizeAgentTeamsSnapshot = (snapshot: Partial<AgentTeamsSnapshot>): AgentTeamsSnapshot => ({
+  teams: Array.isArray(snapshot.teams) ? snapshot.teams : [],
+  active_team_id: typeof snapshot.active_team_id === "string" ? snapshot.active_team_id : "",
+  path: typeof snapshot.path === "string" ? snapshot.path : undefined,
+});
+
+export const fetchAgentTeams = async (): Promise<AgentTeamsSnapshot> =>
+  normalizeAgentTeamsSnapshot(await api.get<Partial<AgentTeamsSnapshot>>("/api/agent-teams"));
+
+export const saveAgentTeams = async (
+  teams: unknown[],
+  activeTeamId: string,
+): Promise<AgentTeamsSnapshot> =>
+  normalizeAgentTeamsSnapshot(
+    await api.put<Partial<AgentTeamsSnapshot>>("/api/agent-teams", {
+      teams,
+      active_team_id: activeTeamId,
+    }),
+  );
+
+export const setActiveAgentTeam = async (teamId: string): Promise<AgentTeamsSnapshot> =>
+  normalizeAgentTeamsSnapshot(
+    await api.post<Partial<AgentTeamsSnapshot>>("/api/agent-teams/active", {
+      team_id: teamId,
+    }),
+  );
 export interface RagCollection {
   name: string;
   label: string;
@@ -348,91 +348,25 @@ export interface CloudCredentialUpsert {
   extras?: Record<string, string>;
 }
 
-const LOCAL_CLOUD_CREDENTIALS_KEY = "ordo:local_cloud_credentials";
-
-function readLocalCloudCredentials(): CloudCredentialRow[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(LOCAL_CLOUD_CREDENTIALS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed as CloudCredentialRow[] : [];
-  } catch {
-    return [];
-  }
+export interface CloudCredentialListResponse {
+  credentials: CloudCredentialRow[];
+  count: number;
+  default_service?: string | null;
 }
 
-function writeLocalCloudCredentials(credentials: CloudCredentialRow[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(LOCAL_CLOUD_CREDENTIALS_KEY, JSON.stringify(credentials));
-}
-
-function upsertLocalCloudCredential(payload: CloudCredentialUpsert): { saved: true; local: true } {
-  const now = new Date().toISOString();
-  const existing = readLocalCloudCredentials();
-  const prior = existing.find((credential) => credential.service === payload.service);
-  const next: CloudCredentialRow = {
-    service: payload.service,
-    auth_style: payload.auth_style ?? prior?.auth_style ?? "bearer",
-    base_url: payload.base_url ?? prior?.base_url ?? null,
-    endpoint: payload.base_url ?? prior?.endpoint ?? null,
-    label: payload.label ?? prior?.label ?? payload.service,
-    has_secret: Boolean(payload.secret) || prior?.has_secret || payload.extras?.auth_source === "environment",
-    enabled:
-      payload.extras?.enabled === undefined
-        ? prior?.enabled ?? prior?.extras?.enabled !== "false"
-        : payload.extras.enabled !== "false",
-    extras: {
-      ...(prior?.extras ?? {}),
-      ...(payload.extras ?? {}),
-      enabled: payload.extras?.enabled ?? prior?.extras?.enabled ?? "true",
-      ...(payload.label ? { name: payload.label } : {}),
-    },
-    created_at: prior?.created_at ?? now,
-    updated_at: now,
-  };
-  writeLocalCloudCredentials([
-    next,
-    ...existing.filter((credential) => credential.service !== payload.service),
-  ]);
-  return { saved: true, local: true };
-}
-
-export const listCloudCredentials = async (): Promise<{ credentials: CloudCredentialRow[]; count: number }> => {
-  try {
-    return await api.get<{ credentials: CloudCredentialRow[]; count: number }>("/api/cloud/credentials");
-  } catch (err) {
-    if (shouldTryTauriCommands()) {
-      try {
-        const native = await invokeLocal<{ credentials: CloudCredentialRow[]; count: number }>(
-          "list_local_cloud_credentials",
-          undefined,
-          isTauriDevOrigin(),
-        );
-        const local = readLocalCloudCredentials();
-        const byService = new Map<string, CloudCredentialRow>();
-        for (const credential of local) byService.set(credential.service, credential);
-        for (const credential of native.credentials ?? []) byService.set(credential.service, credential);
-        const credentials = [...byService.values()];
-        return { credentials, count: credentials.length };
-      } catch {
-        const credentials = readLocalCloudCredentials();
-        return { credentials, count: credentials.length };
-      }
-    }
-    throw err;
-  }
+export const listCloudCredentials = async (): Promise<CloudCredentialListResponse> => {
+  return api.get<CloudCredentialListResponse>("/api/cloud/credentials");
 };
 
 export const upsertCloudCredential = async (payload: CloudCredentialUpsert) => {
-  try {
-    const out = await api.post<unknown>("/api/cloud/credentials", payload);
-    if (shouldTryTauriCommands()) upsertLocalCloudCredential(payload);
-    return out;
-  } catch (err) {
-    if (shouldTryTauriCommands()) return upsertLocalCloudCredential(payload);
-    throw err;
-  }
+  return api.post<unknown>("/api/cloud/credentials", payload);
+};
+
+export const setCloudCredentialDefault = async (service: string | null) => {
+  return api.post<{ ok?: boolean; default_service?: string | null; error?: string }>(
+    "/api/tools/cloud.credentials.set_default",
+    { service },
+  );
 };
 
 export interface LocalApiKeyInstallResult {
@@ -445,11 +379,10 @@ export interface LocalApiKeyInstallResult {
 }
 
 export const installLocalApiKeyEnv = (env_var: string, api_key: string) =>
-  invokeLocal<LocalApiKeyInstallResult>(
-    "install_local_api_key_env",
-    { envVar: env_var, apiKey: api_key },
-    isTauriDevOrigin(),
-  );
+  api.post<LocalApiKeyInstallResult>("/api/tools/cloud.credentials.install_local_api_key_env", {
+    env_var,
+    api_key,
+  });
 
 // ─── Webhooks ────────────────────────────────────────────────────
 
@@ -704,7 +637,8 @@ interface OpenAIModelsResponse {
 }
 
 const LOCAL_PROVIDER_PROXY: Record<"ollama" | "lmstudio", string> = {
-  // The vite proxy forwards these prefixes to the local provider port.
+  // The Ordo runtime and Vite dev server both forward these prefixes to the
+  // local provider port.
   // Both speak the OpenAI /v1/models shape.
   ollama: "/proxy/ollama",
   lmstudio: "/proxy/lmstudio",
@@ -731,9 +665,6 @@ export function isEmbeddingModel(name: string): boolean {
 export async function detectLocalLlm(
   provider: "ollama" | "lmstudio",
 ): Promise<LocalLlmDiscovery> {
-  if (canUseTauriCommands()) {
-    return invokeLocal<LocalLlmDiscovery>("detect_local_llm", { provider });
-  }
   const proxy = LOCAL_PROVIDER_PROXY[provider];
   const base_url = LOCAL_PROVIDER_BASE_URL[provider];
   try {
@@ -744,12 +675,24 @@ export async function detectLocalLlm(
       signal: AbortSignal.timeout(2500),
     });
     if (!res.ok) {
+      let error = `${provider}: HTTP ${res.status}`;
+      try {
+        const body = await res.json();
+        if (body && typeof body === "object" && "error" in body) {
+          const detail = (body as { error?: unknown }).error;
+          if (typeof detail === "string" && detail.trim()) {
+            error = detail;
+          }
+        }
+      } catch {
+        // Keep the HTTP status fallback when the proxy did not return JSON.
+      }
       return {
         provider,
         base_url,
         reachable: false,
         models: [],
-        error: `${provider}: HTTP ${res.status}`,
+        error,
       };
     }
     const body: OpenAIModelsResponse = await res.json();
@@ -785,19 +728,7 @@ export function pickChatModel(models: string[]): string | null {
 }
 
 export const deleteCloudCredential = async (service: string) => {
-  try {
-    const out = await api.delete<unknown>("/api/cloud/credentials", { service });
-    if (shouldTryTauriCommands()) {
-      writeLocalCloudCredentials(readLocalCloudCredentials().filter((credential) => credential.service !== service));
-    }
-    return out;
-  } catch (err) {
-    if (shouldTryTauriCommands()) {
-      writeLocalCloudCredentials(readLocalCloudCredentials().filter((credential) => credential.service !== service));
-      return { deleted: true, local: true };
-    }
-    throw err;
-  }
+  return api.delete<unknown>("/api/cloud/credentials", { service });
 };
 
 // ─── Plugins ────────────────────────────────────────────────────
@@ -852,24 +783,16 @@ export const listPlugins = async () => {
 };
 
 export const installPlugin = (manifest: PluginManifestDraft) =>
-  canUseTauriCommands()
-    ? invokeLocal<PluginStatus>("install_local_plugin", { manifest })
-    : api.post<PluginStatus>("/api/plugins", manifest);
+  api.post<PluginStatus>("/api/plugins", manifest);
 
 export const updatePlugin = (name: string, manifest: PluginManifestDraft) =>
-  canUseTauriCommands()
-    ? invokeLocal<PluginStatus>("update_local_plugin", { name, manifest })
-    : api.put<PluginStatus>(`/api/plugins/${encodeURIComponent(name)}`, manifest);
+  api.put<PluginStatus>(`/api/plugins/${encodeURIComponent(name)}`, manifest);
 
 export const setPluginEnabled = (name: string, enabled: boolean) =>
-  canUseTauriCommands()
-    ? invokeLocal<PluginStatus>("set_local_plugin_enabled", { name, enabled })
-    : api.patch<PluginStatus>(`/api/plugins/${encodeURIComponent(name)}`, { enabled });
+  api.patch<PluginStatus>(`/api/plugins/${encodeURIComponent(name)}`, { enabled });
 
 export const deletePlugin = (name: string) =>
-  canUseTauriCommands()
-    ? invokeLocal<{ deleted: boolean; name: string }>("delete_local_plugin", { name })
-    : api.delete<{ deleted: boolean; name: string }>(`/api/plugins/${encodeURIComponent(name)}`);
+  api.delete<{ deleted: boolean; name: string }>(`/api/plugins/${encodeURIComponent(name)}`);
 
 export interface InstalledSkillFile {
   id: string;
@@ -878,19 +801,13 @@ export interface InstalledSkillFile {
 }
 
 export const getInstalledSkill = (id: string) =>
-  canUseTauriCommands()
-    ? invokeLocal<InstalledSkillFile>("get_local_skill", { id })
-    : api.get<InstalledSkillFile>(`/api/skills/${encodeURIComponent(id)}`);
+  api.get<InstalledSkillFile>(`/api/skills/${encodeURIComponent(id)}`);
 
 export const updateInstalledSkill = (id: string, content: string) =>
-  canUseTauriCommands()
-    ? invokeLocal<{ id: string; updated: boolean; path: string }>("update_local_skill", { id, content })
-    : api.put<{ id: string; updated: boolean; path: string }>(`/api/skills/${encodeURIComponent(id)}`, { content });
+  api.put<{ id: string; updated: boolean; path: string }>(`/api/skills/${encodeURIComponent(id)}`, { content });
 
 export const deleteInstalledSkill = (id: string) =>
-  canUseTauriCommands()
-    ? invokeLocal<{ deleted: boolean; id: string }>("delete_local_skill", { id })
-    : api.delete<{ deleted: boolean; id: string }>(`/api/skills/${encodeURIComponent(id)}`);
+  api.delete<{ deleted: boolean; id: string }>(`/api/skills/${encodeURIComponent(id)}`);
 
 // ─── MCP servers ────────────────────────────────────────────────
 
@@ -936,10 +853,41 @@ export const uninstallMcpServer = (server_id: string) =>
 
 export interface ConnectionType {
   id: string;
-  label: string;
+  label?: string;
+  display_name?: string;
   description?: string;
+  icon?: string;
+  category?: string;
   service?: string;
-  fields?: Array<{ key: string; label: string; required?: boolean; secret?: boolean }>;
+  fields?: Array<{
+    key?: string;
+    name?: string;
+    label: string;
+    field_type?: string;
+    required?: boolean;
+    secret?: boolean;
+    placeholder?: string;
+    help?: string;
+  }>;
+  requires_secret?: boolean;
+  secret_label?: string;
+  secret_placeholder?: string;
+  secret_help?: string;
+  has_test?: boolean;
+}
+
+export interface ConnectionRow {
+  id: string;
+  workspace_id: string;
+  type_id: string;
+  friendly_name: string;
+  fields: Record<string, unknown>;
+  vault_secret_id?: string | null;
+  status: "untested" | "ok" | "error" | string;
+  status_detail?: string | null;
+  last_test_at_ms?: number | null;
+  created_at_ms: number;
+  updated_at_ms: number;
 }
 
 export const listConnectionTypes = () =>
@@ -949,6 +897,28 @@ export const listConnectionTypes = () =>
     () => api.get<{ types: ConnectionType[] }>("/api/connections/types"),
     () => ({ types: [] }),
   );
+
+export const listConnections = () =>
+  api.get<{ count: number; connections: ConnectionRow[] }>("/api/connections");
+
+export const createConnection = (payload: {
+  type_id: string;
+  friendly_name: string;
+  fields: Record<string, unknown>;
+  secret?: string;
+}) => api.post<ConnectionRow>("/api/connections", payload);
+
+export const updateConnection = (
+  id: string,
+  payload: {
+    friendly_name: string;
+    fields: Record<string, unknown>;
+    secret?: string;
+  },
+) => api.patch<ConnectionRow>(`/api/connections/${encodeURIComponent(id)}`, payload);
+
+export const deleteConnectionRow = (id: string) =>
+  api.delete<{ deleted: string }>(`/api/connections/${encodeURIComponent(id)}`);
 
 export const testConnection = (id: string, payload?: Record<string, unknown>) =>
   api.post<unknown>(`/api/connections/${encodeURIComponent(id)}/test`, payload ?? {});
@@ -1105,9 +1075,7 @@ export interface SelfHealCase {
 }
 
 export const listSelfHealCases = (limit = 50) =>
-  canUseTauriCommands()
-    ? invokeLocal<unknown>("list_local_self_heal_cases", { limit })
-    : api.post<unknown>("/api/tools/self_heal.list_cases", { limit });
+  api.post<unknown>("/api/tools/self_heal.list_cases", { limit });
 
 export const replaySelfHealCase = (id: string) =>
   api.post<unknown>("/api/self-heal/cases/replay", { id });
@@ -1210,8 +1178,8 @@ export const listAssistantSessions = (limit = 50) =>
   );
 
 // Open a WebSocket to the per-session event stream. Caller wires the
-// onEvent callback. The URL is relative so the vite proxy / Tauri
-// origin handles forwarding.
+// onEvent callback. The URL is relative so Vite dev and the Servo-served
+// runtime origin handle forwarding the same way.
 export interface TurnStreamHandle {
   close: () => void;
 }
@@ -1695,10 +1663,6 @@ function flattenFacts(payload: unknown): AssistantFact[] {
 export const listAssistantFacts = async (
   subject?: string,
 ): Promise<AssistantFact[]> => {
-  if (canUseTauriCommands()) {
-    const out = await invokeLocal<unknown>("list_local_assistant_facts", { subject: subject ?? null });
-    return flattenFacts(out);
-  }
   const out = await api.post<unknown>(
     "/api/tools/assistant.list_facts",
     subject ? { subject, limit: 200 } : { limit: 200 },
@@ -1781,18 +1745,14 @@ export interface FindBinaryResponse {
   candidates: string[];
 }
 export const findBinary = (name: string) =>
-  canUseTauriCommands()
-    ? invokeLocal<FindBinaryResponse>("find_local_binary", { name })
-    : api.get<FindBinaryResponse>(
-        `/api/system/find_binary?name=${encodeURIComponent(name)}`,
-      );
+  api.get<FindBinaryResponse>(
+    `/api/system/find_binary?name=${encodeURIComponent(name)}`,
+  );
 
 // ─── Health ───────────────────────────────────────────────────────
 
 export const fetchHealth = () =>
-  canUseTauriCommands()
-    ? invokeLocal<{ status: string }>("get_local_health")
-    : api.get<{ status: string }>("/health");
+  api.get<{ status: string }>("/health");
 
 // ─── Voice-to-text (dictation) ────────────────────────────────────
 
@@ -1815,18 +1775,10 @@ export const transcribeAudio = (
 // ─── Avatar pop-out ───────────────────────────────────────────────
 
 /**
- * Open the avatar in its own resizable pop-out window — the intended
- * use is dragging it onto a spare monitor. Inside the Tauri desktop
- * shell this spawns a native OS window via the WebviewWindow API; in a
- * plain browser it falls back to `window.open`. Either way the window
- * loads the avatar page served by the control API, so the page's
- * relative `/sse/avatar` + `/api/avatar/speak` calls stay same-origin.
- *
- * The runtime only emits avatar frames when started with
- * `ORDO_ENABLE_AVATAR=1`; without it the window renders the idle face
- * and the Speak box still drives the lip-sync stub once enabled.
- */
-/** Absolute URL of the avatar page served by the control API. Use this
+ * Open the avatar in its own resizable pop-out window. Servo loads the avatar
+ * page from the control API, so `/sse/avatar` and `/api/avatar/speak` stay
+ * same-origin with the runtime.
+ *//** Absolute URL of the avatar page served by the control API. Use this
  *  for an inline `<iframe>` preview or to open the pop-out window. */
 export function avatarPageUrl(): string {
   return `${CONTROL_API_ORIGIN}/avatar.html`;
@@ -1834,29 +1786,8 @@ export function avatarPageUrl(): string {
 
 export async function openAvatarPopout(): Promise<void> {
   const url = avatarPageUrl();
-  let tauriErr: unknown = null;
-  // In the desktop shell, open the avatar in the SYSTEM BROWSER via a Rust
-  // command. The embedded WebView2 denies microphone access (no host-side
-  // permission handler), so a real browser is the reliable surface for the
-  // voice avatar — and it opens dependably, unlike a native WebviewWindow.
-  if (canUseTauriCommands()) {
-    try {
-      await invokeLocal<void>("open_external_url", { url });
-      return;
-    } catch (err) {
-      tauriErr = err;
-      console.warn("[avatar] open_external_url failed; trying window.open:", err);
-    }
-  }
-  // Plain-browser context (and the dev origin): open a spare window directly.
   const opened = window.open(url, "ordo-avatar", "popup,width=380,height=560,resizable=yes");
   if (!opened) {
-    throw new Error(
-      "Couldn't open the avatar window. " +
-        (tauriErr
-          ? `Shell error: ${tauriErr instanceof Error ? tauriErr.message : String(tauriErr)}. `
-          : "") +
-        `Open ${url} directly in a browser as a workaround.`,
-    );
+    throw new Error(`Couldn't open the avatar window. Open ${url} directly in a browser as a workaround.`);
   }
 }

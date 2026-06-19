@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use std::path::PathBuf;
+use std::path::{Path as FsPath, PathBuf};
 
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    body::Body,
+    extract::{OriginalUri, Path, Query, State},
+    http::{header, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -33,6 +34,8 @@ use tokio::sync::Mutex as AsyncMutex;
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 const DASHBOARD_HTML: &str = include_str!("dashboard.html");
+const STUDIO_DIST_DIR: &str = "ordo-studio/dist";
+const STUDIO_INDEX: &str = "index.html";
 
 // Avatar pop-out window assets, embedded so the runtime can serve the
 // page + sprite atlas itself (same origin as `/sse/avatar`, so the
@@ -437,7 +440,9 @@ pub fn build_router_with_plugins(
     };
 
     Router::new()
-        .route("/", get(dashboard))
+        .route("/", get(studio_index_or_dashboard))
+        .route("/index.html", get(studio_index_or_dashboard))
+        .route("/dashboard", get(dashboard))
         .route("/health", get(health))
         .route("/metrics", get(metrics_endpoint))
         .route("/api/capabilities", get(list_capabilities))
@@ -498,6 +503,11 @@ pub fn build_router_with_plugins(
             "/api/automations/:id/disable",
             post(disable_automation_route),
         )
+        .route(
+            "/api/agent-teams",
+            get(list_agent_teams_route).put(save_agent_teams_route),
+        )
+        .route("/api/agent-teams/active", post(set_active_agent_team_route))
         .route("/api/tools/:capability", post(invoke_tool_by_name))
         .route("/api/plugins", get(list_plugins))
         .route(
@@ -694,6 +704,9 @@ pub fn build_router_with_plugins(
                 .delete(delete_connection_route),
         )
         .route("/api/connections/:id/test", post(test_connection_route))
+        .route("/proxy/ollama/*path", get(proxy_ollama_route))
+        .route("/proxy/lmstudio/*path", get(proxy_lmstudio_route))
+        .fallback(get(studio_asset_fallback))
         .with_state(state)
 }
 
@@ -791,6 +804,196 @@ pub async fn run_control_api_with_plugins(
 async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
+fn studio_dist_dir() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("ORDO_STUDIO_DIST") {
+        let candidate = PathBuf::from(path);
+        if candidate.join(STUDIO_INDEX).is_file() {
+            return Some(candidate);
+        }
+    }
+
+    let cwd_candidate = std::env::current_dir().ok()?.join(STUDIO_DIST_DIR);
+    if cwd_candidate.join(STUDIO_INDEX).is_file() {
+        return Some(cwd_candidate);
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let exe_candidate = exe_dir.join(STUDIO_DIST_DIR);
+            if exe_candidate.join(STUDIO_INDEX).is_file() {
+                return Some(exe_candidate);
+            }
+        }
+    }
+
+    let manifest_candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(STUDIO_DIST_DIR);
+    if manifest_candidate.join(STUDIO_INDEX).is_file() {
+        return Some(manifest_candidate);
+    }
+
+    None
+}
+
+fn studio_content_type(path: &FsPath) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "html" => "text/html; charset=utf-8",
+        "js" | "mjs" => "application/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "wasm" => "application/wasm",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        _ => "application/octet-stream",
+    }
+}
+
+fn static_path_is_reserved(path: &str) -> bool {
+    path == "/dashboard"
+        || path == "/metrics"
+        || path == "/health"
+        || path.starts_with("/api")
+        || path.starts_with("/ws")
+        || path.starts_with("/sse")
+        || path.starts_with("/avatar")
+        || path.starts_with("/proxy")
+}
+
+fn safe_studio_candidate(root: &FsPath, request_path: &str) -> Option<PathBuf> {
+    let relative = request_path.trim_start_matches('/');
+    if relative.is_empty() || relative == STUDIO_INDEX {
+        return Some(root.join(STUDIO_INDEX));
+    }
+
+    let relative_path = FsPath::new(relative);
+    if relative_path.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::ParentDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+
+    Some(root.join(relative_path))
+}
+
+fn plain_not_found() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        "not found",
+    )
+        .into_response()
+}
+
+async fn serve_studio_path(path: PathBuf) -> Response {
+    let content_type = studio_content_type(&path);
+    match tokio::fs::read(path).await {
+        Ok(bytes) => {
+            let mut response = Response::new(Body::from(bytes));
+            let headers = response.headers_mut();
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+            headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            response
+        }
+        Err(_) => plain_not_found(),
+    }
+}
+
+async fn serve_studio_request(request_path: &str) -> Response {
+    let Some(root) = studio_dist_dir() else {
+        return plain_not_found();
+    };
+
+    let Some(candidate) = safe_studio_candidate(&root, request_path) else {
+        return plain_not_found();
+    };
+
+    if candidate.is_file() {
+        return serve_studio_path(candidate).await;
+    }
+
+    if request_path.starts_with("/assets/") || FsPath::new(request_path).extension().is_some() {
+        return plain_not_found();
+    }
+
+    serve_studio_path(root.join(STUDIO_INDEX)).await
+}
+
+async fn studio_index_or_dashboard() -> Response {
+    if studio_dist_dir().is_some() {
+        serve_studio_request("/index.html").await
+    } else {
+        dashboard().await.into_response()
+    }
+}
+
+async fn studio_asset_fallback(OriginalUri(uri): OriginalUri) -> Response {
+    let path = uri.path();
+    if static_path_is_reserved(path) {
+        return plain_not_found();
+    }
+
+    serve_studio_request(path).await
+}
+
+async fn proxy_ollama_route(Path(path): Path<String>) -> Result<Response, ControlApiError> {
+    proxy_local_provider("http://127.0.0.1:11434", path).await
+}
+
+async fn proxy_lmstudio_route(Path(path): Path<String>) -> Result<Response, ControlApiError> {
+    proxy_local_provider("http://127.0.0.1:1234", path).await
+}
+
+async fn proxy_local_provider(base: &str, path: String) -> Result<Response, ControlApiError> {
+    if path.split('/').any(|segment| segment == "..") {
+        return Err(ControlApiError::bad_request("invalid proxy path"));
+    }
+
+    let url = format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    );
+    let upstream = reqwest::Client::new()
+        .get(url)
+        .send()
+        .await
+        .map_err(|err| {
+            ControlApiError::bad_request(format!("local provider unreachable: {err}"))
+        })?;
+    let status =
+        StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let content_type = upstream.headers().get(header::CONTENT_TYPE).cloned();
+    let bytes = upstream
+        .bytes()
+        .await
+        .map_err(|err| ControlApiError::internal(format!("local provider read failed: {err}")))?;
+
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+    if let Some(content_type) = content_type {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_TYPE, content_type);
+    }
+    Ok(response)
+}
 
 fn map_automation_error(err: AutomationError) -> ControlApiError {
     match err {
@@ -854,6 +1057,175 @@ fn automation_path_from_plugins(plugins_path: &Option<PathBuf>) -> Option<PathBu
     let plugins_path = plugins_path.as_ref()?;
     let user_files = plugins_path.parent()?;
     Some(user_files.join("automations.json"))
+}
+
+fn agent_teams_path_from_plugins(plugins_path: &Option<PathBuf>) -> Option<PathBuf> {
+    let plugins_path = plugins_path.as_ref()?;
+    let user_files = plugins_path.parent()?;
+    Some(user_files.join("agent-teams.json"))
+}
+
+fn empty_agent_teams_state() -> Value {
+    json!({
+        "teams": [],
+        "active_team_id": ""
+    })
+}
+
+fn normalize_agent_teams_state(state: Value) -> Result<Value, ControlApiError> {
+    let teams = state
+        .get("teams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    for team in &teams {
+        let id = team
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| {
+                ControlApiError::bad_request("each Agent Team requires a non-empty id")
+            })?;
+        if !seen.insert(id.to_string()) {
+            return Err(ControlApiError::bad_request(format!(
+                "duplicate Agent Team id '{id}'"
+            )));
+        }
+        if team
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            return Err(ControlApiError::bad_request(format!(
+                "Agent Team '{id}' requires a non-empty name"
+            )));
+        }
+        if !team
+            .get("members")
+            .and_then(Value::as_array)
+            .map(|members| !members.is_empty())
+            .unwrap_or(false)
+        {
+            return Err(ControlApiError::bad_request(format!(
+                "Agent Team '{id}' requires at least one member"
+            )));
+        }
+    }
+    let requested_active = state
+        .get("active_team_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let active_team_id = if requested_active.is_empty()
+        || teams.iter().any(|team| {
+            team.get("id")
+                .and_then(Value::as_str)
+                .map(|id| id == requested_active)
+                .unwrap_or(false)
+        }) {
+        requested_active
+    } else {
+        ""
+    };
+    Ok(json!({
+        "teams": teams,
+        "active_team_id": active_team_id
+    }))
+}
+
+fn load_agent_teams_state(path: &FsPath) -> Result<Value, ControlApiError> {
+    if !path.exists() {
+        return Ok(empty_agent_teams_state());
+    }
+    let raw =
+        std::fs::read_to_string(path).map_err(|err| ControlApiError::internal(err.to_string()))?;
+    let state: Value =
+        serde_json::from_str(&raw).map_err(|err| ControlApiError::internal(err.to_string()))?;
+    normalize_agent_teams_state(state)
+}
+
+fn write_agent_teams_state(path: &FsPath, state: &Value) -> Result<(), ControlApiError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| ControlApiError::internal(err.to_string()))?;
+    }
+    let encoded = serde_json::to_vec_pretty(state)
+        .map_err(|err| ControlApiError::internal(err.to_string()))?;
+    ordo_store::atomic_write(path, encoded)
+        .map_err(|err| ControlApiError::internal(err.to_string()))
+}
+
+fn agent_teams_path(state: &ControlApiState) -> Result<PathBuf, ControlApiError> {
+    agent_teams_path_from_plugins(&state.plugins_path)
+        .ok_or_else(|| ControlApiError::internal("agent teams path not configured"))
+}
+
+async fn list_agent_teams_route(
+    State(state): State<ControlApiState>,
+) -> Result<Json<Value>, ControlApiError> {
+    let path = agent_teams_path(&state)?;
+    let snapshot = load_agent_teams_state(&path)?;
+    Ok(Json(json!({
+        "teams": snapshot.get("teams").cloned().unwrap_or_else(|| json!([])),
+        "active_team_id": snapshot.get("active_team_id").and_then(Value::as_str).unwrap_or(""),
+        "path": path.display().to_string(),
+    })))
+}
+
+async fn save_agent_teams_route(
+    State(state): State<ControlApiState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ControlApiError> {
+    let path = agent_teams_path(&state)?;
+    let snapshot = normalize_agent_teams_state(body)?;
+    write_agent_teams_state(&path, &snapshot)?;
+    Ok(Json(json!({
+        "teams": snapshot.get("teams").cloned().unwrap_or_else(|| json!([])),
+        "active_team_id": snapshot.get("active_team_id").and_then(Value::as_str).unwrap_or(""),
+        "path": path.display().to_string(),
+    })))
+}
+
+async fn set_active_agent_team_route(
+    State(state): State<ControlApiState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ControlApiError> {
+    let path = agent_teams_path(&state)?;
+    let current = load_agent_teams_state(&path)?;
+    let team_id = body
+        .get("team_id")
+        .or_else(|| body.get("active_team_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let teams = current
+        .get("teams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !team_id.is_empty()
+        && !teams
+            .iter()
+            .any(|team| team.get("id").and_then(Value::as_str) == Some(team_id))
+    {
+        return Err(ControlApiError::not_found(format!(
+            "Agent Team '{team_id}' not found"
+        )));
+    }
+    let snapshot = normalize_agent_teams_state(json!({
+        "teams": teams,
+        "active_team_id": team_id,
+    }))?;
+    write_agent_teams_state(&path, &snapshot)?;
+    Ok(Json(json!({
+        "teams": snapshot.get("teams").cloned().unwrap_or_else(|| json!([])),
+        "active_team_id": snapshot.get("active_team_id").and_then(Value::as_str).unwrap_or(""),
+        "path": path.display().to_string(),
+    })))
 }
 
 fn persist_automations(state: &ControlApiState) -> Result<(), ControlApiError> {
@@ -3957,8 +4329,9 @@ mod tests {
                 title: "Research Domain".to_string(),
                 tags: vec!["docs".to_string(), "research".to_string()],
                 collection: "research".to_string(),
-                content: "Research metadata includes source titles, descriptions, slugs, and search intent."
-                    .to_string(),
+                content:
+                    "Research notes track cited sources, evidence summaries, and review decisions."
+                        .to_string(),
             })
             .expect("seed research rag document");
         let mut rag = RagPeer::with_store(bus.clone(), rag_store);
@@ -4027,8 +4400,9 @@ mod tests {
                 title: "Research Domain".to_string(),
                 tags: vec!["docs".to_string(), "research".to_string()],
                 collection: "research".to_string(),
-                content: "Research metadata includes source titles, descriptions, slugs, and keyword intent."
-                    .to_string(),
+                content:
+                    "Research notes track cited sources, evidence summaries, and review decisions."
+                        .to_string(),
             })
             .expect("seed research rag document");
         let mut rag = RagPeer::with_store(bus.clone(), rag_store);
@@ -4042,7 +4416,7 @@ mod tests {
         let inferred_response = app
             .clone()
             .oneshot(
-                Request::get("/api/rag/preview?query=research%20metadata%20slug")
+                Request::get("/api/rag/preview?query=research%20evidence%20sources")
                     .body(axum::body::Body::empty())
                     .expect("rag preview inferred request"),
             )
@@ -4072,7 +4446,7 @@ mod tests {
         let manual_response = app
             .oneshot(
                 Request::get(
-                    "/api/rag/preview?query=research%20metadata%20slug&collections=research",
+                    "/api/rag/preview?query=research%20evidence%20sources&collections=research",
                 )
                 .body(axum::body::Body::empty())
                 .expect("rag preview manual request"),
@@ -4600,7 +4974,7 @@ mod tests {
         let app = build_router(bus);
         let response = app
             .oneshot(
-                Request::get("/")
+                Request::get("/dashboard")
                     .body(axum::body::Body::empty())
                     .expect("dashboard request"),
             )
@@ -4612,6 +4986,22 @@ mod tests {
             .expect("dashboard body");
         let html = String::from_utf8(body.to_vec()).expect("dashboard utf8");
         assert!(html.contains("Ordo Control"));
+    }
+
+    #[test]
+    fn studio_content_type_maps_module_assets() {
+        assert_eq!(
+            super::studio_content_type(std::path::Path::new("assets/app.js")),
+            "application/javascript; charset=utf-8"
+        );
+        assert_eq!(
+            super::studio_content_type(std::path::Path::new("assets/app.css")),
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(
+            super::studio_content_type(std::path::Path::new("index.html")),
+            "text/html; charset=utf-8"
+        );
     }
 
     #[tokio::test]

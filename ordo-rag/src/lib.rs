@@ -1034,46 +1034,45 @@ mod tests {
         let mut store = RagStore::in_memory();
         store
             .upsert_document(&RagDocument {
-                document_id: "workflow-brief".to_string(),
-                uri: "docs/domains/workflow.md".to_string(),
-                title: "Workflow".to_string(),
-                tags: vec!["docs".to_string(), "workflow".to_string()],
-                collection: "workflow".to_string(),
-                content: "Workflow briefs define campaign intent, audience, and deliverables."
+                document_id: "ops-runbook".to_string(),
+                uri: "docs/domains/operations.md".to_string(),
+                title: "Operations".to_string(),
+                tags: vec!["docs".to_string(), "operations".to_string()],
+                collection: "operations".to_string(),
+                content: "Operations runbooks cover restarts, logs, and local runtime checks."
                     .to_string(),
             })
-            .expect("index workflow doc");
+            .expect("index operations doc");
         store
             .upsert_document(&RagDocument {
-                document_id: "seo-plan".to_string(),
-                uri: "docs/domains/seo.md".to_string(),
-                title: "SEO".to_string(),
-                tags: vec!["docs".to_string(), "seo".to_string()],
-                collection: "seo".to_string(),
-                content: "SEO metadata includes titles, descriptions, slugs, and search intent."
+                document_id: "research-plan".to_string(),
+                uri: "docs/domains/research.md".to_string(),
+                title: "Research".to_string(),
+                tags: vec!["docs".to_string(), "research".to_string()],
+                collection: "research".to_string(),
+                content: "Research notes track citations, source quality, and evidence review."
                     .to_string(),
             })
-            .expect("index seo doc");
+            .expect("index research doc");
 
-        let workflow_hits = store.search_in_collections(
-            "titles descriptions search intent",
+        let operations_hits = store.search_in_collections(
+            "citations evidence source review",
             5,
-            &["workflow".to_string()],
+            &["operations".to_string()],
         );
-        assert!(workflow_hits
+        assert!(operations_hits
             .iter()
-            .all(|hit| hit.collection == "workflow" && hit.document_id != "seo-plan"));
+            .all(|hit| hit.collection == "operations" && hit.document_id != "research-plan"));
 
-        let seo_hits = store.search_in_collections(
-            "titles descriptions search intent",
+        let research_hits = store.search_in_collections(
+            "citations evidence source review",
             5,
-            &["seo".to_string()],
+            &["research".to_string()],
         );
-        assert_eq!(seo_hits.len(), 1);
-        assert_eq!(seo_hits[0].document_id, "seo-plan");
-        assert_eq!(seo_hits[0].collection, "seo");
+        assert_eq!(research_hits.len(), 1);
+        assert_eq!(research_hits[0].document_id, "research-plan");
+        assert_eq!(research_hits[0].collection, "research");
     }
-
     #[test]
     fn store_reports_collection_summaries() {
         let mut store = RagStore::in_memory();
@@ -1089,25 +1088,23 @@ mod tests {
             .expect("index main document");
         store
             .upsert_document(&RagDocument {
-                document_id: "seo-domain".to_string(),
-                uri: "docs/domains/seo.md".to_string(),
-                title: "SEO Domain".to_string(),
-                tags: vec!["docs".to_string(), "seo".to_string()],
-                collection: "seo".to_string(),
-                content: "SEO metadata includes slugs and descriptions.".to_string(),
+                document_id: "research-domain".to_string(),
+                uri: "docs/domains/research.md".to_string(),
+                title: "Research Domain".to_string(),
+                tags: vec!["docs".to_string(), "research".to_string()],
+                collection: "research".to_string(),
+                content: "Research notes track citations and evidence review.".to_string(),
             })
-            .expect("index seo document");
+            .expect("index research document");
 
         let summaries = store.collection_summaries();
         assert_eq!(summaries.len(), 2);
         assert_eq!(summaries[0].name, "main");
         assert_eq!(summaries[0].document_count, 1);
-        assert_eq!(summaries[1].name, "seo");
-        // "seo" is not one of the built-in domain slots, so it's a Custom collection.
-        assert_eq!(summaries[1].label, "Custom");
+        assert_eq!(summaries[1].name, "research");
+        assert_eq!(summaries[1].label, "Research");
         assert_eq!(summaries[1].chunk_count, 1);
     }
-
     #[test]
     fn budget_prunes_oldest_documents() {
         let mut store = RagStore::in_memory_with_budget(RagStorageBudget { max_bytes: 1200 });

@@ -1,6 +1,15 @@
 ---
 name: ordo-build-blueprint
 description: "Step 2 of the Ordo build pipeline. Use this skill after the requirements record exists and BEFORE any crate is built. It produces the build blueprint: the crate list where each crate is one sealed responsibility, the FROZEN claw-protocol message contracts, the dependency DAG, and the topo-sorted build order. It also defines the only legal way to amend the blueprint later. Trigger it whenever the planner releases step 2, or whenever you are about to start writing Ordo crates without a frozen message schema and an ordered build plan. Do NOT begin coding crates here. Do NOT leave message types to be 'figured out per crate' — unfrozen contracts are the number-one cause of the tokio channel panics this pipeline exists to prevent."
+category:
+  - build
+  - pipeline
+  - coding
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo Build — Blueprint

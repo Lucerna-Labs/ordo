@@ -103,7 +103,8 @@ async fn run_serve() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     if let Some(bind_addr) = &runtime.config().control_api_bind {
         println!("[runtime] control API:  http://{bind_addr}");
-        println!("[runtime] dashboard:    http://{bind_addr}/");
+        println!("[runtime] studio:       http://{bind_addr}/");
+        println!("[runtime] dashboard:    http://{bind_addr}/dashboard");
         println!("[runtime] health check: http://{bind_addr}/health");
         println!("[runtime] capabilities: http://{bind_addr}/api/capabilities");
         println!("[runtime] credentials:  http://{bind_addr}/api/cloud/credentials");

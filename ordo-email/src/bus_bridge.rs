@@ -153,34 +153,36 @@ impl EmailBridge {
 
             use futures::StreamExt;
             while let Some(envelope) = stream.next().await {
-                if let OrdoMessage::EmailReplyRequested {
-                    email_id: _,
-                    to_address,
-                    subject,
-                    body_plain,
-                    body_html,
-                    in_reply_to_subject,
-                } = envelope.payload
-                {
-                    info!("ordo-email: sending reply to {to_address} — subject: {subject}");
+                match envelope.payload {
+                    OrdoMessage::EmailReplyRequested {
+                        email_id: _,
+                        to_address,
+                        subject,
+                        body_plain,
+                        body_html,
+                        in_reply_to_subject,
+                    } => {
+                        info!("ordo-email: sending reply to {to_address} — subject: {subject}");
 
-                    match smtp_sender::send_reply(
-                        &config,
-                        &to_address,
-                        &subject,
-                        &body_plain,
-                        body_html.as_deref(),
-                        in_reply_to_subject.as_deref(),
-                    )
-                    .await
-                    {
-                        Ok(()) => {
-                            info!("ordo-email: reply sent to {to_address}");
-                        }
-                        Err(e) => {
-                            error!("ordo-email: failed to send reply: {e}");
+                        match smtp_sender::send_reply(
+                            &config,
+                            &to_address,
+                            &subject,
+                            &body_plain,
+                            body_html.as_deref(),
+                            in_reply_to_subject.as_deref(),
+                        )
+                        .await
+                        {
+                            Ok(()) => {
+                                info!("ordo-email: reply sent to {to_address}");
+                            }
+                            Err(e) => {
+                                error!("ordo-email: failed to send reply: {e}");
+                            }
                         }
                     }
+                    _ => {}
                 }
             }
         }));

@@ -370,7 +370,9 @@ export const Field = ({
 );
 
 const baseInputStyle: CSSProperties = {
+  boxSizing: "border-box",
   width: "100%",
+  minHeight: 38,
   padding: "9px 12px",
   borderRadius: 6,
   background: C.inputBg,
@@ -378,6 +380,7 @@ const baseInputStyle: CSSProperties = {
   color: C.parchment,
   fontFamily: MONO,
   fontSize: 13,
+  lineHeight: 1.25,
   outline: "none",
 };
 

@@ -340,7 +340,7 @@ mod tests {
                 description: None,
             })],
             permissions: Permissions {
-                mcp_tools: vec!["workflow.*".into(), "filesystem.write_file".into()],
+                mcp_tools: vec!["automation.*".into(), "filesystem.write_file".into()],
                 subscribe_events: vec![],
             },
             core_override: true, // permits filesystem.write_file
@@ -361,8 +361,8 @@ mod tests {
     #[test]
     fn permits_tool_glob_and_literal() {
         let manifest = sample_manifest();
-        assert!(manifest.permits_tool("workflow.generate_copy"));
-        assert!(manifest.permits_tool("workflow.capture_brief"));
+        assert!(manifest.permits_tool("automation.list"));
+        assert!(manifest.permits_tool("automation.inspect"));
         assert!(manifest.permits_tool("filesystem.write_file"));
         assert!(!manifest.permits_tool("filesystem.read_file"));
         assert!(!manifest.permits_tool("cloud.openai.chat"));

@@ -66,6 +66,10 @@ into one overloaded API bucket.
   backed by the same bus and capability system as the rest of the runtime.
 - `ordo-control` now also serves a built-in dashboard so profile, storage, and
   memory-lane controls are usable without waiting for a separate frontend.
+- The desktop renderer direction has pivoted toward a Servo-backed
+  self-rendering shell while the current Tauri/WebView Studio remains the
+  compatibility host. See
+  `docs/plans/2026-06-17-servo-self-rendering-shell.md`.
 - `ordo-control` now also exposes self-heal history review, remembered-fix
   cleanup, and persisted local-model configuration through that same official
   operator surface.

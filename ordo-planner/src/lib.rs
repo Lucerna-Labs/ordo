@@ -368,18 +368,19 @@ mod tests {
     fn plans_read_goal_with_context_attaches_snippets() {
         let planner = RuleBasedPlanner;
         let context = vec![RagHit {
-            document_id: "brief".to_string(),
-            uri: "workflow/campaign-brief.md".to_string(),
-            title: "Campaign Brief".to_string(),
+            document_id: "runbook".to_string(),
+            uri: "operations/runtime-runbook.md".to_string(),
+            title: "Runtime Runbook".to_string(),
             chunk_index: 0,
             score: 1.2,
-            snippet: "The campaign covers SEO and CMS workflows for marketing operations."
-                .to_string(),
-            tags: vec!["workflow".to_string()],
+            snippet:
+                "The runbook covers runtime diagnostics and model routing for local operations."
+                    .to_string(),
+            tags: vec!["operations".to_string()],
             collection: "main".to_string(),
         }];
         let plan = planner
-            .plan(r#"read file "campaign-brief.md""#, &context)
+            .plan(r#"read file "runtime-runbook.md""#, &context)
             .expect("read plan with context");
         assert_eq!(plan.steps[0].capability, "filesystem.read_file");
         assert_eq!(

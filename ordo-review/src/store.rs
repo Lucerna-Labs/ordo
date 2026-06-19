@@ -231,7 +231,7 @@ mod tests {
         let mut store = ReviewStore::in_memory().expect("store");
         let request = store
             .insert(NewReviewRequest {
-                origin_capability: "workflow.generate_copy".into(),
+                origin_capability: "orchestration.draft_notes".into(),
                 origin_plugin: None,
                 title: "Spring Colorway draft".into(),
                 content_type: "text/markdown".into(),

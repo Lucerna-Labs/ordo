@@ -1,6 +1,15 @@
 ---
 name: rust-vibe-coder
 description: Rust-first coding workflow for Ordo-style projects. Use when the task involves Rust implementation, Cargo workspaces, Ordo runtime crates, warning cleanup, architecture tracing, coding automation, code review, dependency decisions, public release preparation, or any request to build, fix, refactor, test, or verify Rust code under Jesse's architecture and rules.
+category:
+  - coding
+  - rust
+  - architecture
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: high
+requires_tools: true
 ---
 
 # Rust Vibe Coder
@@ -38,7 +47,7 @@ designing the change:
 4. Treat warnings as work. Do not hide warnings, dismiss them as pre-existing, or declare success while checks emit warnings.
 5. Protect secrets and local data. Never copy keys, user files, target artifacts, logs, databases, or personal skills into public release output.
 6. Use approval gates for writes, dependency changes, commits, destructive shell actions, and any core runtime/security/hook boundary changes.
-7. For Ordo itself, no Rust patches. Do not do patch-style edits to `.rs` files. Trace the design, understand the module contract, and rebuild the affected module/file natively and coherently.
+7. For Ordo itself, Rust changes require explicit operator permission. Once approved, trace the design, understand the module contract, and rebuild the affected module/file natively and coherently.
 8. Document often. After each completed implementation step or milestone, leave a compact note with what changed, how it was verified, the next pointer, and any remaining risk.
 9. Never claim a project is complete until exhaustive testing has passed and the app has been launched for operator confirmation.
 10. For app-facing work, create or run automated human-like usage tests that exercise realistic user paths, not only unit tests.

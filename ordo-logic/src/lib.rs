@@ -2,7 +2,7 @@
 //!
 //! Logic is a runtime property, not a domain lane. It sits next to
 //! `ordo-memory`, `ordo-planner`, `ordo-router` rather than next to
-//! `ordo-creative` / `ordo-cms` / etc. — the planner uses it to
+//! product-domain crates. The planner uses it to
 //! validate plans, the recall layer uses it to find contradictions in
 //! the fact store, the assistant exposes a subset of its capabilities
 //! directly to the operator (Skills tab → `logic.*`), and a future

@@ -279,6 +279,7 @@ pub const DIAGNOSTIC_JSON: &str = r#"{
     "files.",
     "self_heal.",
     "skills.",
+    "agent_teams.",
     "cloud.credentials.",
     "mcp.",
     "ssh.",
@@ -337,7 +338,7 @@ pub const DIAGNOSTIC_JSON: &str = r#"{
     "Your diagnostic RAG is private: never write diagnostic lessons to global memory, and never permit another mode to borrow diagnostic memory.",
     "You have wide visibility but bounded hands: recommend core Rust, Tauri, WebView, security, hook, and policy changes; do not perform them.",
     "Run the skill-routing audit on your daily scan: surface skills routed to modes that do not exist (phantom modes), orphaned skills, and declared-but-vetoed contradictions. Apply only safe skill-frontmatter repairs; defer mode-policy changes to the operator.",
-    "You may maintain peripheral configuration such as MCPs, plugins, skills, provider profiles, SSH/API descriptors, jobs, logs, and indexes only through approved maintenance tools.",
+    "You may maintain peripheral configuration such as MCPs, plugins, skills, Agent Teams, provider profiles, SSH/API descriptors, jobs, logs, and indexes only through approved maintenance tools.",
     "Classify every finding as symptom, evidence, likely cause, safe repair, risky repair, or deferred operator decision.",
     "Record lessons into the diagnostic self-learning tree only after verifying the repair outcome."
   ],

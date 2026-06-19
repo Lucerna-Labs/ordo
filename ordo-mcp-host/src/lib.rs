@@ -86,6 +86,11 @@ pub const PLUGINS_DELETE: &str = "plugins.delete";
 pub const PLUGINS_SET_ENABLED: &str = "plugins.set_enabled";
 pub const AUTOMATION_LIST: &str = "automation.list";
 pub const AUTOMATION_INSPECT: &str = "automation.inspect";
+pub const AGENT_TEAMS_LIST: &str = "agent_teams.list";
+pub const AGENT_TEAMS_GET: &str = "agent_teams.get";
+pub const AGENT_TEAMS_UPSERT: &str = "agent_teams.upsert";
+pub const AGENT_TEAMS_DELETE: &str = "agent_teams.delete";
+pub const AGENT_TEAMS_SET_ACTIVE: &str = "agent_teams.set_active";
 pub const LOGS_SYSTEM_TAIL: &str = "logs.system_tail";
 
 const MAINTENANCE_CAPABILITIES: &[&str] = &[
@@ -101,6 +106,11 @@ const MAINTENANCE_CAPABILITIES: &[&str] = &[
     PLUGINS_SET_ENABLED,
     AUTOMATION_LIST,
     AUTOMATION_INSPECT,
+    AGENT_TEAMS_LIST,
+    AGENT_TEAMS_GET,
+    AGENT_TEAMS_UPSERT,
+    AGENT_TEAMS_DELETE,
+    AGENT_TEAMS_SET_ACTIVE,
     LOGS_SYSTEM_TAIL,
 ];
 
@@ -134,6 +144,10 @@ impl MaintenanceProvider {
 
     fn automations_path(&self) -> PathBuf {
         self.user_files_root.join("automations.json")
+    }
+
+    fn agent_teams_path(&self) -> PathBuf {
+        self.user_files_root.join("agent-teams.json")
     }
 }
 
@@ -201,6 +215,17 @@ impl CapabilityProvider for MaintenanceProvider {
             AUTOMATION_INSPECT => {
                 maintenance_inspect_automation(&self.automations_path(), arguments)
             }
+            AGENT_TEAMS_LIST => maintenance_agent_teams_list(&self.agent_teams_path()),
+            AGENT_TEAMS_GET => maintenance_agent_teams_get(&self.agent_teams_path(), arguments),
+            AGENT_TEAMS_UPSERT => {
+                maintenance_agent_teams_upsert(&self.agent_teams_path(), arguments)
+            }
+            AGENT_TEAMS_DELETE => {
+                maintenance_agent_teams_delete(&self.agent_teams_path(), arguments)
+            }
+            AGENT_TEAMS_SET_ACTIVE => {
+                maintenance_agent_teams_set_active(&self.agent_teams_path(), arguments)
+            }
             LOGS_SYSTEM_TAIL => maintenance_tail_system_logs(&self.user_files_root, arguments),
             _ => return None,
         };
@@ -225,6 +250,11 @@ fn maintenance_description(capability: &str) -> &'static str {
         PLUGINS_SET_ENABLED => "Enable or disable a local plugin manifest. Restart required to apply.",
         AUTOMATION_LIST => "List registered Ordo automations and their recent automation events.",
         AUTOMATION_INSPECT => "Inspect one registered Ordo automation by id without mutating it.",
+        AGENT_TEAMS_LIST => "List configured Agent Teams and the active team id from user-files/agent-teams.json.",
+        AGENT_TEAMS_GET => "Read one Agent Team by id.",
+        AGENT_TEAMS_UPSERT => "Create or update one Agent Team definition. Used by Tech Specialist after operator approval.",
+        AGENT_TEAMS_DELETE => "Delete one Agent Team by id. Used by Tech Specialist after operator approval.",
+        AGENT_TEAMS_SET_ACTIVE => "Set or clear the active Agent Team id.",
         LOGS_SYSTEM_TAIL => "Read a bounded tail of local Ordo runtime system logs for diagnostics.",
         _ => "Ordo maintenance capability.",
     }
@@ -479,10 +509,6 @@ fn system_log_candidates(root: &Path) -> Vec<(String, PathBuf)> {
             dirs.push(grandparent.to_path_buf());
         }
     }
-    if let Ok(current_dir) = std::env::current_dir() {
-        dirs.push(current_dir);
-    }
-
     let mut seen = std::collections::BTreeSet::new();
     let mut candidates = Vec::new();
     for dir in dirs {
@@ -581,7 +607,7 @@ fn maintenance_list_plugins(root: &Path) -> Result<Value, String> {
         let manifest: Value = serde_json::from_str(&raw).map_err(|err| err.to_string())?;
         plugins.push(json!({
             "name": manifest.get("name").and_then(Value::as_str).unwrap_or(""),
-            "enabled": manifest.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+            "enabled": manifest.get("enabled").and_then(Value::as_bool).unwrap_or(false),
             "manifest_path": manifest_path.display().to_string(),
         }));
     }
@@ -676,6 +702,208 @@ fn maintenance_set_plugin_enabled(root: &Path, arguments: &Value) -> Result<Valu
         "manifest_path": manifest_path.display().to_string(),
         "note": "restart runtime to apply plugin enabled state",
     }))
+}
+
+fn empty_agent_teams_state() -> Value {
+    json!({
+        "teams": [],
+        "active_team_id": ""
+    })
+}
+
+fn load_agent_teams_state(path: &Path) -> Result<Value, String> {
+    if !path.exists() {
+        return Ok(empty_agent_teams_state());
+    }
+    let raw = std::fs::read_to_string(path).map_err(|err| err.to_string())?;
+    let state: Value = serde_json::from_str(&raw).map_err(|err| err.to_string())?;
+    normalize_agent_teams_state(state)
+}
+
+fn write_agent_teams_state(path: &Path, state: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+    let encoded = serde_json::to_vec_pretty(state).map_err(|err| err.to_string())?;
+    ordo_store::atomic_write(path, &encoded).map_err(|err| err.to_string())
+}
+
+fn normalize_agent_teams_state(state: Value) -> Result<Value, String> {
+    let mut teams = state
+        .get("teams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    for team in &teams {
+        let id = team
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| "each Agent Team requires a non-empty id".to_string())?;
+        if !seen.insert(id.to_string()) {
+            return Err(format!("duplicate Agent Team id '{id}'"));
+        }
+        if team
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            return Err(format!("Agent Team '{id}' requires a non-empty name"));
+        }
+        if !team
+            .get("members")
+            .and_then(Value::as_array)
+            .map(|members| !members.is_empty())
+            .unwrap_or(false)
+        {
+            return Err(format!("Agent Team '{id}' requires at least one member"));
+        }
+    }
+    teams.sort_by(|a, b| {
+        a.get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .cmp(b.get("name").and_then(Value::as_str).unwrap_or(""))
+    });
+    let requested_active = state
+        .get("active_team_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let active_team_id = if requested_active.is_empty()
+        || teams.iter().any(|team| {
+            team.get("id")
+                .and_then(Value::as_str)
+                .map(|id| id == requested_active)
+                .unwrap_or(false)
+        }) {
+        requested_active
+    } else {
+        ""
+    };
+    Ok(json!({
+        "teams": teams,
+        "active_team_id": active_team_id
+    }))
+}
+
+fn maintenance_agent_teams_list(path: &Path) -> Result<Value, String> {
+    let state = load_agent_teams_state(path)?;
+    Ok(json!({
+        "path": path.display().to_string(),
+        "teams": state.get("teams").cloned().unwrap_or_else(|| json!([])),
+        "active_team_id": state.get("active_team_id").and_then(Value::as_str).unwrap_or(""),
+    }))
+}
+
+fn maintenance_agent_teams_get(path: &Path, arguments: &Value) -> Result<Value, String> {
+    let id = required_name(arguments, &["id", "team_id"])?;
+    let state = load_agent_teams_state(path)?;
+    let team = state
+        .get("teams")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|team| team.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        .cloned()
+        .ok_or_else(|| format!("Agent Team '{id}' not found"))?;
+    Ok(json!({ "team": team }))
+}
+
+fn maintenance_agent_teams_upsert(path: &Path, arguments: &Value) -> Result<Value, String> {
+    let team = arguments.get("team").unwrap_or(arguments).clone();
+    let team_id = team
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "agent_teams.upsert requires team.id".to_string())?
+        .to_string();
+    let state = load_agent_teams_state(path)?;
+    let mut teams = state
+        .get("teams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut updated = false;
+    for existing in &mut teams {
+        if existing.get("id").and_then(Value::as_str) == Some(team_id.as_str()) {
+            *existing = team.clone();
+            updated = true;
+            break;
+        }
+    }
+    if !updated {
+        teams.push(team);
+    }
+    let next = normalize_agent_teams_state(json!({
+        "teams": teams,
+        "active_team_id": state.get("active_team_id").and_then(Value::as_str).unwrap_or("")
+    }))?;
+    write_agent_teams_state(path, &next)?;
+    Ok(json!({
+        "team_id": team_id,
+        "created": !updated,
+        "path": path.display().to_string(),
+        "state": next
+    }))
+}
+
+fn maintenance_agent_teams_delete(path: &Path, arguments: &Value) -> Result<Value, String> {
+    let id = required_name(arguments, &["id", "team_id"])?;
+    let state = load_agent_teams_state(path)?;
+    let before = state
+        .get("teams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let teams = before
+        .iter()
+        .filter(|team| team.get("id").and_then(Value::as_str) != Some(id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let deleted = teams.len() != before.len();
+    let active = state
+        .get("active_team_id")
+        .and_then(Value::as_str)
+        .filter(|active| *active != id)
+        .unwrap_or("");
+    let next = normalize_agent_teams_state(json!({
+        "teams": teams,
+        "active_team_id": active
+    }))?;
+    write_agent_teams_state(path, &next)?;
+    Ok(json!({ "deleted": deleted, "team_id": id, "state": next }))
+}
+
+fn maintenance_agent_teams_set_active(path: &Path, arguments: &Value) -> Result<Value, String> {
+    let id = first_string(arguments, &["id", "team_id", "active_team_id"])
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let state = load_agent_teams_state(path)?;
+    let teams = state
+        .get("teams")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !id.is_empty()
+        && !teams
+            .iter()
+            .any(|team| team.get("id").and_then(Value::as_str) == Some(id.as_str()))
+    {
+        return Err(format!("Agent Team '{id}' not found"));
+    }
+    let next = normalize_agent_teams_state(json!({
+        "teams": teams,
+        "active_team_id": id
+    }))?;
+    write_agent_teams_state(path, &next)?;
+    Ok(json!({ "active_team_id": id, "state": next }))
 }
 
 fn maintenance_delete_named_dir(
@@ -951,28 +1179,14 @@ impl McpHost {
                         }
 
                         if !matched {
-                            let failed_step = Envelope::new(
-                                node_id.clone(),
-                                OrdoMessage::StepFailed {
-                                    run_id,
-                                    step_id: Uuid::new_v4(),
-                                    error: format!("no provider accepted run goal '{}'", goal),
-                                },
-                            );
-                            let failed_step =
-                                with_correlation(failed_step, correlation_id.clone());
-                            let _ = bus.publish(topics::RUN_EVENT, failed_step).await;
-
-                            let finished = Envelope::new(
-                                node_id.clone(),
-                                OrdoMessage::RunFinished {
-                                    run_id,
-                                    status: RunStatus::Failed,
-                                    completed_steps: 0,
-                                },
-                            );
-                            let finished = with_correlation(finished, correlation_id);
-                            let _ = bus.publish(topics::RUN_EVENT, finished).await;
+                            publish_unmatched_run_failure(
+                                &bus,
+                                &node_id,
+                                correlation_id,
+                                run_id,
+                                &goal,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -1038,6 +1252,40 @@ impl McpHost {
 
         Ok(())
     }
+}
+
+async fn publish_unmatched_run_failure(
+    bus: &Arc<dyn Bus>,
+    node_id: &NodeId,
+    correlation_id: Option<CorrelationId>,
+    run_id: Uuid,
+    goal: &str,
+) {
+    let accepted = Envelope::new(node_id.clone(), OrdoMessage::RunAccepted { run_id });
+    let accepted = with_correlation(accepted, correlation_id.clone());
+    let _ = bus.publish(topics::RUN_EVENT, accepted).await;
+
+    let failed_step = Envelope::new(
+        node_id.clone(),
+        OrdoMessage::StepFailed {
+            run_id,
+            step_id: Uuid::new_v4(),
+            error: format!("no provider accepted run goal '{}'", goal),
+        },
+    );
+    let failed_step = with_correlation(failed_step, correlation_id.clone());
+    let _ = bus.publish(topics::RUN_EVENT, failed_step).await;
+
+    let finished = Envelope::new(
+        node_id.clone(),
+        OrdoMessage::RunFinished {
+            run_id,
+            status: RunStatus::Failed,
+            completed_steps: 0,
+        },
+    );
+    let finished = with_correlation(finished, correlation_id);
+    let _ = bus.publish(topics::RUN_EVENT, finished).await;
 }
 
 async fn execute_plan(
@@ -1444,16 +1692,15 @@ impl CapabilityProvider for KnowledgeProvider {
     }
 }
 
-/// Pure-data capability provider for the Ordo domain families:
-/// planning.*, orchestration.*, research.*, content_store.*. Each capability transforms a
-/// structured input into a structured output without hitting the filesystem
-/// or the network, giving the planner and routers a stable surface to wire
-/// real ordo-ops engines into later.
+/// Pure-data capability provider for Ordo operational lanes.
+/// Planning and orchestration capabilities transform structured input into
+/// structured output without hitting the network, giving the planner and
+/// routers a stable surface to wire real ordo-ops engines into later.
 #[derive(Debug, Default, Clone)]
 pub struct OrdoOpsProvider {
-    /// When set, artifact-producing capabilities (capture_brief,
-    /// plan_initiative, package_resources, summarize_deliverables,
-    /// schedule_release, request_revision) persist a markdown/JSON response
+    /// When set, artifact-producing capabilities (plan_initiative,
+    /// package_resources, summarize_deliverables, schedule_release,
+    /// request_revision) persist a markdown/JSON response
     /// of their output under `<user_files_path>/<lane>/<slug>.{md,json}`
     /// and include the path in the returned value as `artifact_path`.
     user_files_path: Option<PathBuf>,
@@ -1466,15 +1713,14 @@ impl OrdoOpsProvider {
         }
     }
 
-    /// Enable artifact persistence. All produced briefs/plans/manifests
-    /// will land inside subdirectories of `path`.
+    /// Enable artifact persistence. Produced plans, manifests, and
+    /// orchestration notes will land inside subdirectories of `path`.
     pub fn with_user_files_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.user_files_path = Some(path.into());
         self
     }
 }
 
-const PLANNING_CAPTURE_BRIEF: &str = "planning.capture_brief";
 const PLANNING_PLAN_INITIATIVE: &str = "planning.plan_initiative";
 const PLANNING_PACKAGE_RESOURCES: &str = "planning.package_resources";
 const PLANNING_SUMMARIZE_DELIVERABLES: &str = "planning.summarize_deliverables";
@@ -1482,13 +1728,8 @@ const ORCHESTRATION_ROUTE_REVIEW: &str = "orchestration.route_review";
 const ORCHESTRATION_REQUEST_REVISION: &str = "orchestration.request_revision";
 const ORCHESTRATION_ADVANCE_STAGE: &str = "orchestration.advance_stage";
 const ORCHESTRATION_SCHEDULE_RELEASE: &str = "orchestration.schedule_release";
-const RESEARCH_PACKAGE_METADATA: &str = "research.package_metadata";
-const RESEARCH_AUDIT_READINESS: &str = "research.audit_readiness";
-const CONTENT_STORE_FIELD_MAPPING: &str = "content_store.field_mapping";
-const CONTENT_STORE_PUBLISH_READINESS: &str = "content_store.publish_readiness";
 
 const ORDO_OPS_CAPABILITIES: &[&str] = &[
-    PLANNING_CAPTURE_BRIEF,
     PLANNING_PLAN_INITIATIVE,
     PLANNING_PACKAGE_RESOURCES,
     PLANNING_SUMMARIZE_DELIVERABLES,
@@ -1496,17 +1737,10 @@ const ORDO_OPS_CAPABILITIES: &[&str] = &[
     ORCHESTRATION_REQUEST_REVISION,
     ORCHESTRATION_ADVANCE_STAGE,
     ORCHESTRATION_SCHEDULE_RELEASE,
-    RESEARCH_PACKAGE_METADATA,
-    RESEARCH_AUDIT_READINESS,
-    CONTENT_STORE_FIELD_MAPPING,
-    CONTENT_STORE_PUBLISH_READINESS,
 ];
 
 fn planning_ops_description(capability: &str) -> &'static str {
     match capability {
-        PLANNING_CAPTURE_BRIEF => {
-            "Captures a structured initiative brief from title/goal/audience/deliverables inputs."
-        }
         PLANNING_PLAN_INITIATIVE => {
             "Produces an ordered set of initiative phases from a deliverables list."
         }
@@ -1525,18 +1759,6 @@ fn planning_ops_description(capability: &str) -> &'static str {
         }
         ORCHESTRATION_SCHEDULE_RELEASE => {
             "Produces a release schedule backing out from the target date."
-        }
-        RESEARCH_PACKAGE_METADATA => {
-            "Packages Research metadata (title, description, keywords) into a tag bundle."
-        }
-        RESEARCH_AUDIT_READINESS => {
-            "Audits Research title/description/keywords for common readiness issues."
-        }
-        CONTENT_STORE_FIELD_MAPPING => {
-            "Maps a set of source fields to a canonical Content Store schema."
-        }
-        CONTENT_STORE_PUBLISH_READINESS => {
-            "Checks a Content Store record for required fields before publish."
         }
         _ => "Ordo operations capability.",
     }
@@ -1584,7 +1806,6 @@ impl CapabilityProvider for OrdoOpsProvider {
         arguments: &Value,
     ) -> Option<ToolCallResult> {
         let result = match capability {
-            PLANNING_CAPTURE_BRIEF => capture_brief(arguments),
             PLANNING_PLAN_INITIATIVE => plan_initiative(arguments),
             PLANNING_PACKAGE_RESOURCES => {
                 package_resources(arguments, self.user_files_path.as_deref())
@@ -1594,10 +1815,6 @@ impl CapabilityProvider for OrdoOpsProvider {
             ORCHESTRATION_REQUEST_REVISION => request_revision(arguments),
             ORCHESTRATION_ADVANCE_STAGE => advance_stage(arguments),
             ORCHESTRATION_SCHEDULE_RELEASE => schedule_release(arguments),
-            RESEARCH_PACKAGE_METADATA => package_research_metadata(arguments),
-            RESEARCH_AUDIT_READINESS => audit_research_readiness(arguments),
-            CONTENT_STORE_FIELD_MAPPING => map_content_store_fields(arguments),
-            CONTENT_STORE_PUBLISH_READINESS => check_content_store_publish_readiness(arguments),
             _ => return None,
         };
         Some(match result {
@@ -1618,22 +1835,6 @@ impl CapabilityProvider for OrdoOpsProvider {
             Err(error) => ToolCallResult::Failed { error },
         })
     }
-}
-
-fn capture_brief(arguments: &Value) -> Result<Value, String> {
-    let title = require_string(arguments, "title")?;
-    let goal = require_string(arguments, "goal")?;
-    let audience = optional_string(arguments, "audience").unwrap_or_default();
-    let deliverables = optional_string_array(arguments, "deliverables");
-    Ok(json!({
-        "brief": {
-            "title": title,
-            "goal": goal,
-            "audience": audience,
-            "deliverables": deliverables,
-            "deliverable_count": deliverables.len(),
-        },
-    }))
 }
 
 fn plan_initiative(arguments: &Value) -> Result<Value, String> {
@@ -1821,8 +2022,8 @@ fn route_review(arguments: &Value) -> Result<Value, String> {
         "draft" => ("planning-lead", "planning-review"),
         "planning-review" => ("editor", "editorial-review"),
         "editorial-review" => ("research-lead", "research-review"),
-        "research-review" => ("content_store-admin", "publish-ready"),
-        "publish-ready" => ("release-manager", "scheduled"),
+        "research-review" => ("release-manager", "release-ready"),
+        "release-ready" => ("release-manager", "scheduled"),
         other => {
             return Err(format!("unknown review stage '{other}'"));
         }
@@ -1853,8 +2054,8 @@ fn advance_stage(arguments: &Value) -> Result<Value, String> {
         "draft" => "planning-review",
         "planning-review" => "editorial-review",
         "editorial-review" => "research-review",
-        "research-review" => "publish-ready",
-        "publish-ready" => "scheduled",
+        "research-review" => "release-ready",
+        "release-ready" => "scheduled",
         "scheduled" => "released",
         other => {
             return Err(format!("cannot advance from unknown stage '{other}'"));
@@ -1870,7 +2071,7 @@ fn schedule_release(arguments: &Value) -> Result<Value, String> {
         "planning-review",
         "editorial-review",
         "research-review",
-        "publish-ready",
+        "release-ready",
         "scheduled",
     ];
     let stages = arguments
@@ -1887,240 +2088,6 @@ fn schedule_release(arguments: &Value) -> Result<Value, String> {
         "release_date": release_date,
         "stages": stages,
         "stage_count": stages.len(),
-    }))
-}
-
-fn package_research_metadata(arguments: &Value) -> Result<Value, String> {
-    let title = require_string(arguments, "title")?;
-    let description = require_string(arguments, "description")?;
-    let keywords = optional_string_array(arguments, "keywords");
-    Ok(json!({
-        "research_metadata": {
-            "title": title,
-            "description": description,
-            "keywords": keywords,
-            "keyword_count": keywords.len(),
-        },
-    }))
-}
-
-fn audit_research_readiness(arguments: &Value) -> Result<Value, String> {
-    let title = require_string(arguments, "title")?;
-    let description = require_string(arguments, "description")?;
-    let keywords = optional_string_array(arguments, "keywords");
-    let slug = optional_string(arguments, "slug");
-    let body = optional_string(arguments, "body");
-
-    let mut findings: Vec<Value> = Vec::new();
-    let mut push = |severity: &str, code: &str, message: String| {
-        findings.push(json!({
-            "severity": severity,
-            "code": code,
-            "message": message,
-        }));
-    };
-
-    // --- title ---------------------------------------------------------
-    let title_len = title.chars().count();
-    if title_len == 0 {
-        push("error", "title_empty", "title is empty".into());
-    } else if title_len < 10 {
-        push(
-            "warn",
-            "title_too_short",
-            format!("title is {title_len} chars (recommend Ã¢â€°Â¥ 10)"),
-        );
-    } else if title_len > 70 {
-        push(
-            "warn",
-            "title_too_long",
-            format!("title is {title_len} chars; most search engines truncate beyond 60Ã¢â‚¬â€œ70"),
-        );
-    }
-    if title.trim() != title {
-        push(
-            "info",
-            "title_whitespace",
-            "title has leading or trailing whitespace".into(),
-        );
-    }
-    if title.chars().filter(|c| c.is_uppercase()).count() >= title_len.saturating_sub(2)
-        && title_len > 10
-    {
-        push(
-            "info",
-            "title_all_caps",
-            "title is all-caps; consider title case for readability".into(),
-        );
-    }
-
-    // --- description ---------------------------------------------------
-    let description_len = description.chars().count();
-    if description_len == 0 {
-        push("error", "description_empty", "description is empty".into());
-    } else if description_len < 50 {
-        push(
-            "warn",
-            "description_too_short",
-            format!("description is {description_len} chars (recommend 50Ã¢â‚¬â€œ160)"),
-        );
-    } else if description_len > 160 {
-        push(
-            "warn",
-            "description_too_long",
-            format!("description is {description_len} chars; SERP snippets cap at ~160"),
-        );
-    }
-
-    // --- slug ----------------------------------------------------------
-    if let Some(slug) = &slug {
-        if slug.is_empty() {
-            push("error", "slug_empty", "slug is empty".into());
-        } else {
-            let valid = slug
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
-            if !valid {
-                push(
-                    "error",
-                    "slug_format",
-                    "slug must be lowercase ASCII letters, digits, and hyphens only".into(),
-                );
-            }
-            if slug.starts_with('-') || slug.ends_with('-') {
-                push(
-                    "warn",
-                    "slug_edge_hyphen",
-                    "slug should not start or end with a hyphen".into(),
-                );
-            }
-            if slug.contains("--") {
-                push(
-                    "info",
-                    "slug_double_hyphen",
-                    "slug contains consecutive hyphens".into(),
-                );
-            }
-            if slug.chars().count() > 75 {
-                push(
-                    "warn",
-                    "slug_too_long",
-                    format!(
-                        "slug is {} chars; recommend Ã¢â€°Â¤ 75",
-                        slug.chars().count()
-                    ),
-                );
-            }
-        }
-    }
-
-    // --- keywords ------------------------------------------------------
-    if keywords.is_empty() {
-        push("warn", "keywords_missing", "no keywords provided".into());
-    } else if keywords.len() > 10 {
-        push(
-            "info",
-            "keywords_too_many",
-            format!(
-                "{} keywords provided; prefer 3Ã¢â‚¬â€œ10 focused terms",
-                keywords.len()
-            ),
-        );
-    }
-
-    // --- keyword coverage ---------------------------------------------
-    let haystack = format!(
-        "{} {} {}",
-        title.to_lowercase(),
-        description.to_lowercase(),
-        body.as_deref().unwrap_or("").to_lowercase()
-    );
-    let mut uncovered = Vec::new();
-    for keyword in &keywords {
-        let needle = keyword.trim().to_lowercase();
-        if !needle.is_empty() && !haystack.contains(&needle) {
-            uncovered.push(keyword.clone());
-        }
-    }
-    if !uncovered.is_empty() {
-        push(
-            "warn",
-            "keyword_not_covered",
-            format!(
-                "keywords not found in title/description/body: {}",
-                uncovered.join(", ")
-            ),
-        );
-    }
-
-    let error_count = findings
-        .iter()
-        .filter(|f| f["severity"].as_str() == Some("error"))
-        .count();
-    let warn_count = findings
-        .iter()
-        .filter(|f| f["severity"].as_str() == Some("warn"))
-        .count();
-
-    // Legacy flat `issues` shape kept for back-compat with existing
-    // callers that assert on it.
-    let issues: Vec<String> = findings
-        .iter()
-        .filter(|f| matches!(f["severity"].as_str(), Some("error") | Some("warn")))
-        .filter_map(|f| f["message"].as_str().map(str::to_string))
-        .collect();
-
-    Ok(json!({
-        "title_length": title_len,
-        "description_length": description_len,
-        "keyword_count": keywords.len(),
-        "uncovered_keywords": uncovered,
-        "findings": findings,
-        "error_count": error_count,
-        "warn_count": warn_count,
-        "issues": issues,
-        "ready": error_count == 0 && warn_count == 0,
-    }))
-}
-
-fn map_content_store_fields(arguments: &Value) -> Result<Value, String> {
-    let source = arguments
-        .get("source_fields")
-        .and_then(|value| value.as_object())
-        .cloned()
-        .unwrap_or_default();
-    let mut mapping = serde_json::Map::new();
-    for (key, value) in source {
-        let canonical = match key.to_ascii_lowercase().as_str() {
-            "headline" | "name" => "title",
-            "body" | "content" | "article" => "body",
-            "slug" | "uri" | "url" => "slug",
-            "author" | "byline" => "author",
-            "tags" | "keywords" | "labels" => "tags",
-            "publish_at" | "scheduled_at" | "release_date" => "publish_at",
-            _ => &key,
-        };
-        mapping.insert(canonical.to_string(), value);
-    }
-    Ok(json!({ "content_store_fields": mapping }))
-}
-
-fn check_content_store_publish_readiness(arguments: &Value) -> Result<Value, String> {
-    let fields = arguments
-        .get("fields")
-        .and_then(|value| value.as_object())
-        .cloned()
-        .unwrap_or_default();
-    let required = ["title", "body", "slug", "publish_at"];
-    let missing: Vec<String> = required
-        .iter()
-        .filter(|key| !fields.contains_key(**key))
-        .map(|key| (*key).to_string())
-        .collect();
-    Ok(json!({
-        "ready": missing.is_empty(),
-        "missing": missing,
-        "required": required,
     }))
 }
 
@@ -2218,32 +2185,8 @@ fn slugify(input: &str) -> String {
 /// Render one of the capability outputs into a markdown string.
 fn render_artifact_markdown(capability: &str, arguments: &Value, result: &Value) -> String {
     match capability {
-        PLANNING_CAPTURE_BRIEF => {
-            let brief = &result["brief"];
-            let deliverables = brief["deliverables"]
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .map(|s| format!("- {s}\n"))
-                        .collect::<String>()
-                })
-                .unwrap_or_default();
-            format!(
-                "# {title}\n\n\
-                 **Goal:** {goal}\n\n\
-                 **Audience:** {audience}\n\n\
-                 ## Deliverables ({count})\n\n{deliverables}\n\
-                 ---\n\
-                 _Captured by Ordo `planning.capture_brief`._\n",
-                title = brief["title"].as_str().unwrap_or("Untitled Brief"),
-                goal = brief["goal"].as_str().unwrap_or(""),
-                audience = brief["audience"].as_str().unwrap_or("Ã¢â‚¬â€"),
-                count = brief["deliverable_count"].as_u64().unwrap_or(0),
-            )
-        }
         PLANNING_PLAN_INITIATIVE => {
-            let mut md = String::from("# Campaign Plan\n\n");
+            let mut md = String::from("# Initiative Plan\n\n");
             if let Some(phases) = result["phases"].as_array() {
                 for phase in phases {
                     let name = phase["phase"].as_str().unwrap_or("phase");
@@ -2274,7 +2217,7 @@ fn render_artifact_markdown(capability: &str, arguments: &Value, result: &Value)
             md.push_str("## By kind\n\n");
             if let Some(counts) = result["by_kind"].as_object() {
                 for (kind, n) in counts {
-                    md.push_str(&format!("- `{kind}` Ãƒâ€” {}\n", n));
+                    md.push_str(&format!("- `{kind}` × {}\n", n));
                 }
             }
             md.push_str("\n---\n_Generated by `planning.summarize_deliverables`._\n");
@@ -2309,12 +2252,12 @@ fn render_artifact_markdown(capability: &str, arguments: &Value, result: &Value)
                  ---\n_Generated by `orchestration.request_revision`._\n",
                 stage = rev["stage"].as_str().unwrap_or(""),
                 reason = rev["reason"].as_str().unwrap_or(""),
-                due = rev["due"].as_str().unwrap_or("Ã¢â‚¬â€"),
+                due = rev["due"].as_str().unwrap_or("—"),
             )
         }
         _ => {
             // Fallback for anything we don't have a dedicated template
-            // for Ã¢â‚¬â€ dump the input + output as JSON.
+            // for — dump the input + output as JSON.
             format!(
                 "# {capability}\n\n## Arguments\n\n```json\n{}\n```\n\n## Result\n\n```json\n{}\n```\n",
                 serde_json::to_string_pretty(arguments).unwrap_or_default(),
@@ -2335,15 +2278,6 @@ fn persist_artifact(
     result: &mut Value,
 ) -> std::io::Result<()> {
     let (subdir, slug_basis, extension): (&str, String, &str) = match capability {
-        PLANNING_CAPTURE_BRIEF => (
-            "briefs",
-            arguments
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("brief")
-                .to_string(),
-            "md",
-        ),
         PLANNING_PLAN_INITIATIVE => {
             let seed = arguments
                 .get("title")
@@ -2828,6 +2762,7 @@ const CLOUD_CREDENTIALS_TEST: &str = "cloud.credentials.test";
 const CLOUD_CREDENTIALS_MODELS: &str = "cloud.credentials.models";
 const CLOUD_CREDENTIALS_UPSERT: &str = "cloud.credentials.upsert";
 const CLOUD_CREDENTIALS_DELETE: &str = "cloud.credentials.delete";
+const CLOUD_CREDENTIALS_SET_DEFAULT: &str = "cloud.credentials.set_default";
 
 const CLOUD_OPS_CAPABILITIES: &[&str] = &[
     CLOUD_OPENAI_CHAT,
@@ -2839,6 +2774,7 @@ const CLOUD_OPS_CAPABILITIES: &[&str] = &[
     CLOUD_CREDENTIALS_MODELS,
     CLOUD_CREDENTIALS_UPSERT,
     CLOUD_CREDENTIALS_DELETE,
+    CLOUD_CREDENTIALS_SET_DEFAULT,
 ];
 
 fn cloud_ops_description(capability: &str) -> &'static str {
@@ -2862,6 +2798,7 @@ fn cloud_ops_description(capability: &str) -> &'static str {
         }
         CLOUD_CREDENTIALS_UPSERT => "Creates or updates a stored cloud credential.",
         CLOUD_CREDENTIALS_DELETE => "Deletes a stored cloud credential by service name.",
+        CLOUD_CREDENTIALS_SET_DEFAULT => "Sets or clears the active default cloud credential.",
         _ => "Cloud Ops capability.",
     }
 }
@@ -2896,6 +2833,7 @@ async fn run_cloud_tool_call(
         CLOUD_CREDENTIALS_MODELS => cloud_credentials_models(provider, arguments).await,
         CLOUD_CREDENTIALS_UPSERT => cloud_credentials_upsert(provider, arguments).await,
         CLOUD_CREDENTIALS_DELETE => cloud_credentials_delete(provider, arguments).await,
+        CLOUD_CREDENTIALS_SET_DEFAULT => cloud_credentials_set_default(provider, arguments).await,
         _ => return None,
     };
     Some(match result {
@@ -2925,7 +2863,7 @@ where
     ) -> CloudFuture<'a>,
 {
     // Provider-neutral credential resolution. The `kind` arg ("openai",
-    // "anthropic", â€¦) is a HINT, not a service-name lookup: it says
+    // "anthropic", …) is a HINT, not a service-name lookup: it says
     // which wire shape the caller expects. We walk in this order:
     //   1. an explicit `credential` arg (per-call override)
     //   2. a credential keyed under the kind name (legacy callers + the
@@ -2993,7 +2931,7 @@ where
     })?;
 
     // If the caller didn't specify `model`, surface the credential's
-    // extras.model â€” set in the Cloud tab's Configure modal â€” so local
+    // extras.model — set in the Cloud tab's Configure modal — so local
     // OpenAI-compatible servers (Ollama, LM Studio) route to whichever
     // model the operator has loaded instead of the cloud-provider
     // default like `gpt-4o-mini`.
@@ -3006,9 +2944,46 @@ where
         }
     }
 
+    let lifecycle_report = provider
+        .credentials
+        .enforce_single_local_model(
+            &provider.http,
+            Some(&credential.service),
+            "cloud_service_call",
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+    log_cloud_lifecycle_report("cloud service call", &lifecycle_report);
+    if let Some(error) = lifecycle_error(&lifecycle_report) {
+        return Err(error);
+    }
+
     call(&provider.http, &credential, args)
         .await
         .map_err(|err| err.to_string())
+}
+
+fn log_cloud_lifecycle_report(label: &str, report: &ordo_cloud::LocalModelLifecycleReport) {
+    if report.has_work() {
+        tracing::info!(
+            target: "ordo_mcp_host::cloud_lifecycle",
+            label,
+            unloaded = report.unloaded.len(),
+            errors = report.errors.len(),
+            "local model lifecycle applied"
+        );
+    }
+}
+
+fn lifecycle_error(report: &ordo_cloud::LocalModelLifecycleReport) -> Option<String> {
+    if report.errors.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "local model lifecycle failed before LLM call: {}",
+            report.errors.join("; ")
+        ))
+    }
 }
 
 async fn cloud_rest_request(
@@ -3072,6 +3047,11 @@ async fn cloud_credentials_list(provider: &CloudOpsProvider) -> Result<Value, St
         .list()
         .await
         .map_err(|err| err.to_string())?;
+    let default_service = provider
+        .credentials
+        .get_default()
+        .await
+        .map_err(|err| err.to_string())?;
     let redacted: Vec<Value> = credentials
         .iter()
         .map(ordo_cloud::CloudCredential::redacted)
@@ -3079,6 +3059,98 @@ async fn cloud_credentials_list(provider: &CloudOpsProvider) -> Result<Value, St
     Ok(json!({
         "count": redacted.len(),
         "credentials": redacted,
+        "default_service": default_service,
+    }))
+}
+
+async fn cloud_credentials_set_default(
+    provider: &CloudOpsProvider,
+    arguments: &Value,
+) -> Result<Value, String> {
+    let service = arguments
+        .get("service")
+        .or_else(|| arguments.get("credential"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    let previous_default = provider
+        .credentials
+        .get_default()
+        .await
+        .map_err(|err| err.to_string())?;
+    let previous = match previous_default.clone() {
+        Some(name) => provider
+            .credentials
+            .get(name)
+            .await
+            .map_err(|err| err.to_string())?,
+        None => None,
+    };
+    let next = if let Some(service_name) = service.as_ref() {
+        let credential = provider
+            .credentials
+            .get(service_name.clone())
+            .await
+            .map_err(|err| err.to_string())?;
+        if credential.is_none() {
+            return Ok(json!({
+                "ok": false,
+                "default_service": null,
+                "error": format!("credential for service '{service_name}' is not configured"),
+            }));
+        }
+        credential
+    } else {
+        None
+    };
+
+    let mut lifecycle_report = ordo_cloud::LocalModelLifecycleReport::default();
+    if previous.as_ref().and_then(ordo_cloud::local_model_identity)
+        != next.as_ref().and_then(ordo_cloud::local_model_identity)
+    {
+        if let Some(previous) = previous.as_ref() {
+            let report = provider
+                .credentials
+                .release_local_model(&provider.http, previous, "default_provider_switch")
+                .await
+                .map_err(|err| err.to_string())?;
+            lifecycle_report.merge(report);
+            log_cloud_lifecycle_report("default switch release", &lifecycle_report);
+            if let Some(error) = lifecycle_error(&lifecycle_report) {
+                return Ok(json!({
+                    "ok": false,
+                    "default_service": previous_default,
+                    "error": error,
+                    "model_lifecycle": serde_json::to_value(&lifecycle_report).unwrap_or(Value::Null),
+                }));
+            }
+        }
+    }
+
+    provider
+        .credentials
+        .set_default(service.clone())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let enforce_report = provider
+        .credentials
+        .enforce_single_local_model(
+            &provider.http,
+            service.as_deref(),
+            "default_provider_switch",
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+    lifecycle_report.merge(enforce_report);
+    log_cloud_lifecycle_report("default switch enforce", &lifecycle_report);
+
+    Ok(json!({
+        "ok": true,
+        "default_service": service,
+        "model_lifecycle": serde_json::to_value(&lifecycle_report).unwrap_or(Value::Null),
     }))
 }
 
@@ -3230,6 +3302,11 @@ async fn cloud_credentials_upsert(
         .and_then(|value| value.as_str())
         .ok_or_else(|| "missing required field 'service'".to_string())?
         .to_string();
+    let previous = provider
+        .credentials
+        .get(service.clone())
+        .await
+        .map_err(|err| err.to_string())?;
     let update = ordo_cloud::CloudCredentialUpdate {
         service,
         label: arguments
@@ -3271,7 +3348,24 @@ async fn cloud_credentials_upsert(
         .upsert(update)
         .await
         .map_err(|err| err.to_string())?;
-    Ok(json!({ "credential": credential.redacted() }))
+    let mut lifecycle_report = ordo_cloud::LocalModelLifecycleReport::default();
+    if previous.as_ref().and_then(ordo_cloud::local_model_identity)
+        != ordo_cloud::local_model_identity(&credential)
+    {
+        if let Some(previous) = previous.as_ref() {
+            let report = provider
+                .credentials
+                .release_local_model(&provider.http, previous, "credential_upsert_model_changed")
+                .await
+                .map_err(|err| err.to_string())?;
+            lifecycle_report.merge(report);
+            log_cloud_lifecycle_report("credential upsert release", &lifecycle_report);
+        }
+    }
+    Ok(json!({
+        "credential": credential.redacted(),
+        "model_lifecycle": serde_json::to_value(&lifecycle_report).unwrap_or(Value::Null),
+    }))
 }
 
 async fn cloud_credentials_delete(
@@ -3283,12 +3377,33 @@ async fn cloud_credentials_delete(
         .and_then(|value| value.as_str())
         .ok_or_else(|| "missing required field 'service'".to_string())?
         .to_string();
+    let previous = provider
+        .credentials
+        .get(service.clone())
+        .await
+        .map_err(|err| err.to_string())?;
     let removed = provider
         .credentials
         .delete(service.clone())
         .await
         .map_err(|err| err.to_string())?;
-    Ok(json!({ "service": service, "removed": removed }))
+    let mut lifecycle_report = ordo_cloud::LocalModelLifecycleReport::default();
+    if removed {
+        if let Some(previous) = previous.as_ref() {
+            let report = provider
+                .credentials
+                .release_local_model(&provider.http, previous, "credential_deleted")
+                .await
+                .map_err(|err| err.to_string())?;
+            lifecycle_report.merge(report);
+            log_cloud_lifecycle_report("credential delete release", &lifecycle_report);
+        }
+    }
+    Ok(json!({
+        "service": service,
+        "removed": removed,
+        "model_lifecycle": serde_json::to_value(&lifecycle_report).unwrap_or(Value::Null),
+    }))
 }
 
 #[async_trait]
@@ -5051,19 +5166,15 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-/// LLM-backed variants of the planning/orchestration/research/content_store domain lanes.
+/// LLM-backed variant of the orchestration lane.
 ///
-/// This provider is the bridge between the pure-data `OrdoOpsProvider`
-/// (deterministic templates that always work) and the `cloud.*` lane (real
-/// outbound HTTP to configured providers). Every capability here is opt-in
-/// and degrades gracefully: if no cloud credential is configured, the call
-/// returns a structured error rather than panicking.
+/// This provider bridges deterministic `OrdoOpsProvider` calls and the
+/// `cloud.*` lane for operator-reviewed orchestration notes. The capability
+/// is opt-in and degrades gracefully: if no cloud credential is configured,
+/// the call returns a structured error rather than panicking.
 ///
-/// Capabilities:
-/// - `planning.draft_response` Ã¢â‚¬â€ drafts initiative response from a brief
-/// - `orchestration.draft_notes` Ã¢â‚¬â€ drafts reviewer notes or revision rationales
-/// - `research.suggest_metadata` Ã¢â‚¬â€ suggests Research title/description/keywords
-/// - `content_store.suggest_fields` Ã¢â‚¬â€ suggests Content Store field values for a record
+/// Capability:
+/// - `orchestration.draft_notes` - drafts reviewer notes or revision rationales
 pub struct OrdoLlmProvider {
     credentials: ordo_cloud::CloudCredentialTask,
     http: ordo_cloud::CloudHttp,
@@ -5124,9 +5235,8 @@ impl OrdoLlmProvider {
     }
 
     /// Enable automatic RAG context injection. Every call to
-    /// `planning.draft_response`, `orchestration.draft_notes`,
-    /// `research.suggest_metadata`, and `content_store.suggest_fields` will pre-query
-    /// the local retrieval lane using the caller-supplied `rag_query`
+    /// `orchestration.draft_notes` will pre-query the local retrieval lane
+    /// using the caller-supplied `rag_query`
     /// (falling back to the prompt itself) and prepend the top-K
     /// snippets to the system message.
     pub fn with_bus(mut self, bus: Arc<dyn Bus>) -> Self {
@@ -5140,31 +5250,14 @@ impl OrdoLlmProvider {
     }
 }
 
-const PLANNING_DRAFT_RESPONSE: &str = "planning.draft_response";
 const ORCHESTRATION_DRAFT_NOTES: &str = "orchestration.draft_notes";
-const RESEARCH_SUGGEST_METADATA: &str = "research.suggest_metadata";
-const CONTENT_STORE_SUGGEST_FIELDS: &str = "content_store.suggest_fields";
 
-const ORDO_LLM_CAPABILITIES: &[&str] = &[
-    PLANNING_DRAFT_RESPONSE,
-    ORCHESTRATION_DRAFT_NOTES,
-    RESEARCH_SUGGEST_METADATA,
-    CONTENT_STORE_SUGGEST_FIELDS,
-];
+const ORDO_LLM_CAPABILITIES: &[&str] = &[ORCHESTRATION_DRAFT_NOTES];
 
 fn planning_llm_description(capability: &str) -> &'static str {
     match capability {
-        PLANNING_DRAFT_RESPONSE => {
-            "Drafts initiative response from a brief using a configured cloud LLM credential."
-        }
         ORCHESTRATION_DRAFT_NOTES => {
             "Drafts reviewer notes or revision rationale using a configured cloud LLM credential."
-        }
-        RESEARCH_SUGGEST_METADATA => {
-            "Suggests Research title/description/keywords using a configured cloud LLM credential."
-        }
-        CONTENT_STORE_SUGGEST_FIELDS => {
-            "Suggests Content Store field values for a record using a configured cloud LLM credential."
         }
         _ => "Ordo LLM capability.",
     }
@@ -5172,26 +5265,10 @@ fn planning_llm_description(capability: &str) -> &'static str {
 
 fn planning_llm_system_prompt(capability: &str) -> &'static str {
     match capability {
-        PLANNING_DRAFT_RESPONSE => {
-            "You are Ordo's planning operations drafter. Return structured, \
-             policy-safe initiative response. Keep responses concise and focused on \
-             the brief provided. Prefer bullet lists for multiple \
-             deliverables."
-        }
         ORCHESTRATION_DRAFT_NOTES => {
             "You are Ordo's orchestration reviewer. Draft clear, kind, \
              specific reviewer notes or revision rationale. Cite the brief \
              fields you are responding to. Keep it short."
-        }
-        RESEARCH_SUGGEST_METADATA => {
-            "You are Ordo's Research specialist. Return JSON with keys \
-             title (max 60 chars), description (max 155 chars), keywords \
-             (array of strings), slug (kebab-case). Only return JSON."
-        }
-        CONTENT_STORE_SUGGEST_FIELDS => {
-            "You are Ordo's Content Store editor. Return JSON mapping each \
-             requested field name to a suggested value derived from the \
-             provided source material. Only return JSON."
         }
         _ => "You are a helpful assistant.",
     }
@@ -5283,11 +5360,33 @@ async fn run_planning_llm_call(
         "messages": messages,
         "temperature": arguments.get("temperature").cloned().unwrap_or(json!(0.4)),
     });
-    // Honor a per-credential model override (Cloud tab â†’ "model" field,
+    // Honor a per-credential model override (Cloud tab → "model" field,
     // stored in extras). Lets local providers (Ollama / LM Studio) hit
     // whichever model the operator has loaded.
     if let Some(model) = credential.extras.get("model") {
         chat_args["model"] = json!(model);
+    }
+
+    match provider
+        .credentials
+        .enforce_single_local_model(
+            &provider.http,
+            Some(&credential.service),
+            "planning_llm_call",
+        )
+        .await
+    {
+        Ok(report) => {
+            log_cloud_lifecycle_report("planning llm call", &report);
+            if let Some(error) = lifecycle_error(&report) {
+                return Some(ToolCallResult::Failed { error });
+            }
+        }
+        Err(err) => {
+            return Some(ToolCallResult::Failed {
+                error: err.to_string(),
+            });
+        }
     }
 
     // Dispatch to whichever provider is configured. Anthropic credentials
@@ -5339,7 +5438,7 @@ async fn run_planning_llm_call(
             // Optional human-in-the-loop review step. We queue the
             // LLM's draft for operator approval and (if the review
             // service is configured) block until a decision arrives.
-            // Deny Ã¢â€ â€™ Failed; Edit Ã¢â€ â€™ substitute the edited text in the
+            // Deny → Failed; Edit → substitute the edited text in the
             // output so downstream agents see the operator's version.
             if review_requested {
                 match (&provider.review, extract_review_draft(capability, &value)) {
@@ -5420,7 +5519,7 @@ async fn run_planning_llm_call(
                         }
                     }
                     (None, _) => {
-                        // Requested review but nothing's wired Ã¢â‚¬â€ be honest
+                        // Requested review but nothing's wired — be honest
                         // rather than silently skipping.
                         ToolCallResult::Failed {
                             error: "review requested but no review service is configured"
@@ -5481,16 +5580,13 @@ fn review_title(capability: &str, arguments: &Value) -> String {
     capability.to_string()
 }
 
-fn review_content_type(capability: &str) -> String {
-    match capability {
-        RESEARCH_SUGGEST_METADATA | CONTENT_STORE_SUGGEST_FIELDS => "application/json".to_string(),
-        _ => "text/markdown".to_string(),
-    }
+fn review_content_type(_capability: &str) -> String {
+    "text/markdown".to_string()
 }
 
 /// Publish a RAG query on the bus and wait briefly for hits. Returns an
 /// empty vec if the bus is not configured or if the retrieval lane does
-/// not respond in time Ã¢â‚¬â€ this is best-effort grounding, never a hard
+/// not respond in time — this is best-effort grounding, never a hard
 /// dependency.
 async fn fetch_rag_context(
     provider: &OrdoLlmProvider,
@@ -5531,7 +5627,7 @@ async fn fetch_rag_context(
         return Vec::new();
     }
 
-    // Give the RAG lane a short window Ã¢â‚¬â€ we never want to block a user-
+    // Give the RAG lane a short window — we never want to block a user-
     // facing LLM call on a slow retrieval round trip. 750 ms matches the
     // Brain's internal budget for context hydration.
     let wait = Duration::from_millis(750);
@@ -5617,7 +5713,7 @@ impl CapabilityProvider for OrdoLlmProvider {
 }
 
 // =========================================================================
-// Review provider Ã¢â‚¬â€ exposes the `ordo-review` service as a capability lane
+// Review provider — exposes the `ordo-review` service as a capability lane
 // so agents and plugins call `review.request_approval` like any other tool.
 // Lives here (not in `ordo-review`) because it needs `CapabilityProvider`
 // and we can't let `ordo-review` depend on `ordo-mcp-host` without a cycle.
@@ -5880,7 +5976,7 @@ fn serialize_review_request(request: &ordo_review::ReviewRequest, include_conten
 }
 
 // =========================================================================
-// Assistant provider Ã¢â‚¬â€ exposes `ordo-assistant` on the capability bus.
+// Assistant provider — exposes `ordo-assistant` on the capability bus.
 // Same "provider-in-mcp, service-in-its-own-crate" pattern as review,
 // to avoid a cycle between `ordo-assistant` and `ordo-mcp-host`.
 // =========================================================================
@@ -6268,7 +6364,7 @@ async fn assistant_do_parallel_lookup(
         .and_then(|v| v.as_str())
         .and_then(ordo_assistant::KnowledgeKind::parse);
 
-    // Run the fanout concurrently Ã¢â‚¬â€ mirrors the in-turn meta-tool.
+    // Run the fanout concurrently — mirrors the in-turn meta-tool.
     let knowledge = service.knowledge().clone();
     let mut handles = Vec::with_capacity(domains.len());
     for domain in &domains {
@@ -6364,10 +6460,79 @@ fn assistant_parse_id(
 #[cfg(test)]
 mod tests {
     use super::{
-        CapabilityProvider, FilesystemProvider, KnowledgeProvider, MaintenanceProvider,
-        OrdoOpsProvider, ToolCallResult,
+        publish_unmatched_run_failure, CapabilityProvider, FilesystemProvider, KnowledgeProvider,
+        MaintenanceProvider, OrdoOpsProvider, ToolCallResult,
     };
+    use futures::StreamExt;
+    use ordo_bus::{Bus, InProcessBus};
+    use ordo_protocol::{topics, CorrelationId, NodeId, OrdoMessage, RunStatus};
     use serde_json::json;
+    use std::sync::Arc;
+    use tokio::time::{timeout, Duration};
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn unmatched_run_failure_publishes_accepted_before_failure() {
+        let bus: Arc<dyn Bus> = Arc::new(InProcessBus::new());
+        let mut events = bus
+            .subscribe(topics::RUN_EVENT)
+            .await
+            .expect("subscribe run events");
+        let node_id = NodeId::new();
+        let correlation_id = Some(CorrelationId::new());
+        let run_id = Uuid::new_v4();
+
+        publish_unmatched_run_failure(
+            &bus,
+            &node_id,
+            correlation_id.clone(),
+            run_id,
+            "missing lane",
+        )
+        .await;
+
+        let first = timeout(Duration::from_secs(1), events.next())
+            .await
+            .expect("run accepted timed out")
+            .expect("run accepted event");
+        let second = timeout(Duration::from_secs(1), events.next())
+            .await
+            .expect("step failed timed out")
+            .expect("step failed event");
+        let third = timeout(Duration::from_secs(1), events.next())
+            .await
+            .expect("run finished timed out")
+            .expect("run finished event");
+
+        assert_eq!(first.correlation_id, correlation_id);
+        match first.payload {
+            OrdoMessage::RunAccepted { run_id: observed } => assert_eq!(observed, run_id),
+            other => panic!("expected RunAccepted first, got {other:?}"),
+        }
+        match second.payload {
+            OrdoMessage::StepFailed {
+                run_id: observed,
+                error,
+                ..
+            } => {
+                assert_eq!(observed, run_id);
+                assert!(error.contains("no provider accepted run goal"));
+            }
+            other => panic!("expected StepFailed second, got {other:?}"),
+        }
+        match third.payload {
+            OrdoMessage::RunFinished {
+                run_id: observed,
+                status,
+                completed_steps,
+            } => {
+                assert_eq!(observed, run_id);
+                assert_eq!(status, RunStatus::Failed);
+                assert_eq!(completed_steps, 0);
+            }
+            other => panic!("expected RunFinished third, got {other:?}"),
+        }
+    }
 
     #[tokio::test]
     async fn skills_audit_routing_reports_orphaned_phantom_mode_skill() {
@@ -6572,26 +6737,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capture_brief_returns_structured_brief() {
-        let result = call(
-            "planning.capture_brief",
-            json!({
-                "title": "Spring Campaign",
-                "goal": "Drive awareness",
-                "audience": "Planning ops teams",
-                "deliverables": ["landing page response", "launch video", "three banner images"],
-            }),
-        )
-        .await;
-        assert_eq!(
-            result
-                .pointer("/brief/deliverable_count")
-                .and_then(|value| value.as_u64()),
-            Some(3)
-        );
-    }
-
-    #[tokio::test]
     async fn plan_initiative_splits_deliverables_into_three_phases() {
         let result = call(
             "planning.plan_initiative",
@@ -6657,70 +6802,6 @@ mod tests {
             Some("editor")
         );
     }
-
-    #[tokio::test]
-    async fn research_audit_readiness_flags_short_title() {
-        let result = call(
-            "research.audit_readiness",
-            json!({
-                "title": "short",
-                "description": "a description that is long enough to clear the fifty character bar for sure",
-                "keywords": ["alpha"],
-            }),
-        )
-        .await;
-        assert_eq!(
-            result.get("ready").and_then(|value| value.as_bool()),
-            Some(false)
-        );
-        let issues = result
-            .get("issues")
-            .and_then(|value| value.as_array())
-            .expect("issues");
-        assert!(!issues.is_empty());
-    }
-
-    #[tokio::test]
-    async fn content_store_publish_readiness_reports_missing_fields() {
-        let result = call(
-            "content_store.publish_readiness",
-            json!({
-                "fields": { "title": "Hello", "body": "world" },
-            }),
-        )
-        .await;
-        assert_eq!(
-            result.get("ready").and_then(|value| value.as_bool()),
-            Some(false)
-        );
-        let missing = result
-            .get("missing")
-            .and_then(|value| value.as_array())
-            .expect("missing");
-        assert_eq!(missing.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn content_store_field_mapping_canonicalizes_keys() {
-        let result = call(
-            "content_store.field_mapping",
-            json!({
-                "source_fields": {
-                    "headline": "Hello",
-                    "body": "world",
-                    "slug": "hello-world",
-                },
-            }),
-        )
-        .await;
-        let content_store_fields = result
-            .get("content_store_fields")
-            .and_then(|value| value.as_object())
-            .expect("content_store_fields");
-        assert!(content_store_fields.contains_key("title"));
-        assert!(content_store_fields.contains_key("body"));
-        assert!(content_store_fields.contains_key("slug"));
-    }
 }
 
 #[cfg(test)]
@@ -6758,39 +6839,6 @@ mod real_capability_tests {
             ToolCallResult::Completed { result } => result,
             ToolCallResult::Failed { error } => panic!("capability failed: {error}"),
         }
-    }
-
-    #[tokio::test]
-    async fn capture_brief_writes_markdown_artifact_to_disk() {
-        let root = temp_user_files();
-        let result = call_with_root(
-            &root,
-            "planning.capture_brief",
-            json!({
-                "title": "Spring Colorway: Trail Runner",
-                "goal": "Launch a new spring palette in March",
-                "audience": "trail-running customers",
-                "deliverables": ["hero video", "landing page", "paid social"],
-            }),
-        )
-        .await;
-
-        let rel = result["artifact_path"]
-            .as_str()
-            .expect("artifact_path present");
-        assert!(
-            rel.starts_with("briefs/"),
-            "brief should land in briefs/: {rel}"
-        );
-        assert!(rel.ends_with(".md"));
-        let abs = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-        let body = std::fs::read_to_string(&abs).expect("read artifact");
-        assert!(body.contains("# Spring Colorway: Trail Runner"));
-        assert!(body.contains("- hero video"));
-        assert!(body.contains("- landing page"));
-        assert!(body.contains("trail-running customers"));
-
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[tokio::test]
@@ -6852,72 +6900,6 @@ mod real_capability_tests {
             ToolCallResult::Completed { .. } => panic!("expected sandbox rejection"),
         }
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn audit_research_readiness_emits_structured_findings() {
-        let provider = OrdoOpsProvider::new();
-        let result = provider
-            .handle_tool_call(
-                "research.audit_readiness",
-                &json!({
-                    "title": "Hi",
-                    "description": "short",
-                    "keywords": ["trail"],
-                    "slug": "Bad Slug!!",
-                    "body": "We are launching a new spring color.",
-                }),
-            )
-            .await
-            .expect("handled");
-        let value = match result {
-            ToolCallResult::Completed { result } => result,
-            ToolCallResult::Failed { error } => panic!("failed: {error}"),
-        };
-        assert_eq!(value["ready"].as_bool(), Some(false));
-        assert!(value["error_count"].as_u64().unwrap_or(0) >= 1);
-        let codes: Vec<String> = value["findings"]
-            .as_array()
-            .expect("findings")
-            .iter()
-            .filter_map(|f| f["code"].as_str().map(str::to_string))
-            .collect();
-        assert!(
-            codes.contains(&"title_too_short".to_string()),
-            "expected title_too_short in {codes:?}"
-        );
-        assert!(
-            codes.contains(&"slug_format".to_string()),
-            "expected slug_format in {codes:?}"
-        );
-        assert!(
-            codes.contains(&"keyword_not_covered".to_string()),
-            "expected keyword_not_covered in {codes:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn audit_research_readiness_ready_when_clean() {
-        let provider = OrdoOpsProvider::new();
-        let result = provider
-            .handle_tool_call(
-                "research.audit_readiness",
-                &json!({
-                    "title": "Spring Colorway for Trail Runners",
-                    "description": "A new lightweight trail runner colorway engineered for spring weather, built for fast trails and cold mornings.",
-                    "keywords": ["trail", "spring", "running"],
-                    "slug": "spring-colorway-trail-runner",
-                    "body": "Our spring trail running colorway is built for variable weather.",
-                }),
-            )
-            .await
-            .expect("handled");
-        let value = match result {
-            ToolCallResult::Completed { result } => result,
-            ToolCallResult::Failed { error } => panic!("failed: {error}"),
-        };
-        assert_eq!(value["ready"].as_bool(), Some(true));
-        assert_eq!(value["error_count"].as_u64(), Some(0));
     }
 }
 
@@ -7120,10 +7102,10 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn generate_response_returns_not_configured_without_credential() {
+    async fn draft_notes_returns_not_configured_without_credential() {
         let provider = OrdoLlmProvider::new(make_task());
         let result = provider
-            .handle_tool_call("planning.draft_response", &json!({ "prompt": "hello" }))
+            .handle_tool_call("orchestration.draft_notes", &json!({ "prompt": "hello" }))
             .await
             .expect("capability handled");
         match result {
@@ -7137,7 +7119,7 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn generate_response_dispatches_to_openai_when_configured() {
+    async fn draft_notes_dispatches_to_openai_when_configured() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -7146,7 +7128,7 @@ mod planning_llm_tests {
                 "choices": [
                     {
                         "index": 0,
-                        "message": { "role": "assistant", "content": "Draft initiative response." },
+                        "message": { "role": "assistant", "content": "Draft orchestration note." },
                         "finish_reason": "stop"
                     }
                 ]
@@ -7169,9 +7151,9 @@ mod planning_llm_tests {
         let provider = OrdoLlmProvider::new(task);
         let result = provider
             .handle_tool_call(
-                "planning.draft_response",
+                "orchestration.draft_notes",
                 &json!({
-                    "prompt": "launch a spring colorway for the running shoe line",
+                    "prompt": "prepare restart validation notes",
                     "temperature": 0.2,
                 }),
             )
@@ -7183,11 +7165,11 @@ mod planning_llm_tests {
         };
         assert_eq!(
             value.get("assistant_message").and_then(|v| v.as_str()),
-            Some("Draft initiative response.")
+            Some("Draft orchestration note.")
         );
         assert_eq!(
             value.get("capability").and_then(|v| v.as_str()),
-            Some("planning.draft_response")
+            Some("orchestration.draft_notes")
         );
         assert_eq!(
             value.get("credential_service").and_then(|v| v.as_str()),
@@ -7196,7 +7178,7 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn research_suggest_metadata_routes_to_anthropic_when_credential_style_matches() {
+    async fn orchestration_draft_notes_routes_to_anthropic_when_credential_style_matches() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/messages"))
@@ -7204,7 +7186,7 @@ mod planning_llm_tests {
                 "model": "mock-claude",
                 "stop_reason": "end_turn",
                 "content": [
-                    { "type": "text", "text": "{\"title\":\"Spring Run\",\"description\":\"New colorway for spring trails\",\"keywords\":[\"spring\",\"running\"],\"slug\":\"spring-run\"}" }
+                    { "type": "text", "text": "Anthropic reviewer note." }
                 ]
             })))
             .mount(&server)
@@ -7225,8 +7207,8 @@ mod planning_llm_tests {
         let provider = OrdoLlmProvider::new(task).with_default_service("anthropic");
         let result = provider
             .handle_tool_call(
-                "research.suggest_metadata",
-                &json!({ "prompt": "spring running shoe launch" }),
+                "orchestration.draft_notes",
+                &json!({ "prompt": "runtime restart validation" }),
             )
             .await
             .expect("capability handled");
@@ -7238,9 +7220,9 @@ mod planning_llm_tests {
             value
                 .get("assistant_text")
                 .and_then(|v| v.as_str())
-                .map(|s| s.contains("spring-run"))
+                .map(|s| s.contains("reviewer note"))
                 .unwrap_or(false),
-            "expected assistant_text with Research payload, got: {value:?}"
+            "expected assistant_text with orchestration note, got: {value:?}"
         );
     }
 
@@ -7269,7 +7251,7 @@ mod planning_llm_tests {
                         hits: vec![RagHit {
                             document_id: "operator profile-voice".into(),
                             uri: "docs/operator profile-voice.md".into(),
-                            title: "Brand Voice".into(),
+                            title: "Operator Notes".into(),
                             collection: "main".into(),
                             chunk_index: 0,
                             score: 0.91,
@@ -7287,7 +7269,7 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn generate_response_injects_rag_snippets_into_system_prompt() {
+    async fn draft_notes_injects_rag_snippets_into_system_prompt() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -7320,7 +7302,7 @@ mod planning_llm_tests {
         tokio::spawn(async move {
             fake_rag_peer(
                 rag_bus,
-                "BRAND VOICE: Confident, grounded, technical. Never sales-y.",
+                "OPERATOR NOTES: Confident, grounded, technical. Avoid speculation.",
                 ready_tx,
             )
             .await;
@@ -7333,9 +7315,9 @@ mod planning_llm_tests {
         let provider = OrdoLlmProvider::new(task).with_bus(bus);
         let result = provider
             .handle_tool_call(
-                "planning.draft_response",
+                "orchestration.draft_notes",
                 &json!({
-                    "prompt": "spring trail colorway",
+                    "prompt": "runtime validation",
                     "rag_query": "operator style",
                 }),
             )
@@ -7372,7 +7354,7 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn generate_response_skips_rag_when_opted_out() {
+    async fn draft_notes_skips_rag_when_opted_out() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -7403,7 +7385,7 @@ mod planning_llm_tests {
         let provider = OrdoLlmProvider::new(task).with_bus(bus);
         let result = provider
             .handle_tool_call(
-                "planning.draft_response",
+                "orchestration.draft_notes",
                 &json!({ "prompt": "hi", "rag": false }),
             )
             .await
@@ -7417,7 +7399,7 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn generate_response_routes_through_review_and_substitutes_edit() {
+    async fn draft_notes_routes_through_review_and_substitutes_edit() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -7454,11 +7436,11 @@ mod planning_llm_tests {
         let call_future = async {
             provider
                 .handle_tool_call(
-                    "planning.draft_response",
+                    "orchestration.draft_notes",
                     &json!({
-                        "prompt": "spring colorway",
+                        "prompt": "restart validation",
                         "review": true,
-                        "review_title": "Spring colorway draft",
+                        "review_title": "Restart validation notes",
                     }),
                 )
                 .await
@@ -7504,7 +7486,7 @@ mod planning_llm_tests {
     }
 
     #[tokio::test]
-    async fn generate_response_fails_when_review_denied() {
+    async fn draft_notes_fails_when_review_denied() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
@@ -7557,7 +7539,7 @@ mod planning_llm_tests {
 
         let result = provider
             .handle_tool_call(
-                "planning.draft_response",
+                "orchestration.draft_notes",
                 &json!({ "prompt": "off operator profile", "review": true }),
             )
             .await

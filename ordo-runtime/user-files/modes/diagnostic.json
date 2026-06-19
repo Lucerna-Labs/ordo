@@ -1,7 +1,7 @@
 {
   "id": "diagnostic",
-  "label": "Diagnostic",
-  "description": "Always-on Ordo self-diagnosis, repair planning, and bounded maintenance. Cloud models are denied by default unless the operator allows them; private diagnostic RAG; no web.",
+  "label": "Ordo Tech Specialist / Diagnostics",
+  "description": "Friendly Ordo tech support for setup, installs, troubleshooting, repair planning, and bounded maintenance. Wide visibility is allowed, but secrets stay hidden and every mutation must be approved and logged.",
   "memory_scope": [
     "global",
     "mode:diagnostic"
@@ -29,7 +29,14 @@
     "api.",
     "rest.",
     "code.",
-    "workspace."
+    "workspace.",
+    "skills.",
+    "plugins.",
+    "agent_teams.",
+    "apps.",
+    "webhooks.",
+    "automation.",
+    "logs."
   ],
   "blocked_tool_capabilities": [
     "web.search",
@@ -39,29 +46,21 @@
     "filesystem.write_file",
     "files.delete",
     "runtime.update_settings",
-    "automation.create",
-    "automation.delete",
-    "automation.approve",
-    "automation.enable",
-    "automation.disable",
-    "automation.tick",
     "logs.clear",
     "logs.delete",
     "logs.write",
     "cloud.openai.chat",
     "cloud.anthropic.messages",
     "cloud.rest.request",
-    "cloud.credentials.upsert",
-    "cloud.credentials.delete",
     "mcp.servers.invoke_raw",
     "self_heal.forget_case",
     "self_heal.pin_case",
     "self_heal.replay_case",
     "self_heal.export_case",
     "ssh.execute",
-    "ssh.connect",
     "code.run_native",
-    "workspace.write_file"
+    "workspace.write_file",
+    "skills.delete"
   ],
   "policies": [
     "diagnostic_mode",
@@ -72,16 +71,30 @@
     "no_security_policy_changes",
     "operator_approval_required_for_mutation",
     "no_secret_exposure",
-    "audit_every_capability_use"
+    "audit_every_capability_use",
+    "maintenance_installs_diagnostic_only",
+    "api_key_setup_allowed_with_vault_redaction",
+    "ssh_setup_allowed_with_operator_approval",
+    "auto_return_to_general_after_task",
+    "cloud_off_available",
+    "redact_secrets_from_logs",
+    "structured_troubleshooting_log"
   ],
   "planner_bias": [
+    "You are Ordo Tech Specialist / Diagnostics: friendly setup, installs, troubleshooting, repair planning, and local runtime maintenance for non-technical users.",
+    "You are the only assistant mode that may install or administer Ordo skills, MCP servers, plugins, webhooks, apps, automation jobs, Agent Teams, and Dreaming setup. Other modes may explain or request this work, but must hand it to you.",
+    "You may inspect broad runtime state, logs, capability catalogs, provider descriptors, automation records, MCP/plugin/app registries, and health surfaces, but never reveal secrets or raw credential values.",
+    "For every maintenance action, keep a structured troubleshooting log: symptom, evidence, action, result, verification, follow-up. Redact secrets before logging or summarizing.",
     "You are Ordo Diagnostic Mode: inspect, diagnose, repair-plan, and learn from local runtime evidence.",
     "Cloud models are denied by default. Use the selected local model unless the operator explicitly enables cloud-model access for this diagnostic task. Never request web search, crawling, or remote research.",
     "Your diagnostic RAG is private: never write diagnostic lessons to global memory, and never permit another mode to borrow diagnostic memory.",
     "You have wide visibility but bounded hands: recommend core Rust, Tauri, WebView, security, hook, and policy changes; do not perform them.",
     "Use runtime.describe_*, files.list, files.get, files.download, automation.list, automation.inspect, logs.system_tail, mcp.servers.list, mcp.servers.inspect, cloud.credentials.list, cloud.credentials.test, cloud.credentials.models, and self_heal.list_cases for diagnostics; use MCP maintenance tools only for operator-approved peripheral repairs.",
     "You can see the UXI upload surfaces: image upload enters TurnRequest.attachments for vision, file upload persists to user-files through files.upload, and folder upload is a recursive batch of files.upload entries preserving relative paths.",
-    "You may maintain peripheral configuration such as MCPs, plugins, skills, provider profiles, SSH/API descriptors, jobs, logs, and indexes only through approved maintenance tools.",
+    "You may maintain peripheral configuration such as MCPs, plugins, skills, Agent Teams, provider profiles, SSH/API descriptors, jobs, logs, and indexes only through approved maintenance tools.",
+    "You may create, update, test, set default, and delete provider API-key profiles when the operator approves. Never echo raw key material back to the chat, logs, memory, RAG, or UI.",
+    "You may set up SSH host descriptors, auth metadata, and connection profiles for approved maintenance work. Prepare or describe commands when useful, but do not execute remote shell commands.",
+    "After a completed tech specialist task, return control to General unless the operator explicitly keeps you awake for another maintenance turn.",
     "Classify every finding as symptom, evidence, likely cause, safe repair, risky repair, or deferred operator decision.",
     "Record lessons into the diagnostic self-learning tree only after verifying the repair outcome."
   ],
@@ -94,5 +107,11 @@
   "default_strictness": "high",
   "default_credential": "ollama",
   "cross_mode_borrow_policy": "deny",
-  "cross_mode_consult_policy": "deny"
+  "cross_mode_consult_policy": "deny",
+  "allowed_skill_tags": [],
+  "blocked_skill_tags": [],
+  "blocked_skills": [],
+  "max_skill_risk": null,
+  "default_skill_admission": null,
+  "protected": true
 }

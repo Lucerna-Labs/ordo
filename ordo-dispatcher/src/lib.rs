@@ -7,8 +7,7 @@
 
 use ordo_agents::AgentRegistry;
 use ordo_tasks::{
-    AgentId, Goal, GoalId, GoalStatus, Task, TaskId,
-    TaskOutput, TaskQueue, TaskStatus, TaskType,
+    AgentId, Goal, GoalId, GoalStatus, Task, TaskId, TaskOutput, TaskQueue, TaskStatus, TaskType,
 };
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -81,11 +80,7 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait TaskRunner: Send + Sync {
     /// Execute a single task and return its result.
-    async fn run_task(
-        &self,
-        task: &Task,
-        agent_id: Option<AgentId>,
-    ) -> Result<TaskOutput, String>;
+    async fn run_task(&self, task: &Task, agent_id: Option<AgentId>) -> Result<TaskOutput, String>;
 }
 
 // ─── Dispatcher ────────────────────────────────────────────────────────────────
@@ -215,14 +210,9 @@ impl Dispatcher {
         }
 
         // Third try: find any agent with a matching tool
-        let cap_name = task
-            .task_type
-            .default_capability()
-            .unwrap_or("");
+        let cap_name = task.task_type.default_capability().unwrap_or("");
         let binding = registry.list();
-        let candidates = binding
-            .iter()
-            .find(|a| a.allowed_tools.contains(cap_name));
+        let candidates = binding.iter().find(|a| a.allowed_tools.contains(cap_name));
 
         if let Some(agent) = candidates {
             return Ok(agent.id);
@@ -319,7 +309,8 @@ impl Dispatcher {
                         {
                             let mut queue = self.queue.write();
                             if let Some(goal) = queue.get_goal_mut(&goal_id) {
-                                if let Some(task) = goal.tasks.iter_mut().find(|t| t.id == task_id) {
+                                if let Some(task) = goal.tasks.iter_mut().find(|t| t.id == task_id)
+                                {
                                     task.fail(err.clone());
                                 }
                             }
@@ -344,10 +335,7 @@ impl Dispatcher {
                     output: None,
                     status: TaskStatus::Failed,
                     agent_id: Some(agent_id),
-                    error: Some(format!(
-                        "Timed out after {:?}",
-                        self.config.task_timeout
-                    )),
+                    error: Some(format!("Timed out after {:?}", self.config.task_timeout)),
                     duration,
                 },
             };
@@ -366,10 +354,7 @@ impl Dispatcher {
     }
 
     pub fn goal_status(&self, goal_id: &GoalId) -> Option<GoalStatus> {
-        self.queue
-            .read()
-            .get_goal(goal_id)
-            .map(|g| g.status)
+        self.queue.read().get_goal(goal_id).map(|g| g.status)
     }
 
     pub fn running_count(&self) -> usize {
@@ -439,7 +424,7 @@ mod tests {
         let dispatcher = Dispatcher::with_default_registry();
         let task = Task::new(
             Uuid::new_v4(),
-            TaskType::Seo,
+            TaskType::Research,
             Priority::Normal,
             vec![],
             TaskInput::new("test".into(), serde_json::json!({})),
@@ -468,10 +453,10 @@ mod tests {
     async fn execute_goal_runs_all_tasks() {
         let dispatcher = Dispatcher::with_default_registry();
         let runner = StubRunner { should_fail: false };
-        let goal = make_goal_with_tasks("test pipeline", vec![
-            TaskType::Research,
-            TaskType::Draft,
-        ]);
+        let goal = make_goal_with_tasks(
+            "test pipeline",
+            vec![TaskType::Research, TaskType::Analysis],
+        );
         let goal_id = goal.id;
 
         dispatcher.submit_goal(goal);
@@ -502,7 +487,10 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].status, TaskStatus::Failed);
-        assert_eq!(dispatcher.goal_status(&goal_id).unwrap(), GoalStatus::Failed);
+        assert_eq!(
+            dispatcher.goal_status(&goal_id).unwrap(),
+            GoalStatus::Failed
+        );
     }
 
     #[test]

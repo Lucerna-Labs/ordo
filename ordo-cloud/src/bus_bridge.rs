@@ -101,16 +101,16 @@ async fn run(
                 handle_list(&bus, &node_id, &task, correlation).await;
             }
             OrdoMessage::CloudCredentialUpsertRequest { credential } => {
-                handle_upsert(&task, credential).await;
+                handle_upsert(&task, &http, credential).await;
             }
             OrdoMessage::CloudCredentialRemoveRequest { service } => {
-                handle_remove(&task, service).await;
+                handle_remove(&task, &http, service).await;
             }
             OrdoMessage::CloudCredentialTestRequest { service } => {
                 handle_test(&bus, &node_id, &task, &http, service, correlation).await;
             }
             OrdoMessage::CloudCredentialSetDefaultRequest { service } => {
-                handle_set_default(&task, service).await;
+                handle_set_default(&task, &http, service).await;
             }
             _ => {
                 // Other variants leak through if a publisher sends
@@ -160,18 +160,43 @@ async fn handle_list(
     publish(bus, cloud_topics::CREDENTIALS_LIST_RESPONSE, envelope).await;
 }
 
-async fn handle_upsert(task: &CloudCredentialTask, credential: ordo_protocol::CloudCredentialFull) {
-    // Convert protocol type → internal `CloudCredentialUpdate`.
-    // Task publishes `CloudCredentialUpserted` on success via
-    // its own publish-after-commit hook; nothing for the bridge
-    // to do besides log on failure.
+async fn handle_upsert(
+    task: &CloudCredentialTask,
+    http: &CloudHttp,
+    credential: ordo_protocol::CloudCredentialFull,
+) {
+    // If this edits the local model identity for an existing row, ask
+    // the old local provider to unload before the new model can be used.
+    let service = credential.service.clone();
+    let previous = task.get(service).await.ok().flatten();
     let update = full_into_update(credential);
-    if let Err(err) = task.upsert(update).await {
-        tracing::warn!(
-            target: "ordo_cloud_bridge",
-            error = %err,
-            "upsert failed"
-        );
+    match task.upsert(update).await {
+        Ok(saved) => {
+            if previous.as_ref().and_then(crate::local_model_identity)
+                != crate::local_model_identity(&saved)
+            {
+                if let Some(previous) = previous.as_ref() {
+                    match task
+                        .release_local_model(http, previous, "credential_upsert_model_changed")
+                        .await
+                    {
+                        Ok(report) => log_lifecycle_report("upsert model change", &report),
+                        Err(err) => tracing::warn!(
+                            target: "ordo_cloud_bridge",
+                            error = %err,
+                            "local model release after upsert failed"
+                        ),
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                target: "ordo_cloud_bridge",
+                error = %err,
+                "upsert failed"
+            );
+        }
     }
 }
 
@@ -205,27 +230,91 @@ fn full_into_update(full: ordo_protocol::CloudCredentialFull) -> CloudCredential
     }
 }
 
-async fn handle_remove(task: &CloudCredentialTask, service: String) {
-    // Task publishes `CloudCredentialRemoved` (and possibly
-    // `CloudCredentialDefaultChanged` if the removed service was
-    // the default) on success via its own publish-after-commit
-    // hook.
-    if let Err(err) = task.delete(service).await {
-        tracing::warn!(
-            target: "ordo_cloud_bridge",
-            error = %err,
-            "delete failed"
-        );
+async fn handle_remove(task: &CloudCredentialTask, http: &CloudHttp, service: String) {
+    // If a removed local credential had a resident model, release it.
+    let previous = task.get(service.clone()).await.ok().flatten();
+    match task.delete(service).await {
+        Ok(true) => {
+            if let Some(previous) = previous.as_ref() {
+                match task
+                    .release_local_model(http, previous, "credential_deleted")
+                    .await
+                {
+                    Ok(report) => log_lifecycle_report("credential delete", &report),
+                    Err(err) => tracing::warn!(
+                        target: "ordo_cloud_bridge",
+                        error = %err,
+                        "local model release after delete failed"
+                    ),
+                }
+            }
+        }
+        Ok(false) => {}
+        Err(err) => {
+            tracing::warn!(
+                target: "ordo_cloud_bridge",
+                error = %err,
+                "delete failed"
+            );
+        }
     }
 }
 
-async fn handle_set_default(task: &CloudCredentialTask, service: String) {
-    // Task publishes `CloudCredentialDefaultChanged` on success.
-    if let Err(err) = task.set_default(Some(service)).await {
+async fn handle_set_default(task: &CloudCredentialTask, http: &CloudHttp, service: String) {
+    // Release the old local model before the default pointer moves so local
+    // runtimes do not stack LM Studio + Ollama during a provider switch.
+    let previous_default = task.get_default().await.ok().flatten();
+    let previous = match previous_default {
+        Some(name) => task.get(name).await.ok().flatten(),
+        None => None,
+    };
+    let next = task.get(service.clone()).await.ok().flatten();
+    if previous.as_ref().and_then(crate::local_model_identity)
+        != next.as_ref().and_then(crate::local_model_identity)
+    {
+        if let Some(previous) = previous.as_ref() {
+            match task
+                .release_local_model(http, previous, "default_provider_switch")
+                .await
+            {
+                Ok(report) => log_lifecycle_report("default switch release", &report),
+                Err(err) => tracing::warn!(
+                    target: "ordo_cloud_bridge",
+                    error = %err,
+                    "local model release before default switch failed"
+                ),
+            }
+        }
+    }
+    if let Err(err) = task.set_default(Some(service.clone())).await {
         tracing::warn!(
             target: "ordo_cloud_bridge",
             error = %err,
             "set_default failed"
+        );
+        return;
+    }
+    match task
+        .enforce_single_local_model(http, Some(&service), "default_provider_switch")
+        .await
+    {
+        Ok(report) => log_lifecycle_report("default switch enforce", &report),
+        Err(err) => tracing::warn!(
+            target: "ordo_cloud_bridge",
+            error = %err,
+            "local model enforcement after default switch failed"
+        ),
+    }
+}
+
+fn log_lifecycle_report(label: &str, report: &crate::LocalModelLifecycleReport) {
+    if report.has_work() {
+        tracing::info!(
+            target: "ordo_cloud_bridge",
+            label,
+            unloaded = report.unloaded.len(),
+            errors = report.errors.len(),
+            "local model lifecycle applied"
         );
     }
 }

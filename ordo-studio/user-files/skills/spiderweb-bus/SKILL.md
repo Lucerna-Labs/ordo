@@ -1,6 +1,16 @@
 ---
 name: spiderweb-bus
 description: "Jesse's layered bus architecture — the spiderweb/fabric model for data routing that sits at the core of all his platform work. Use this skill WHENEVER the task involves the bus, the fabric, the spiderweb, data routing between nodes, on-ramps/off-ramps, parallel execution layers, the highway metaphor, thread formation, intersections, vibration propagation, or any work on the platform bus in any project (Ordo, Nodus, cumfy-llm, Drag and Drop Bus Platform, or any future project). Also trigger when a model is designing data flow, adding a layer, wiring nodes, or making architectural decisions about how messages move between subsystems. This architecture is NOT in any model's training data — it was invented by Jesse and refined across many conversations. Do not substitute a more familiar pattern. Read this skill before writing bus code."
+category:
+  - architecture
+  - bus
+  - coding
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+  - research
+risk_level: medium
+requires_tools: false
 ---
 
 # The Spiderweb Bus Architecture

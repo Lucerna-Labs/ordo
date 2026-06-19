@@ -1,6 +1,16 @@
 ---
 name: ordo-crate-build
 description: "Step 3 of the Ordo build pipeline. Use this skill to build the blueprint's crates ONE AT A TIME, each as a sealed function primitive, in topo order, before any coupling begins. It enforces the anti-stub gate (no todo!/unimplemented!/placeholder bodies), the warnings-as-errors policy with scoped COUPLE markers for legitimate isolation warnings, and the per-crate compile-clean + unit-check gate. Trigger it whenever the planner releases step 3, or whenever you are writing an individual Ordo crate. Do NOT couple crates here — building and coupling are separate phases. Do NOT leave a crate half-implemented and move on. Do NOT silence a warning to make a crate pass. A crate that compiles but stubs its real work is not built."
+category:
+  - build
+  - pipeline
+  - coding
+  - rust
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: high
+requires_tools: true
 ---
 
 # Ordo Build — Crate by Crate

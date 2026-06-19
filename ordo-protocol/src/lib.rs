@@ -817,7 +817,7 @@ pub const RAG_COLLECTION_MAIN: &str = "main";
 pub const RAG_COLLECTION_PLANNING: &str = "planning";
 pub const RAG_COLLECTION_ORCHESTRATION: &str = "orchestration";
 pub const RAG_COLLECTION_RESEARCH: &str = "research";
-pub const RAG_COLLECTION_CONTENT_STORE: &str = "content_store";
+pub const RAG_COLLECTION_DOMAIN_SLOT_4: &str = "domain_slot_4";
 pub const RAG_COLLECTION_SSH: &str = "ssh";
 pub const RAG_COLLECTION_API: &str = "api";
 pub const RAG_COLLECTION_REST: &str = "rest";
@@ -825,8 +825,8 @@ pub const RAG_COLLECTION_REST: &str = "rest";
 /// Reserved but unnamed domain RAG slots. The platform pre-provisions
 /// ten domain collections so operators can claim them later without a
 /// schema migration; naming them is deferred until there's an actual
-/// orchestration to attach. Slots 1â€“4 are filled by planning / orchestration /
-/// research / content_store today; 5â€“10 are empty until an operator opts in.
+/// orchestration to attach. Slots 1-3 are filled by planning,
+/// orchestration, and research; slots 4-10 are empty until an operator opts in.
 pub const RAG_COLLECTION_DOMAIN_SLOT_5: &str = "domain_slot_5";
 pub const RAG_COLLECTION_DOMAIN_SLOT_6: &str = "domain_slot_6";
 pub const RAG_COLLECTION_DOMAIN_SLOT_7: &str = "domain_slot_7";
@@ -840,7 +840,7 @@ pub const RAG_DOMAIN_SLOTS: &[&str] = &[
     RAG_COLLECTION_PLANNING,
     RAG_COLLECTION_ORCHESTRATION,
     RAG_COLLECTION_RESEARCH,
-    RAG_COLLECTION_CONTENT_STORE,
+    RAG_COLLECTION_DOMAIN_SLOT_4,
     RAG_COLLECTION_DOMAIN_SLOT_5,
     RAG_COLLECTION_DOMAIN_SLOT_6,
     RAG_COLLECTION_DOMAIN_SLOT_7,
@@ -882,7 +882,7 @@ pub fn rag_collection_label(name: &str) -> &'static str {
         RAG_COLLECTION_PLANNING => "Planning",
         RAG_COLLECTION_ORCHESTRATION => "Orchestration",
         RAG_COLLECTION_RESEARCH => "Research",
-        RAG_COLLECTION_CONTENT_STORE => "Content Store",
+        RAG_COLLECTION_DOMAIN_SLOT_4 => "Domain Slot 4",
         RAG_COLLECTION_SSH => "SSH",
         RAG_COLLECTION_API => "API",
         RAG_COLLECTION_REST => "REST API",
@@ -902,7 +902,7 @@ pub fn rag_collection_group(name: &str) -> RagCollectionGroup {
         RAG_COLLECTION_PLANNING
         | RAG_COLLECTION_ORCHESTRATION
         | RAG_COLLECTION_RESEARCH
-        | RAG_COLLECTION_CONTENT_STORE
+        | RAG_COLLECTION_DOMAIN_SLOT_4
         | RAG_COLLECTION_DOMAIN_SLOT_5
         | RAG_COLLECTION_DOMAIN_SLOT_6
         | RAG_COLLECTION_DOMAIN_SLOT_7
@@ -922,7 +922,7 @@ fn rag_collection_rank(name: &str) -> u8 {
         RAG_COLLECTION_PLANNING => 1,
         RAG_COLLECTION_ORCHESTRATION => 2,
         RAG_COLLECTION_RESEARCH => 3,
-        RAG_COLLECTION_CONTENT_STORE => 4,
+        RAG_COLLECTION_DOMAIN_SLOT_4 => 4,
         RAG_COLLECTION_DOMAIN_SLOT_5 => 5,
         RAG_COLLECTION_DOMAIN_SLOT_6 => 6,
         RAG_COLLECTION_DOMAIN_SLOT_7 => 7,
@@ -1238,30 +1238,17 @@ pub fn infer_rag_collections(goal: &str) -> Vec<String> {
     if has_any_token(
         &tokens,
         &[
-            "research", "metadata", "meta", "search", "serp", "slug", "keyword", "keywords",
-            "intent", "ranking",
+            "research",
+            "source",
+            "sources",
+            "evidence",
+            "citation",
+            "citations",
+            "study",
+            "studies",
         ],
     ) {
         collections.push(RAG_COLLECTION_RESEARCH.to_string());
-    }
-
-    if has_any_token(
-        &tokens,
-        &[
-            "content_store",
-            "taxonomy",
-            "taxonomies",
-            "template",
-            "templates",
-            "publish",
-            "publishing",
-            "entry",
-            "entries",
-            "field",
-            "fields",
-        ],
-    ) {
-        collections.push(RAG_COLLECTION_CONTENT_STORE.to_string());
     }
 
     if has_any_token(
@@ -1330,7 +1317,7 @@ fn has_triple(tokens: &[String], first: &str, second: &str, third: &str) -> bool
 
 fn capability_lane_group(name: &str) -> CapabilityLaneGroup {
     match name {
-        "planning" | "orchestration" | "research" | "content_store" => CapabilityLaneGroup::Domain,
+        "planning" | "orchestration" | "research" => CapabilityLaneGroup::Domain,
         "ssh" | "api" | "rest" => CapabilityLaneGroup::Interface,
         _ => CapabilityLaneGroup::System,
     }
@@ -1339,7 +1326,6 @@ fn capability_lane_group(name: &str) -> CapabilityLaneGroup {
 fn capability_lane_label(name: &str) -> String {
     match name {
         "research" => "Research".to_string(),
-        "content_store" => "Content Store".to_string(),
         "ssh" => "SSH".to_string(),
         "api" => "API".to_string(),
         "rest" => "REST API".to_string(),
@@ -1380,7 +1366,6 @@ fn capability_lane_name_rank(name: &str) -> u8 {
         "planning" => 0,
         "orchestration" => 1,
         "research" => 2,
-        "content_store" => 3,
         "ssh" => 10,
         "api" => 11,
         "rest" => 12,
@@ -1855,9 +1840,9 @@ mod tests {
     #[test]
     fn classifies_capability_lanes_from_namespace() {
         let planning = CapabilityDescriptor::new(
-            "planning.capture_brief",
+            "planning.plan_initiative",
             "planning",
-            "Captures a planning brief.",
+            "Builds an initiative plan.",
             CapabilityTier::Core,
             CapabilityActivation::Eager,
         );
@@ -1895,16 +1880,16 @@ mod tests {
                 CapabilityActivation::Lazy,
             ),
             CapabilityDescriptor::new(
-                "research.package_metadata",
+                "research.fetch",
                 "research",
-                "Packages Research metadata.",
+                "Fetches research sources.",
                 CapabilityTier::Core,
                 CapabilityActivation::Eager,
             ),
             CapabilityDescriptor::new(
-                "research.audit_readiness",
+                "research.review_sources",
                 "research",
-                "Audits Research readiness.",
+                "Reviews research evidence.",
                 CapabilityTier::Core,
                 CapabilityActivation::Eager,
             ),
@@ -1932,13 +1917,13 @@ mod tests {
     #[test]
     fn infers_main_and_domain_rag_collections() {
         let collections = infer_rag_collections(
-            "prepare Research metadata and Content Store publish orchestration for this release",
+            "prepare research evidence sources and orchestration review for this release",
         );
 
         assert_eq!(collections[0], RAG_COLLECTION_MAIN);
         assert!(collections.iter().any(|value| value == "research"));
-        assert!(collections.iter().any(|value| value == "content_store"));
         assert!(collections.iter().any(|value| value == "orchestration"));
+        assert!(!collections.iter().any(|value| value == "domain_slot_4"));
     }
 
     #[test]

@@ -26,11 +26,7 @@ pub struct ProposedAction {
 }
 
 impl ProposedAction {
-    pub fn new(
-        agent_id: AgentId,
-        capability: &str,
-        risk_level: RiskLevel,
-    ) -> Self {
+    pub fn new(agent_id: AgentId, capability: &str, risk_level: RiskLevel) -> Self {
         Self {
             agent_id,
             task_id: None,
@@ -68,7 +64,10 @@ pub enum PolicyDecision {
 
 impl PolicyDecision {
     pub fn allowed(&self) -> bool {
-        matches!(self, PolicyDecision::Allow | PolicyDecision::AllowWithCaution { .. })
+        matches!(
+            self,
+            PolicyDecision::Allow | PolicyDecision::AllowWithCaution { .. }
+        )
     }
 }
 
@@ -89,11 +88,7 @@ pub struct ApprovalRequest {
 }
 
 impl ApprovalRequest {
-    pub fn new(
-        agent_id: AgentId,
-        action: ProposedAction,
-        summary: String,
-    ) -> Self {
+    pub fn new(agent_id: AgentId, action: ProposedAction, summary: String) -> Self {
         Self {
             id: ApprovalId::new_v4(),
             requested_by: agent_id,
@@ -101,10 +96,7 @@ impl ApprovalRequest {
             action,
             summary,
             diff: None,
-            approve_options: vec![
-                ApprovalOption::ApproveOnce,
-                ApprovalOption::Reject,
-            ],
+            approve_options: vec![ApprovalOption::ApproveOnce, ApprovalOption::Reject],
             status: ApprovalStatus::Pending,
             created_at: Utc::now(),
             resolved_at: None,
@@ -223,19 +215,12 @@ impl ActionClassifier {
         }
 
         // Level 4: External write
-        for cap in &[
-            "ssh.run_remote_command",
-            "api.post",
-            "api.put",
-        ] {
+        for cap in &["ssh.run_remote_command", "api.post", "api.put"] {
             risk_map.insert(cap.to_string(), RiskLevel::ExternalWrite);
         }
 
         // Level 6: Publishing
-        for cap in &[
-            "cms.publish_readiness",
-            "cms.field_mapping",
-        ] {
+        for cap in &["apps.publish", "apps.unarchive"] {
             risk_map.insert(cap.to_string(), RiskLevel::Publishing);
         }
 
@@ -422,11 +407,7 @@ mod tests {
     #[test]
     fn publish_requires_approval() {
         let gate = PolicyGate::new();
-        let decision = gate.evaluate(
-            Uuid::new_v4(),
-            "cms.publish_readiness",
-            &serde_json::json!({}),
-        );
+        let decision = gate.evaluate(Uuid::new_v4(), "apps.publish", &serde_json::json!({}));
         assert_eq!(decision, PolicyDecision::RequiresApproval);
     }
 
@@ -448,9 +429,9 @@ mod tests {
 
         let id = gate.request_approval(
             agent_id,
-            "cms.publish_readiness",
+            "apps.publish",
             &serde_json::json!({}),
-            "Publish draft article".into(),
+            "Publish app update".into(),
         );
 
         assert_eq!(gate.pending_count(), 1);
@@ -465,12 +446,7 @@ mod tests {
         let mut gate = PolicyGate::new();
         let agent_id = Uuid::new_v4();
 
-        let id = gate.request_approval(
-            agent_id,
-            "cms.publish_readiness",
-            &serde_json::json!({}),
-            "".into(),
-        );
+        let id = gate.request_approval(agent_id, "apps.publish", &serde_json::json!({}), "".into());
 
         let rejected = gate.reject(&id);
         assert!(rejected.is_some());

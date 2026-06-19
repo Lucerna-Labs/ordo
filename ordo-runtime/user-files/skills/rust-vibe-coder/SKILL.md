@@ -1,6 +1,15 @@
 ---
 name: rust-vibe-coder
 description: Rust-first coding workflow for Ordo-style projects. Use when the task involves Rust implementation, Cargo workspaces, Ordo runtime crates, warning cleanup, architecture tracing, coding automation, code review, dependency decisions, public release preparation, or any request to build, fix, refactor, test, or verify Rust code under Jesse's architecture and rules.
+category:
+  - coding
+  - rust
+  - architecture
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: high
+requires_tools: true
 ---
 
 # Rust Vibe Coder

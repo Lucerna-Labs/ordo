@@ -26,13 +26,13 @@ fn knowledge_store() -> KnowledgeStore {
 #[tokio::test]
 async fn upsert_by_source_is_idempotent() {
     let knowledge = knowledge_store();
-    let source = "auto:capability:creative.capture_brief".to_string();
+    let source = "auto:capability:runtime.describe_profile".to_string();
 
     let first = knowledge
         .upsert_by_source(NewKnowledge {
             kind: KnowledgeKind::Skill,
-            domain: Some("creative".into()),
-            title: "creative.capture_brief".into(),
+            domain: Some("operations".into()),
+            title: "runtime.describe_profile".into(),
             body: "initial body".into(),
             source: source.clone(),
             confidence: 0.6,
@@ -43,8 +43,8 @@ async fn upsert_by_source_is_idempotent() {
     let second = knowledge
         .upsert_by_source(NewKnowledge {
             kind: KnowledgeKind::Skill,
-            domain: Some("creative".into()),
-            title: "creative.capture_brief".into(),
+            domain: Some("operations".into()),
+            title: "runtime.describe_profile".into(),
             body: "updated body".into(),
             source: source.clone(),
             confidence: 0.8,
@@ -65,8 +65,12 @@ async fn upsert_by_source_is_idempotent() {
 async fn domain_scoped_recall_only_returns_matching_domain() {
     let knowledge = knowledge_store();
     for (domain, title, body) in [
-        ("creative", "brief intake", "how to capture briefs"),
-        ("workflow", "approval flow", "how to route approvals"),
+        (
+            "operations",
+            "runtime profile",
+            "how to describe runtime profiles",
+        ),
+        ("research", "source review", "how to review sources"),
     ] {
         knowledge
             .upsert_by_source(NewKnowledge {
@@ -81,25 +85,25 @@ async fn domain_scoped_recall_only_returns_matching_domain() {
             .expect("upsert");
     }
 
-    let creative_hits = knowledge
-        .recall("brief", 5, None, Some("creative"))
+    let operations_hits = knowledge
+        .recall("runtime", 5, None, Some("operations"))
         .await
         .expect("recall");
     assert!(
-        creative_hits
+        operations_hits
             .iter()
-            .all(|h| h.entry.domain.as_deref() == Some("creative")),
+            .all(|h| h.entry.domain.as_deref() == Some("operations")),
         "domain scoping should exclude other domains"
     );
 
-    let workflow_hits = knowledge
-        .recall("approval", 5, None, Some("workflow"))
+    let research_hits = knowledge
+        .recall("sources", 5, None, Some("research"))
         .await
         .expect("recall");
     assert!(
-        workflow_hits
+        research_hits
             .iter()
-            .any(|h| h.entry.title == "approval flow"),
-        "workflow lookup should find its own entry"
+            .any(|h| h.entry.title == "source review"),
+        "research lookup should find its own entry"
     );
 }

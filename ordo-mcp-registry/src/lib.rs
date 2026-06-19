@@ -771,7 +771,7 @@ impl McpRegistryService {
     /// Administratively set a server's trust state. Used for
     /// first-run scenarios where the operator vouches for a
     /// server they just installed (e.g. their own organization's
-    /// CMS package) and wants to bypass the time-gated automatic
+    /// internal package) and wants to bypass the time-gated automatic
     /// graduation. Bypassing graduation IS an administrative
     /// action â€” the trust-change event the bus emits records the
     /// reason so audit retains visibility.

@@ -1,6 +1,15 @@
 ---
 name: ordo-build-intake
 description: "Step 1 of the Ordo build pipeline. Use this skill the moment an Ordo app build is requested and BEFORE any blueprint, crate, or code exists. Its only job is to ask the user clarifying questions and capture a complete requirements record — nothing is built until this record exists. Trigger it whenever the planner releases step 1, whenever a build request is vague, or whenever you catch yourself about to scaffold an Ordo app without having pinned down what it actually needs to do. Do NOT start designing crates here. Do NOT skip questions because the request 'seems clear.' A build that starts without a requirements record is a build that gets thrown away."
+category:
+  - build
+  - pipeline
+  - coding
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo Build — Intake

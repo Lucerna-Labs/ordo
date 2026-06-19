@@ -63,6 +63,7 @@ members = [
 ]
 default-members = ["ordo-cli"]
 exclude = [
+    "ordo-servo-shell",
     "mcp-servers/capstone",
     "mcp-servers/exe",
     "mcp-servers/fasttext",

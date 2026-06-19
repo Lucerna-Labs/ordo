@@ -77,6 +77,48 @@ const MAX_GATE_REJECTIONS_PER_TURN: usize = 3;
 const MAX_DUPLICATE_TOOL_CALLS_PER_TURN: usize = 1;
 const REASONING_PREVIEW_PREFIX: &str = "(no content emitted; reasoning preview)";
 
+fn is_system_message(message: &Value) -> bool {
+    message.get("role").and_then(Value::as_str) == Some("system")
+}
+
+fn leading_system_insert_index(messages: &[Value]) -> usize {
+    messages
+        .iter()
+        .position(|message| !is_system_message(message))
+        .unwrap_or(messages.len())
+}
+
+fn system_message_text(message: &Value) -> Option<String> {
+    match message.get("content") {
+        Some(Value::String(content)) if !content.trim().is_empty() => Some(content.clone()),
+        Some(Value::Null) | None => None,
+        Some(content) => serde_json::to_string(content).ok(),
+    }
+}
+
+fn system_messages_first(messages: &[Value]) -> Vec<Value> {
+    let mut system_parts = Vec::new();
+    for message in messages.iter().filter(|message| is_system_message(message)) {
+        if let Some(content) = system_message_text(message) {
+            system_parts.push(content);
+        }
+    }
+
+    let mut ordered = Vec::with_capacity(messages.len());
+    if !system_parts.is_empty() {
+        ordered.push(json!({
+            "role": "system",
+            "content": system_parts.join("\n\n"),
+        }));
+    }
+    ordered.extend(
+        messages
+            .iter()
+            .filter(|message| !is_system_message(message))
+            .cloned(),
+    );
+    ordered
+}
 fn visible_assistant_message(response: &Value, invocations: &[ToolInvocation]) -> String {
     let content_raw = response
         .get("content_raw")
@@ -221,32 +263,11 @@ fn diagnostic_allows_cloud_models(request: &TurnRequest) -> bool {
 }
 
 fn is_local_llm_credential(credential: &ordo_cloud::CloudCredential) -> bool {
-    let service = credential.service.to_ascii_lowercase();
-    let provider_kind = credential
-        .extras
-        .get("provider_kind")
-        .map(|value| value.to_ascii_lowercase());
-    let base_url = credential
-        .base_url
-        .as_deref()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    ordo_cloud::local_model_provider(credential).is_some()
+}
 
-    if matches!(
-        provider_kind.as_deref(),
-        Some("cloud_model" | "cloud" | "remote_model")
-    ) {
-        return false;
-    }
-
-    matches!(provider_kind.as_deref(), Some("local_model"))
-        || service == "ollama"
-        || service == "ollama_local"
-        || service == "lmstudio"
-        || service == "lm-studio"
-        || base_url.contains("localhost")
-        || base_url.contains("127.0.0.1")
-        || base_url.contains("[::1]")
+fn is_local_model_app_credential(credential: &ordo_cloud::CloudCredential) -> bool {
+    ordo_cloud::local_model_provider(credential).is_some()
 }
 
 #[derive(Clone)]
@@ -674,6 +695,35 @@ impl AssistantService {
     /// per session to stream live progress to the studio.
     pub fn events(&self) -> EventBroadcaster {
         self.events.clone()
+    }
+
+    async fn enforce_model_lifecycle(
+        &self,
+        credential_service: &str,
+        reason: &str,
+    ) -> AssistantResult<()> {
+        let report = self
+            .credentials
+            .enforce_single_local_model(&self.http, Some(credential_service), reason)
+            .await
+            .map_err(|err| AssistantError::Storage(err.to_string()))?;
+        if report.has_work() {
+            tracing::info!(
+                target: "ordo_assistant::model_lifecycle",
+                credential_service,
+                unloaded = report.unloaded.len(),
+                errors = report.errors.len(),
+                "local model lifecycle applied"
+            );
+        }
+        if report.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(AssistantError::LlmFailed(format!(
+                "local model lifecycle failed before LLM call: {}",
+                report.errors.join("; ")
+            )))
+        }
     }
 
     /// Append `user.message` to the memory log if one is wired.
@@ -1425,6 +1475,9 @@ impl AssistantService {
             .skip(resolved_position + 1)
             .cloned()
             .collect();
+        if request.credential.is_some() || is_local_model_app_credential(&credential_init) {
+            failover_remaining.clear();
+        }
         if diagnostic_mode && !diagnostic_cloud_allowed {
             let mut local_failover = Vec::new();
             for name in failover_remaining {
@@ -1586,8 +1639,9 @@ impl AssistantService {
                  If policy is off, do not consult another mode. If policy requires suggestion or approval, explain the proposed collaborator before consulting unless the operator explicitly requested it. \
                  If consultation is allowed, use `assistant.consult_mode_agent`; do not read another mode's RAG or memory directly."
             );
+            let system_insert_pos = leading_system_insert_index(messages_array);
             messages_array.insert(
-                messages_array.len().min(3),
+                system_insert_pos,
                 json!({
                     "role": "system",
                     "content": text,
@@ -1623,6 +1677,8 @@ impl AssistantService {
         let mut streamed_text: Option<String> = None;
         let mut streamed_model: Option<String> = None;
         if request.stream && !tool_use_enabled && !is_anthropic {
+            self.enforce_model_lifecycle(&credential_service, "assistant_streaming_turn")
+                .await?;
             match self
                 .run_streaming_turn(session_id, messages_array, &credential, &cancel)
                 .await
@@ -1652,20 +1708,14 @@ impl AssistantService {
             }
             iteration += 1;
             check_cancel()?;
-            let mut chat_args = json!({
-                "messages": Value::Array(messages_array.clone()),
+            let chat_messages = system_messages_first(messages_array);
+            let mut base_chat_args = json!({
+                "messages": Value::Array(chat_messages),
                 "temperature": 0.3,
             });
-            // Honor a per-credential model override (set via the Cloud
-            // tab's "model" field, stored on `extras.model`). Lets local
-            // OpenAI-compatible providers (Ollama, LM Studio, etc.)
-            // route to whichever model the operator has loaded.
-            if let Some(model) = credential.extras.get("model") {
-                chat_args["model"] = json!(model);
-            }
             if tool_use_enabled {
-                chat_args["tools"] = tools_payload.clone();
-                chat_args["tool_choice"] = Value::String("auto".into());
+                base_chat_args["tools"] = tools_payload.clone();
+                base_chat_args["tool_choice"] = Value::String("auto".into());
             }
 
             // Call the LLM with CALL-TIME failover (follow-up 1):
@@ -1677,6 +1727,16 @@ impl AssistantService {
             let mut response: Option<Value> = None;
             let mut last_err: Option<String> = None;
             loop {
+                self.enforce_model_lifecycle(&credential_service, "assistant_llm_call")
+                    .await?;
+                let mut chat_args = base_chat_args.clone();
+                // Honor a per-credential model override (set via the Cloud
+                // tab's "model" field, stored on `extras.model`). Re-apply
+                // this inside the failover loop so a provider switch cannot
+                // carry the previous provider's model id forward.
+                if let Some(model) = credential.extras.get("model") {
+                    chat_args["model"] = json!(model);
+                }
                 // Read the per-credential timeout from extras so an
                 // operator can extend Ollama (or any specific
                 // provider) without touching code. The reqwest
@@ -2233,8 +2293,9 @@ impl AssistantService {
         use futures::StreamExt;
         use ordo_cloud::openai::ChatStreamEvent;
 
+        let chat_messages = system_messages_first(messages_array);
         let mut chat_args = json!({
-            "messages": Value::Array(messages_array.to_vec()),
+            "messages": Value::Array(chat_messages),
             "temperature": 0.3,
         });
         if let Some(model) = credential.extras.get("model") {
@@ -3785,7 +3846,7 @@ mod taint_helpers_tests {
         // promoted by long clean invocation history. Tool output
         // from these servers does NOT taint the session.
         assert!(
-            mcp_taint_for_provider(Some("mcp:trusted:my-content_store"), Uuid::new_v4()).is_none(),
+            mcp_taint_for_provider(Some("mcp:trusted:my-vector-store"), Uuid::new_v4()).is_none(),
             "trusted MCP must not taint"
         );
     }
@@ -3798,17 +3859,17 @@ mod taint_helpers_tests {
         // "trusted:foo", which would be wrong twice (taint we
         // shouldn't have, server_id mangled).
         let invocation_id = Uuid::new_v4();
-        let result = mcp_taint_for_provider(Some("mcp:trusted:my-content_store"), invocation_id);
+        let result = mcp_taint_for_provider(Some("mcp:trusted:my-vector-store"), invocation_id);
         assert!(result.is_none());
 
         // And confirm the untrusted-state branch still works for
         // the bare prefix (regression-resistant against future
         // refactors that might over-strip).
-        let untrusted = mcp_taint_for_provider(Some("mcp:my-other-content_store"), invocation_id)
+        let untrusted = mcp_taint_for_provider(Some("mcp:my-other-vector-store"), invocation_id)
             .expect("untrusted state must taint");
         match untrusted {
             ordo_protocol::Taint::UntrustedMcp { server_id, .. } => {
-                assert_eq!(server_id, "my-other-content_store");
+                assert_eq!(server_id, "my-other-vector-store");
             }
             other => panic!("expected UntrustedMcp, got {other:?}"),
         }
@@ -3990,10 +4051,176 @@ mod cross_mode_consult_tests {
             other => panic!("expected InvalidArgument, got {other:?}"),
         }
     }
+
+    #[tokio::test]
+    async fn remember_knowledge_defaults_to_diagnostic_tree_and_lookup_reads_it() {
+        let mut diagnostic = test_mode("diagnostic", "Diagnostic", None, None);
+        diagnostic.rag_domains = vec!["diagnostic_self_learning_tree".to_string()];
+        diagnostic
+            .normalize_and_validate()
+            .expect("valid diagnostic mode");
+        let registry = registry_with(vec![
+            test_mode("general", "General", None, None),
+            diagnostic,
+        ]);
+        let service = AssistantService::new(
+            AssistantStore::in_memory().expect("store"),
+            Arc::new(HashingEmbedder::new(96)),
+            CloudCredentialTask::start(
+                CloudCredentialStore::in_memory().expect("credential store"),
+            ),
+        )
+        .with_modes(registry);
+        let session = service
+            .new_session(Some("diagnostic self learning"), Some("diagnostic"))
+            .expect("create diagnostic session");
+
+        let remembered = service
+            .meta_remember_knowledge(
+                session.id,
+                json!({
+                    "body": "Servo blank page smoke lesson: check asset server MIME types before browser flags.",
+                    "kind": "observation"
+                }),
+            )
+            .await
+            .expect("remember diagnostic knowledge");
+
+        assert_eq!(remembered["mode"], "diagnostic");
+        assert_eq!(remembered["domain"], "diagnostic_self_learning_tree");
+        assert_eq!(
+            remembered["entry"]["domain"],
+            "diagnostic_self_learning_tree"
+        );
+
+        let lookup = service
+            .meta_knowledge_lookup(
+                session.id,
+                json!({
+                    "query": "Servo blank page asset server MIME types",
+                    "domain": "diagnostic_self_learning_tree",
+                    "top_k": 5
+                }),
+            )
+            .await
+            .expect("lookup remembered diagnostic knowledge");
+        let hits = lookup["hits"].as_array().expect("hits array");
+        assert!(
+            hits.iter().any(|hit| hit["entry"]["body"]
+                .as_str()
+                .unwrap_or("")
+                .contains("asset server MIME types")),
+            "expected remembered lesson in lookup hits: {lookup}"
+        );
+
+        let err = service
+            .meta_remember_knowledge(
+                session.id,
+                json!({
+                    "domain": "general_rag",
+                    "body": "This should not escape diagnostic mode."
+                }),
+            )
+            .await
+            .expect_err("diagnostic mode must reject disallowed RAG domains");
+        match err {
+            AssistantError::InvalidArgument(message) => {
+                assert!(message.contains("not writable in mode 'diagnostic'"));
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn remember_fact_defaults_to_active_mode_scope_and_stays_scoped() {
+        let registry = registry_with(vec![
+            test_mode("general", "General", None, None),
+            test_mode("research", "Research", None, None),
+        ]);
+        let service = AssistantService::new(
+            AssistantStore::in_memory().expect("store"),
+            Arc::new(HashingEmbedder::new(96)),
+            CloudCredentialTask::start(
+                CloudCredentialStore::in_memory().expect("credential store"),
+            ),
+        )
+        .with_modes(registry);
+        let general_session = service
+            .new_session(Some("general memory"), Some("general"))
+            .expect("create general session");
+
+        let remembered = service
+            .meta_remember_fact(
+                general_session.id,
+                json!({
+                    "subject": "operator",
+                    "predicate": "debug_token",
+                    "object": "persistent memory smoke token lumen-731"
+                }),
+            )
+            .await
+            .expect("remember fact");
+        assert_eq!(remembered["scope"], "mode:general");
+
+        let listed = service
+            .meta_list_facts(general_session.id, json!({ "subject": "operator" }))
+            .await
+            .expect("list general facts");
+        assert_eq!(listed["count"], 1);
+        assert_eq!(listed["facts"][0]["scope"], "mode:general");
+
+        let recalled = service
+            .meta_recall_memory(
+                general_session.id,
+                json!({ "query": "lumen-731 persistent memory", "top_k": 3 }),
+            )
+            .await
+            .expect("recall general fact");
+        let facts = recalled["facts"].as_array().expect("facts array");
+        assert!(
+            facts.iter().any(|fact| fact["fact"]["object"]
+                .as_str()
+                .unwrap_or("")
+                .contains("lumen-731")),
+            "expected remembered fact in recall output: {recalled}"
+        );
+
+        let research_session = service
+            .new_session(Some("research memory"), Some("research"))
+            .expect("create research session");
+        let research_list = service
+            .meta_list_facts(research_session.id, json!({ "subject": "operator" }))
+            .await
+            .expect("list research facts");
+        assert_eq!(research_list["count"], 0);
+        let research_recall = service
+            .meta_recall_memory(
+                research_session.id,
+                json!({ "query": "lumen-731 persistent memory", "top_k": 3 }),
+            )
+            .await
+            .expect("recall research facts");
+        assert_eq!(research_recall["facts"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn meta_tool_schema_descriptions_are_readable_utf8() {
+        let serialized = serde_json::to_string(&meta_tool_schemas()).expect("serialize schemas");
+        for marker in ["\u{00c3}", "\u{00e2}", "\u{0413}", "\u{fffd}"] {
+            assert!(
+                !serialized.contains(marker),
+                "meta-tool schemas still contain mojibake marker {marker:?}: {serialized}"
+            );
+        }
+        assert!(serialized.contains("assistant.recall_memory"));
+        assert!(serialized.contains("assistant.knowledge_lookup"));
+        assert!(serialized.contains("result set is empty; say so"));
+        assert!(serialized.contains("domain_slot_4 through domain_slot_10"));
+    }
 }
 
-/// OpenAI-style function-calling schemas for the three meta-tools. The
-/// descriptions are deliberately long Ã¢â‚¬â€ they double as the read-only
+/// OpenAI-style function-calling schemas for the assistant meta-tools. The
+/// descriptions are deliberately long; they double as the read-only
 /// instructions for how to use each memory layer and reach the LLM
 /// without needing to reserialize the system prompt.
 fn meta_tool_schemas() -> Vec<Value> {
@@ -4002,7 +4229,7 @@ fn meta_tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "assistant.recall_memory",
-                "description": "Persistent fact memory about the operator, brand, clients, and projects. Use this to pull facts before answering anything that touches preferences, history, or domain context. Facts are subject-predicate-object triples with confidence scores; operator-authored facts outrank auto-extracted ones. If no fact matches, the result set is empty Ã¢â‚¬â€ say so rather than invent.",
+                "description": "Persistent fact memory about the operator, brand, clients, and projects. Use this to pull facts before answering anything that touches preferences, history, or domain context. Facts are subject-predicate-object triples with confidence scores; operator-authored facts outrank auto-extracted ones. If no fact matches, the result set is empty; say so rather than invent.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -4018,11 +4245,11 @@ fn meta_tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "assistant.knowledge_lookup",
-                "description": "The assistant's self-knowledge RAG Ã¢â‚¬â€ skill cards, persona guides, capability notes, and observations about what worked or didn't. Call this to discover what you can do and how. Optionally scope by `kind` ('skill', 'persona', 'tool_note', 'observation', 'note') or by `domain` (one of the ten domain slots: planning, orchestration, research, content_store, domain_slot_5Ã¢â‚¬Â¦domain_slot_10).",
+                "description": "The assistant's self-knowledge RAG: skill cards, persona guides, capability notes, and observations about what worked or did not. Call this to discover what you can do and how. Optionally scope by kind (skill, persona, tool_note, observation, note) or by domain (one of the ten domain slots: planning, orchestration, research, domain_slot_4 through domain_slot_10).",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string", "description": "Natural-language query Ã¢â‚¬â€ typically the task you're trying to accomplish."},
+                        "query": {"type": "string", "description": "Natural-language query, typically the task you are trying to accomplish."},
                         "top_k": {"type": "integer", "description": "Maximum number of entries to return. Defaults to 5.", "default": 5},
                         "kind": {"type": "string", "description": "Optional filter. One of skill, persona, tool_note, observation, note."},
                         "domain": {"type": "string", "description": "Optional domain slot to scope the lookup."}

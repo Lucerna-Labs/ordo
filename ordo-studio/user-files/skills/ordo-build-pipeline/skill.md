@@ -1,6 +1,15 @@
 ---
 name: ordo-build-pipeline
 description: "The master sequencing spec for autonomously building an Ordo app end to end. This is the PLANNER's skill, not the coder's — read it WHENEVER you are about to start, resume, or advance a multi-step Ordo build, or whenever you are deciding which step skill to hand the coder next. It defines the six build steps, each step's entry condition and exit gate, the GateResult message contract, the build ledger, the skill-eviction rule, and the three-memory routing. The planner advances the build by checking gates and releasing step skills in increments — the coder never chooses its own skills. If you are running an Ordo build and you are not following this spec, you have drifted. Do not let the coder skip a gate, do not hand out the next skill before the prior gate passes, and do not let procedural skill text pile up in context."
+category:
+  - build
+  - pipeline
+  - planning
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo Build Pipeline

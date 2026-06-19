@@ -1,0 +1,166 @@
+{
+  "active_team_id": "",
+  "teams": [
+    {
+      "id": "agent-team-build",
+      "name": "Build Team",
+      "intent": "Plan, implement, test, and review project changes with a clear lead.",
+      "lead": "member-build-lead",
+      "routing": "review-gated",
+      "modelLane": "hybrid",
+      "capabilityTier": "flagship",
+      "providerTarget": "local first, cloud fallback",
+      "modelTarget": "large local or cloud flagship",
+      "sharedSkills": "repo navigation, planning, build verification",
+      "maxParallel": 3,
+      "reviewRequired": true,
+      "budget": "balanced",
+      "members": [
+        {
+          "id": "member-build-lead",
+          "name": "Build lead",
+          "role": "lead",
+          "mode": "assistant",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "workspace, shell, builds",
+          "skills": "planning, handoff",
+          "memoryScope": "team + project"
+        },
+        {
+          "id": "member-build-planner",
+          "name": "Planner",
+          "role": "planner",
+          "mode": "modes",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "plans, files",
+          "skills": "planning, decomposition",
+          "memoryScope": "project"
+        },
+        {
+          "id": "member-build-builder",
+          "name": "Builder",
+          "role": "builder",
+          "mode": "assistant",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "workspace, shell",
+          "skills": "coding, refactor",
+          "memoryScope": "project"
+        },
+        {
+          "id": "member-build-reviewer",
+          "name": "Reviewer",
+          "role": "reviewer",
+          "mode": "review",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "review queue, tests",
+          "skills": "code review, tests",
+          "memoryScope": "project + audit"
+        }
+      ]
+    },
+    {
+      "id": "agent-team-diagnostic",
+      "name": "Tech Specialist Team",
+      "intent": "Trace broken runtime behavior, set up approved automation/dreaming work, isolate causes, and propose safe fixes.",
+      "lead": "member-diagnostic-lead",
+      "routing": "lead-routed",
+      "modelLane": "local",
+      "capabilityTier": "standard",
+      "providerTarget": "Ollama or LM Studio",
+      "modelTarget": "fast local diagnostic model",
+      "sharedSkills": "logs, runtime probes, repair notes",
+      "maxParallel": 2,
+      "reviewRequired": true,
+      "budget": "low",
+      "members": [
+        {
+          "id": "member-diagnostic-lead",
+          "name": "Tech specialist lead",
+          "role": "lead",
+          "mode": "diagnostic",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "logs, runtime, provider probes",
+          "skills": "triage, root cause",
+          "memoryScope": "runtime"
+        },
+        {
+          "id": "member-diagnostic-worker",
+          "name": "Runtime specialist",
+          "role": "diagnostic",
+          "mode": "diagnostic",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "logs, automation, dreaming, hooks",
+          "skills": "logs, probes, repair",
+          "memoryScope": "runtime + project"
+        },
+        {
+          "id": "member-diagnostic-reviewer",
+          "name": "Fix reviewer",
+          "role": "reviewer",
+          "mode": "review",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "review queue, tests",
+          "skills": "regression review, tests",
+          "memoryScope": "audit"
+        }
+      ]
+    },
+    {
+      "id": "agent-team-dreaming",
+      "name": "Dreaming Team",
+      "intent": "Grow long-running ideas through memory, RAG, and project context.",
+      "lead": "member-dreaming-lead",
+      "routing": "parallel",
+      "modelLane": "hybrid",
+      "capabilityTier": "flagship",
+      "providerTarget": "local first, cloud fallback",
+      "modelTarget": "long-context large model",
+      "sharedSkills": "memory synthesis, RAG traversal, project dreaming",
+      "maxParallel": 2,
+      "reviewRequired": false,
+      "budget": "background",
+      "members": [
+        {
+          "id": "member-dreaming-lead",
+          "name": "Dreaming lead",
+          "role": "lead",
+          "mode": "dreaming",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "memory, rag, projects",
+          "skills": "synthesis, long-range planning",
+          "memoryScope": "long memory"
+        },
+        {
+          "id": "member-dreaming-researcher",
+          "name": "Research scout",
+          "role": "researcher",
+          "mode": "rag",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "rag, files, memory",
+          "skills": "research, retrieval",
+          "memoryScope": "rag tree"
+        },
+        {
+          "id": "member-dreaming-reviewer",
+          "name": "Reality check",
+          "role": "reviewer",
+          "mode": "review",
+          "provider": "team default",
+          "model": "team default",
+          "tools": "review queue, notes",
+          "skills": "critique, feasibility",
+          "memoryScope": "project"
+        }
+      ]
+    }
+  ]
+}

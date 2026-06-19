@@ -10,7 +10,7 @@
 //!   3. session history persists across turns
 //!   4. a missing credential fails cleanly
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use ordo_assistant::{AssistantService, AssistantStore, NewFact, TurnContext, TurnRequest};
 use ordo_cloud::{CloudCredentialStore, CloudCredentialTask, CloudCredentialUpdate};
@@ -268,6 +268,10 @@ async fn call_time_failover_retries_next_credential_on_5xx() {
             auth_style: Some("bearer".into()),
             secret: Some("sk-primary".into()),
             base_url: Some(format!("{}/", primary.uri())),
+            extras: Some(HashMap::from([(
+                "model".to_string(),
+                "primary-model".to_string(),
+            )])),
             ..Default::default()
         })
         .await
@@ -278,6 +282,10 @@ async fn call_time_failover_retries_next_credential_on_5xx() {
             auth_style: Some("bearer".into()),
             secret: Some("sk-backup".into()),
             base_url: Some(format!("{}/", secondary.uri())),
+            extras: Some(HashMap::from([(
+                "model".to_string(),
+                "backup-model".to_string(),
+            )])),
             ..Default::default()
         })
         .await
@@ -314,6 +322,22 @@ async fn call_time_failover_retries_next_credential_on_5xx() {
         .turn
         .assistant_response
         .contains("served-by-secondary"));
+
+    let primary_received = primary.received_requests().await.expect("primary requests");
+    assert_eq!(primary_received.len(), 1);
+    let primary_body: serde_json::Value =
+        serde_json::from_slice(&primary_received[0].body).expect("primary body");
+    assert_eq!(primary_body["model"], "primary-model");
+
+    let secondary_received = secondary
+        .received_requests()
+        .await
+        .expect("secondary requests");
+    assert_eq!(secondary_received.len(), 1);
+    let secondary_body: serde_json::Value =
+        serde_json::from_slice(&secondary_received[0].body).expect("secondary body");
+    assert_eq!(secondary_body["model"], "backup-model");
+    assert_ne!(secondary_body["model"], "primary-model");
 }
 
 #[tokio::test]

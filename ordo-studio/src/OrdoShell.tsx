@@ -16,7 +16,7 @@
 //   - Rescue Mode amber flood is wired here at the shell root, gated on
 //     the gateway signal flipping to `err`.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -46,10 +46,12 @@ import {
   approveReview,
   archiveApp,
   cancelAssistantTurn,
+  createConnection,
   createAutomation,
   createApp,
   deleteAutomation,
   deleteCloudCredential,
+  deleteConnectionRow,
   deletePlugin,
   deleteInstalledSkill,
   findBinary,
@@ -74,6 +76,7 @@ import {
   fetchRuntimeProfile,
   fetchRuntimeSettings,
   fetchRuntimeStorage,
+  fetchAgentTeams,
   inspectMcpServer,
   installMcpServer,
   invokeTool,
@@ -81,6 +84,7 @@ import {
   listAutomations,
   listApps,
   listCloudCredentials,
+  listConnections,
   listConnectionTypes,
   listFiles,
   listMcpServers,
@@ -98,7 +102,6 @@ import {
   newAssistantSession,
   openAssistantStream,
   postAssistantTurn,
-  postVoiceSpeech,
   publishApp,
   fetchRagCollections,
   previewRagCollections,
@@ -111,9 +114,13 @@ import {
   uploadFileBase64,
   upsertCloudCredential,
   setPluginEnabled,
+  setCloudCredentialDefault,
+  saveAgentTeams as saveAgentTeamsSnapshot,
+  setActiveAgentTeam as persistActiveAgentTeam,
   startBuild,
   submitBuildGateResult,
   updateInstalledSkill,
+  updateConnection,
   updatePlugin,
   type AppRow,
   type AuditEntry,
@@ -128,7 +135,9 @@ import {
   type AutomationTrigger,
   type CapabilityDescriptor,
   type CloudCredentialRow,
+  type ConnectionRow,
   type LocalApiKeyInstallResult,
+  type LocalLlmDiscovery,
   type ConnectionType,
   type FileRow,
   type McpServer,
@@ -208,7 +217,6 @@ import {
   FolderUp,
   Mic,
   MicOff,
-  Volume2,
   Download,
   Square,
   Settings as SettingsIcon,
@@ -244,6 +252,8 @@ const RED = "#e85d5d";
 
 type SignalState = "ok" | "warn" | "err" | "off";
 type OrdoTheme = "dark" | "bright";
+const DIAGNOSTIC_MODE_ID = "diagnostic";
+const DIAGNOSTIC_DISPLAY_LABEL = "Ordo Tech Specialist / Diagnostics";
 
 interface SignalDef {
   id: string;
@@ -256,7 +266,7 @@ interface TabDef {
   id: string;
   label: string;
   glyph: typeof MessageSquare;
-  group: "primary" | "agent" | "knowledge" | "connectivity" | "advanced" | "docs";
+  group: "primary" | "agent" | "knowledge" | "connectivity" | "advanced" | "docs" | "system";
 }
 
 const TABS: TabDef[] = [
@@ -272,13 +282,14 @@ const TABS: TabDef[] = [
   { id: "cloud", label: "Provider", glyph: Cloud, group: "primary" },
   { id: "assistant", label: "Assistant", glyph: MessageSquare, group: "primary" },
   { id: "modes", label: "Modes", glyph: SlidersHorizontal, group: "primary" },
-  { id: "hooks", label: "Hooks", glyph: ShieldCheck, group: "primary" },
   // Review sits below Assistant because it's operator-essential
   // orchestration — the queue where assistant artifacts wait for
   // approve/deny. The Review tab pulses when there's a pending
   // request so the operator sees it without hunting.
   { id: "review", label: "Review", glyph: Eye, group: "primary" },
+  { id: "agents", label: "Agent Teams", glyph: Bot, group: "agent" },
   { id: "skills", label: "Skills", glyph: Sparkles, group: "agent" },
+  { id: "hooks", label: "Hooks", glyph: ShieldCheck, group: "agent" },
   { id: "persona", label: "Persona", glyph: User, group: "agent" },
   { id: "agent-persona", label: "Agent Persona", glyph: Bot, group: "agent" },
   { id: "agent-memory", label: "Agent Memory", glyph: BookMarked, group: "agent" },
@@ -303,7 +314,7 @@ const TABS: TabDef[] = [
   { id: "automation", label: "Automation", glyph: Zap, group: "agent" },
   { id: "builds", label: "Builds", glyph: Wrench, group: "agent" },
   { id: "dreaming", label: "Dreaming", glyph: Brain, group: "agent" },
-  { id: "diagnostic", label: "Diagnostic", glyph: Stethoscope, group: "agent" },
+  { id: "diagnostic", label: "Tech Specialist", glyph: Stethoscope, group: "agent" },
   { id: "projects", label: "Projects", glyph: Briefcase, group: "agent" },
   { id: "artifacts", label: "Artifacts", glyph: FileText, group: "agent" },
   { id: "rag", label: "RAG", glyph: Database, group: "knowledge" },
@@ -320,7 +331,7 @@ const TABS: TabDef[] = [
   { id: "settings-personalization", label: "Personalization", glyph: Sparkles, group: "advanced" },
   { id: "settings-keyboard", label: "Keyboard shortcuts", glyph: Keyboard, group: "advanced" },
   { id: "settings-mcp", label: "MCP servers", glyph: Paperclip, group: "advanced" },
-  { id: "remote-communication", label: "Remote Communication", glyph: Mail, group: "advanced" },
+  { id: "remote-communication", label: "Remote Communication", glyph: Mail, group: "connectivity" },
   { id: "settings-browser", label: "Browser", glyph: Globe, group: "advanced" },
   { id: "settings-computer-use", label: "Computer use", glyph: Monitor, group: "advanced" },
   { id: "connections", label: "Connections", glyph: Globe, group: "advanced" },
@@ -340,30 +351,52 @@ const TABS: TabDef[] = [
   // standalone operator orchestration, so it lives as a card inside the
   // Runtime tab next to profiles + budgets + response timeout.
   { id: "runtime", label: "Runtime", glyph: Cpu, group: "advanced" },
-  { id: "settings", label: "Settings", glyph: SettingsIcon, group: "primary" },
   { id: "docs", label: "Docs", glyph: BookMarked, group: "docs" },
   { id: "dev-docs", label: "Dev Docs", glyph: FileText, group: "docs" },
+  { id: "settings", label: "Settings", glyph: SettingsIcon, group: "system" },
 ];
 
 const LEFT_RAIL_TAB_IDS = new Set([
   "cloud",
   "assistant",
   "modes",
-  "hooks",
   "review",
+  "agents",
   "skills",
-  "avatar",
-  "plugins",
-  "mcp",
-  "extensions",
   "automation",
-  "builds",
-  "dreaming",
   "diagnostic",
-  "projects",
+  "remote-communication",
   "settings",
   "docs",
   "dev-docs",
+]);
+
+const COMMON_SETTINGS_TAB_IDS = new Set([
+  "agents",
+  "avatar",
+  "plugins",
+  "mcp",
+  "builds",
+  "projects",
+]);
+
+const MAINTENANCE_ADMIN_TABS = new Map<string, string>([
+  ["cloud", "Provider setup"],
+  ["avatar", "Avatar setup"],
+  ["remote-communication", "Email and remote communication setup"],
+  ["hooks", "Hook setup"],
+  ["skills", "Skill installs"],
+  ["extensions", "UI extension setup"],
+  ["plugins", "Plugin installs"],
+  ["mcp", "MCP server installs"],
+  ["apps", "App publishing"],
+  ["webhooks", "Webhook registration"],
+  ["automation", "Automation setup"],
+  ["routines", "Routine setup"],
+  ["dreaming", "Dreaming setup"],
+  ["builds", "Build operations"],
+  ["connections", "SSH and API connections"],
+  ["settings-mcp", "Custom MCP settings"],
 ]);
 
 const isSettingsManagedTab = (id: string) =>
@@ -734,6 +767,90 @@ const Mono = ({
   </span>
 );
 
+const ChatIconButton = ({
+  children,
+  disabled = false,
+  label,
+  onClick,
+  title,
+  tone = "quiet",
+  iconColor: iconColorOverride,
+  style = {},
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onClick?: () => void;
+  title?: string;
+  tone?: "quiet" | "lamp" | "danger";
+  iconColor?: string;
+  style?: CSSProperties;
+}) => {
+  const active = !disabled;
+  const iconColor = iconColorOverride ?? (tone === "lamp" ? "#0a0c10" : "#f4ecd8");
+  const renderedChildren = isValidElement<{ color?: string }>(children)
+    ? cloneElement(children, { color: iconColor })
+    : children;
+  const background =
+    tone === "lamp"
+      ? `linear-gradient(180deg, ${LAMP}, #c89a3d)`
+      : tone === "danger"
+      ? `linear-gradient(180deg, ${RED}, #b83f3f)`
+      : "rgba(244,236,216,0.10)";
+  const color = iconColor;
+  const border =
+    tone === "quiet"
+      ? "1px solid rgba(244,236,216,0.20)"
+      : "1px solid rgba(255,255,255,0.18)";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={title ?? label}
+      className="transition-all"
+      style={{
+        minWidth: 38,
+        height: 38,
+        borderRadius: 12,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flex: "0 0 auto",
+        padding: 0,
+        background,
+        border,
+        color,
+        cursor: active ? "pointer" : "not-allowed",
+        opacity: active ? 1 : 0.45,
+        touchAction: "manipulation",
+        WebkitTapHighlightColor: "transparent",
+        boxShadow:
+          tone === "lamp"
+            ? `0 6px 16px ${LAMP}40`
+            : tone === "danger"
+            ? `0 6px 16px ${RED}30`
+            : "none",
+        ...style,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "none",
+        }}
+      >
+        {renderedChildren}
+      </span>
+    </button>
+  );
+};
+
 const Serif = ({
   children,
   size = 14,
@@ -1078,6 +1195,307 @@ const downloadTextFile = (filename: string, text: string, mime = "text/markdown;
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
+interface ArtifactBrowserTarget {
+  id: string;
+  label: string;
+  url: string;
+  source: "manual" | "transcript" | "generated";
+}
+
+const ARTIFACT_DOCUMENT_EXTENSIONS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "eml",
+  "xls",
+  "xlsx",
+  "csv",
+  "mail",
+  "mbox",
+  "msg",
+  "ods",
+  "odt",
+  "ppt",
+  "pptx",
+]);
+
+const ARTIFACT_FRAME_EXTENSIONS = new Set([
+  "pdf",
+  "csv",
+  "txt",
+  "md",
+  "html",
+  "htm",
+  "json",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+]);
+
+const ARTIFACT_EMAIL_EXTENSIONS = new Set(["eml", "mail", "mbox", "msg"]);
+
+const fileContentUrl = (id: string): string => `/api/files/${encodeURIComponent(id)}/content`;
+
+const fileIdFromContentUrl = (rawUrl: string): string | null => {
+  try {
+    const parsed = new URL(rawUrl, typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1");
+    const match = parsed.pathname.match(/^\/api\/files\/([^/]+)\/content$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    const match = rawUrl.match(/^\/api\/files\/([^/]+)\/content$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }
+};
+
+const LOCAL_ARTIFACT_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+const isLocalArtifactHost = (hostname: string): boolean =>
+  LOCAL_ARTIFACT_HOSTS.has(hostname.toLowerCase());
+
+const isLocalArtifactBrowserUrl = (url: string): boolean => {
+  if (/^(blob:|data:|file:)/i.test(url)) return true;
+  try {
+    const parsed = new URL(
+      url,
+      typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1",
+    );
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    return isLocalArtifactHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const artifactBlankUrl = (): string =>
+  `data:text/html;charset=utf-8,${encodeURIComponent(
+    `<!doctype html><html><head><meta charset="utf-8"><style>
+      body{margin:0;background:#0a0c10;color:#f4ecd8;font:13px ui-monospace,Menlo,monospace;display:grid;place-items:center;height:100vh}
+      .box{opacity:.58;text-align:center;line-height:1.7}
+      .k{color:#f4c95d;letter-spacing:.16em;text-transform:uppercase;font-size:10px}
+    </style></head><body><div class="box"><div class="k">artifact viewer</div><div>No artifact loaded.</div></div></body></html>`,
+  )}`;
+
+const normalizeArtifactBrowserUrl = (raw: string): string | null => {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^(blob:|data:|file:)/i.test(trimmed)) return trimmed;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  try {
+    if (trimmed.startsWith("/") && typeof window !== "undefined") {
+      return new URL(trimmed, window.location.origin).toString();
+    }
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return isLocalArtifactHost(parsed.hostname) ? parsed.toString() : null;
+    }
+  } catch {
+    if (typeof window !== "undefined" && /^[./\w-]+\/[\w./%?=&:-]+$/i.test(trimmed)) {
+      try {
+        return new URL(trimmed.replace(/^\.\//, "/"), window.location.origin).toString();
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+};
+
+const artifactLabelFromUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const name = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() ?? "");
+    return name || parsed.hostname || "artifact";
+  } catch {
+    return url.slice(0, 64);
+  }
+};
+
+const extensionFromArtifact = (url: string, label?: string): string => {
+  const candidates = [label ?? "", url];
+  for (const candidate of candidates) {
+    const clean = candidate.split(/[?#]/)[0].toLowerCase();
+    const match = clean.match(/\.([a-z0-9]{2,8})$/);
+    if (match) return match[1];
+  }
+  return "";
+};
+
+const isOfficeArtifact = (url: string, label?: string): boolean => {
+  const ext = extensionFromArtifact(url, label);
+  return ["doc", "docx", "xls", "xlsx", "ods", "odt", "ppt", "pptx"].includes(ext);
+};
+
+const isEmailArtifact = (url: string, label?: string, contentType = ""): boolean => {
+  const ext = extensionFromArtifact(url, label);
+  const lowerType = contentType.toLowerCase();
+  const lowerLabel = (label ?? "").toLowerCase();
+  return (
+    ARTIFACT_EMAIL_EXTENSIONS.has(ext) ||
+    /message\/rfc822|application\/vnd\.ms-outlook|application\/mbox/.test(lowerType) ||
+    /\b(email|mail|mailbox|message|inbox)\b/.test(lowerLabel)
+  );
+};
+
+const canFrameArtifact = (url: string, label?: string): boolean => {
+  if (/^(data:|blob:)/i.test(url)) return true;
+  const ext = extensionFromArtifact(url, label);
+  return ext ? ARTIFACT_FRAME_EXTENSIONS.has(ext) : !isOfficeArtifact(url, label) && !isEmailArtifact(url, label);
+};
+
+const isArtifactBrowserTarget = (url: string, label?: string): boolean => {
+  if (!isLocalArtifactBrowserUrl(url)) return false;
+  const lowerLabel = (label ?? "").toLowerCase();
+  const ext = extensionFromArtifact(url, label);
+  if (ext && ARTIFACT_DOCUMENT_EXTENSIONS.has(ext)) return true;
+  if (/(artifact|preview|canvas|mockup|diagram|report|document|file|download|output|email|mail|mailbox|message)/.test(lowerLabel)) {
+    return true;
+  }
+  if (/^(blob:|data:|file:)/i.test(url)) return true;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    const pathExt = extensionFromArtifact(path, label);
+    if (pathExt && ARTIFACT_DOCUMENT_EXTENSIONS.has(pathExt)) return true;
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+    return /\/(artifacts?|previews?|files?|user-files|assets|downloads?)\b/.test(path);
+  } catch {
+    return /\/(artifacts?|previews?|files?|user-files|assets|downloads?)\b/i.test(url);
+  }
+};
+
+const extractArtifactLinks = (messages: ChatMessage[]): ArtifactBrowserTarget[] => {
+  const seen = new Set<string>();
+  const targets: ArtifactBrowserTarget[] = [];
+  const push = (urlLike: string, label?: string) => {
+    const url = normalizeArtifactBrowserUrl(urlLike.replace(/[),.;\]]+$/g, ""));
+    if (!url || seen.has(url) || !isArtifactBrowserTarget(url, label)) return;
+    seen.add(url);
+    targets.push({
+      id: `${targets.length}-${url}`,
+      label: (label || artifactLabelFromUrl(url)).trim().slice(0, 80) || "artifact",
+      url,
+      source: "transcript",
+    });
+  };
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const match of message.text.matchAll(/\b(artifact|preview|canvas|mockup|diagram|report|email|mail|message)\s*:\s*([^\s<>"']+)/gi)) {
+      push(match[2], match[1]);
+    }
+    for (const match of message.text.matchAll(/\[([^\]]{1,120})\]\(([^)\s]+)\)/g)) {
+      push(match[2], match[1]);
+    }
+    for (const match of message.text.matchAll(/\b(?:https?:\/\/|file:\/\/|localhost(?::\d+)?\/|127\.0\.0\.1(?::\d+)?\/|\/(?:api|assets|artifacts|files|user-files)\/)[^\s<>"']+/gi)) {
+      push(match[0]);
+    }
+  }
+  return targets.slice(-18).reverse();
+};
+
+interface EmailArtifactPreview {
+  loading: boolean;
+  error?: string | null;
+  subject?: string;
+  from?: string;
+  to?: string;
+  date?: string;
+  body?: string;
+}
+
+const decodeQuotedPrintable = (value: string): string =>
+  value
+    .replace(/=\r?\n/g, "")
+    .replace(/=([0-9a-f]{2})/gi, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+
+const stripHtml = (value: string): string =>
+  value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const splitEmailHeadersAndBody = (raw: string): { headers: Map<string, string>; body: string } => {
+  const normalized = raw.replace(/\r\n/g, "\n");
+  const splitAt = normalized.search(/\n\n/);
+  const headerText = splitAt >= 0 ? normalized.slice(0, splitAt) : "";
+  const body = splitAt >= 0 ? normalized.slice(splitAt + 2) : normalized;
+  const unfolded = headerText.replace(/\n[ \t]+/g, " ");
+  const headers = new Map<string, string>();
+  for (const line of unfolded.split("\n")) {
+    const idx = line.indexOf(":");
+    if (idx <= 0) continue;
+    headers.set(line.slice(0, idx).trim().toLowerCase(), line.slice(idx + 1).trim());
+  }
+  return { headers, body };
+};
+
+const decodeEmailPartBody = (headers: Map<string, string>, body: string): string => {
+  const transfer = (headers.get("content-transfer-encoding") ?? "").toLowerCase();
+  if (transfer.includes("base64")) {
+    try {
+      const binary = window.atob(body.replace(/\s+/g, ""));
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return new TextDecoder("utf-8").decode(bytes);
+    } catch {
+      return body;
+    }
+  }
+  if (transfer.includes("quoted-printable")) {
+    return decodeQuotedPrintable(body);
+  }
+  return body;
+};
+
+const parseEmailArtifactPreview = (raw: string): EmailArtifactPreview => {
+  const { headers, body } = splitEmailHeadersAndBody(raw);
+  const contentType = (headers.get("content-type") ?? "").toLowerCase();
+  let displayBody = body;
+  const boundary = contentType.match(/boundary="?([^";]+)"?/i)?.[1];
+  if (boundary) {
+    const parts = body.split(`--${boundary}`);
+    const parsedParts = parts
+      .map(splitEmailHeadersAndBody)
+      .filter((part) => part.body.trim());
+    const plain = parsedParts.find((part) => (part.headers.get("content-type") ?? "").toLowerCase().includes("text/plain"));
+    const html = parsedParts.find((part) => (part.headers.get("content-type") ?? "").toLowerCase().includes("text/html"));
+    const chosen = plain ?? html ?? parsedParts[0];
+    if (chosen) {
+      const chosenType = (chosen.headers.get("content-type") ?? "").toLowerCase();
+      const decoded = decodeEmailPartBody(chosen.headers, chosen.body);
+      displayBody = chosenType.includes("html") ? stripHtml(decoded) : decoded.trim();
+    }
+  } else {
+    const decoded = decodeEmailPartBody(headers, body);
+    displayBody = contentType.includes("html") ? stripHtml(decoded) : decoded.trim();
+  }
+  return {
+    loading: false,
+    subject: headers.get("subject") ?? "(no subject)",
+    from: headers.get("from") ?? "",
+    to: headers.get("to") ?? "",
+    date: headers.get("date") ?? "",
+    body: displayBody.slice(0, 20000),
+  };
+};
+
 const copyTextToClipboard = async (text: string) => {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -1118,42 +1536,6 @@ const copyChatMessageToClipboard = async (
 };
 
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 128000;
-const TTS_ENABLED_KEY = "ordo:voice_tts_enabled";
-const TTS_MODEL_KEY = "ordo:voice_tts_model";
-const TTS_VOICE_KEY = "ordo:voice_tts_voice";
-const TTS_FORMAT_KEY = "ordo:voice_tts_format";
-const DEFAULT_TTS_MODEL = "gpt-4o-mini-tts";
-const DEFAULT_TTS_VOICE = "alloy";
-const DEFAULT_TTS_FORMAT = "mp3";
-const TTS_MODEL_OPTIONS = ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"];
-const TTS_VOICE_OPTIONS = [
-  "alloy",
-  "ash",
-  "ballad",
-  "coral",
-  "echo",
-  "fable",
-  "onyx",
-  "nova",
-  "sage",
-  "shimmer",
-  "verse",
-  "marin",
-  "cedar",
-];
-
-const readStoredBoolean = (key: string, fallback: boolean): boolean => {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (raw === "true") return true;
-    if (raw === "false") return false;
-  } catch {
-    // ignore storage denial
-  }
-  return fallback;
-};
-
 const readStoredString = (key: string, fallback: string): string => {
   if (typeof window === "undefined") return fallback;
   try {
@@ -1336,19 +1718,20 @@ const ContextUsageIndicator = ({
   ].join("\n");
   return (
     <div
-      className="flex items-center gap-2"
+      className="flex items-center gap-2 flex-wrap"
       title={title}
       aria-label={`Context used ${percent} percent`}
       style={{
-        width: "100%",
+        flex: "0 1 auto",
         minWidth: 0,
+        maxWidth: "100%",
       }}
     >
       <div
         className="flex items-center gap-2"
         style={{
-          flexShrink: 0,
-          minWidth: 220,
+          flex: "0 0 auto",
+          width: 214,
           padding: "5px 8px",
           borderRadius: 999,
           border: `1px solid ${tone.color}33`,
@@ -1360,8 +1743,7 @@ const ContextUsageIndicator = ({
         </Mono>
         <div
           style={{
-            flex: 1,
-            minWidth: 80,
+            width: 82,
             height: 4,
             borderRadius: 999,
             background: "rgba(255,255,255,0.12)",
@@ -1390,9 +1772,9 @@ const ContextUsageIndicator = ({
             : "Configure a provider before choosing a model"
         }
         style={{
-          flexShrink: 1,
+          flex: "0 1 260px",
           minWidth: 180,
-          maxWidth: 360,
+          maxWidth: 280,
           padding: "5px 8px",
           borderRadius: 999,
           border: "1px solid rgba(255,255,255,0.10)",
@@ -1475,8 +1857,7 @@ const ContextUsageIndicator = ({
           <option value="high">high</option>
         </select>
       </label>
-      <div style={{ flex: 1, minWidth: 12 }} />
-      <Mono size={8} upper track="0.12em" color="rgba(255,255,255,0.38)" style={{ flexShrink: 0 }}>
+      <Mono size={8} upper track="0.12em" color="rgba(255,255,255,0.38)" style={{ flex: "0 0 auto" }}>
         auto compact
       </Mono>
     </div>
@@ -2088,6 +2469,357 @@ const AssistantSurface = ({
 
 // ─── shared helpers used across multiple surfaces ───────────────
 
+const ArtifactBrowserSideView = ({
+  open,
+  target,
+  targets,
+  onClose,
+  onOpenTarget,
+}: {
+  open: boolean;
+  target: ArtifactBrowserTarget;
+  targets: ArtifactBrowserTarget[];
+  onClose: () => void;
+  onOpenTarget: (target: ArtifactBrowserTarget) => void;
+}) => {
+  const [draftUrl, setDraftUrl] = useState(target.url);
+  const [error, setError] = useState<string | null>(null);
+  const [resolvedFile, setResolvedFile] = useState<FileRow | null>(null);
+  const [emailPreview, setEmailPreview] = useState<EmailArtifactPreview | null>(null);
+
+  useEffect(() => {
+    setDraftUrl(target.url);
+    setError(null);
+    setResolvedFile(null);
+    setEmailPreview(null);
+  }, [target.url]);
+
+  useEffect(() => {
+    const fileId = fileIdFromContentUrl(target.url);
+    if (!fileId) return;
+    let cancelled = false;
+    fetch(`/api/files/${encodeURIComponent(fileId)}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`file metadata ${res.status}`))))
+      .then((payload) => {
+        if (cancelled) return;
+        const file = (payload as { file?: FileRow }).file;
+        if (file) setResolvedFile(file);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedFile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [target.url]);
+
+  const effectiveLabel = resolvedFile?.original_name ?? target.label;
+  const effectiveType = resolvedFile?.content_type ?? "";
+  const extension = extensionFromArtifact(target.url, effectiveLabel);
+  const emailArtifact = isEmailArtifact(target.url, effectiveLabel, effectiveType);
+  const outlookBinaryEmail = emailArtifact && (extension === "msg" || /vnd\.ms-outlook/i.test(effectiveType));
+  const officeArtifact = isOfficeArtifact(target.url, effectiveLabel) || /officedocument|msword|ms-excel|spreadsheet|presentation/i.test(effectiveType);
+  const frameArtifact = !officeArtifact && !emailArtifact && canFrameArtifact(target.url, effectiveLabel);
+
+  useEffect(() => {
+    if (!emailArtifact || outlookBinaryEmail) {
+      setEmailPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setEmailPreview({ loading: true });
+    fetch(target.url)
+      .then((res) => (res.ok ? res.text() : Promise.reject(new Error(`email artifact ${res.status}`))))
+      .then((raw) => {
+        if (!cancelled) setEmailPreview(parseEmailArtifactPreview(raw));
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setEmailPreview({
+            loading: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [emailArtifact, outlookBinaryEmail, target.url]);
+
+  const openDraft = () => {
+    const url = normalizeArtifactBrowserUrl(draftUrl);
+    if (!url || !isArtifactBrowserTarget(url, draftUrl)) {
+      setError("Open a local Ordo artifact, preview, file, blob, data URL, or file URL.");
+      return;
+    }
+    onOpenTarget({
+      id: `manual-${Date.now()}`,
+      label: artifactLabelFromUrl(url),
+      url,
+      source: "manual",
+    });
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.aside
+          key="artifact-side-view"
+          initial={{ opacity: 0, width: 0, x: 18 }}
+          animate={{ opacity: 1, width: "min(46vw, 620px)", x: 0 }}
+          exit={{ opacity: 0, width: 0, x: 18 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          style={{
+            flex: "0 0 auto",
+            minWidth: 440,
+            maxWidth: 620,
+            borderLeft: "1px solid rgba(244,236,216,0.12)",
+            background: "rgba(14,17,23,0.96)",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            boxShadow: "-18px 0 44px rgba(0,0,0,0.28)",
+          }}
+        >
+          <div
+            className="flex items-center gap-2"
+            style={{
+              padding: "10px 12px",
+              borderBottom: "1px solid rgba(244,236,216,0.1)",
+              flexShrink: 0,
+            }}
+          >
+            <FileText size={15} color={LAMP} />
+            <Mono size={10} upper track="0.16em" color={LAMP} style={{ flex: "0 0 auto" }}>
+              artifact
+            </Mono>
+            <TextInput value={draftUrl} onChange={setDraftUrl} placeholder="/artifacts/preview.html" />
+            <Button size="sm" onClick={openDraft}>Open</Button>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close artifact view"
+              aria-label="Close artifact view"
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 8,
+                border: "1px solid rgba(244,236,216,0.12)",
+                background: "rgba(255,255,255,0.04)",
+                color: PARCHMENT,
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flex: "0 0 auto",
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div
+            className="flex items-center gap-2"
+            style={{
+              padding: "8px 12px",
+              borderBottom: "1px solid rgba(244,236,216,0.08)",
+              flexShrink: 0,
+              minHeight: 42,
+            }}
+          >
+            <Mono
+              size={11}
+              color={PARCHMENT}
+              weight={700}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {effectiveLabel}
+            </Mono>
+            {targets.slice(0, 3).map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                onClick={() => onOpenTarget(candidate)}
+                title={candidate.url}
+                style={{
+                  maxWidth: 118,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  borderRadius: 999,
+                  border: "1px solid rgba(244,236,216,0.1)",
+                  background: candidate.url === target.url ? `${LAMP}22` : "rgba(255,255,255,0.04)",
+                  color: candidate.url === target.url ? LAMP : UI.textMuted,
+                  fontFamily: MONO,
+                  fontSize: 9,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                {candidate.label}
+              </button>
+            ))}
+          </div>
+          {error && (
+            <div style={{ padding: "8px 12px", borderBottom: `1px solid ${RED}44` }}>
+              <Mono size={10} color={RED}>{error}</Mono>
+            </div>
+          )}
+          {emailArtifact && !outlookBinaryEmail ? (
+            <div
+              className="flex-1 flex flex-col"
+              style={{
+                minHeight: 0,
+                background: "#0a0c10",
+              }}
+            >
+              <div
+                style={{
+                  padding: "14px 16px",
+                  borderBottom: "1px solid rgba(244,236,216,0.1)",
+                  background: "linear-gradient(180deg, rgba(127,209,197,0.07), rgba(255,255,255,0.02))",
+                }}
+              >
+                <div className="flex items-center gap-2" style={{ marginBottom: 10 }}>
+                  <Mail size={15} color={JADE} />
+                  <Mono size={10} upper track="0.18em" color={JADE}>email artifact</Mono>
+                </div>
+                <Serif size={18} color={PARCHMENT} weight={650} style={{ display: "block", overflowWrap: "anywhere" }}>
+                  {emailPreview?.loading ? "Loading email..." : emailPreview?.subject || effectiveLabel}
+                </Serif>
+                <div style={{ marginTop: 12, display: "grid", gap: 6 }}>
+                  {[
+                    ["from", emailPreview?.from],
+                    ["to", emailPreview?.to],
+                    ["date", emailPreview?.date],
+                  ].map(([key, value]) => (
+                    value ? (
+                      <div key={key} className="flex gap-2" style={{ minWidth: 0 }}>
+                        <Mono size={9} upper track="0.16em" color="rgba(127,209,197,0.72)" style={{ width: 42, flex: "0 0 auto" }}>
+                          {key}
+                        </Mono>
+                        <Mono size={11} color={UI.textMuted} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                          {value}
+                        </Mono>
+                      </div>
+                    ) : null
+                  ))}
+                </div>
+              </div>
+              <pre
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: "auto",
+                  margin: 0,
+                  padding: 16,
+                  color: emailPreview?.error ? RED : PARCHMENT,
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {emailPreview?.loading
+                  ? "Loading email..."
+                  : emailPreview?.error
+                  ? `Email preview failed: ${emailPreview.error}`
+                  : emailPreview?.body || "(empty message)"}
+              </pre>
+            </div>
+          ) : frameArtifact ? (
+            <iframe
+              key={target.url}
+              title="Ordo artifact side view"
+              src={target.url || artifactBlankUrl()}
+              sandbox="allow-downloads allow-forms allow-popups allow-same-origin allow-scripts"
+              style={{
+                width: "100%",
+                flex: 1,
+                minHeight: 0,
+                border: "none",
+                background: "#0a0c10",
+              }}
+            />
+          ) : (
+            <div
+              className="flex-1 flex flex-col items-center justify-center gap-4"
+              style={{
+                minHeight: 0,
+                padding: 28,
+                textAlign: "center",
+                background: "linear-gradient(180deg, rgba(244,201,93,0.05), rgba(127,209,197,0.03))",
+              }}
+            >
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 16,
+                  background: `${LAMP}18`,
+                  border: `1px solid ${LAMP}44`,
+                  color: LAMP,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <FileText size={30} />
+              </div>
+              <div>
+                <Serif size={20} color={PARCHMENT} weight={650}>
+                  {effectiveLabel}
+                </Serif>
+                <div style={{ marginTop: 8 }}>
+                  <Mono size={11} color={UI.textMuted}>
+                  {emailArtifact
+                      ? `${(extension || effectiveType || "email").toUpperCase()} saved email`
+                    : officeArtifact
+                      ? `${(extension || effectiveType || "document").toUpperCase()} saved document`
+                      : effectiveType || "saved artifact"}
+                  </Mono>
+                </div>
+              </div>
+              <Mono size={11} color={UI.textMuted} style={{ maxWidth: 410, lineHeight: 1.6 }}>
+                {emailArtifact
+                  ? "This saved email can be opened or downloaded. Inline previews are available for .eml and mailbox text; Outlook .msg needs a native parser later."
+                  : "This artifact is saved and available to open or download. Native inline rendering for Word and Excel documents can be added later without changing the agent-facing link format."}
+              </Mono>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="primary" onClick={() => window.open(target.url, "_blank", "noopener,noreferrer")}>
+                  Open file
+                </Button>
+                <a
+                  href={target.url}
+                  download
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: 11,
+                    padding: "7px 11px",
+                    borderRadius: 6,
+                    color: PARCHMENT,
+                    border: "1px solid rgba(244,236,216,0.16)",
+                    background: "rgba(255,255,255,0.04)",
+                    textDecoration: "none",
+                  }}
+                >
+                  Download
+                </a>
+              </div>
+            </div>
+          )}
+        </motion.aside>
+      )}
+    </AnimatePresence>
+  );
+};
+
 const RAG_LANE_TINT: Record<string, string> = {
   main: LAMP,
   knowledge: PEACH,
@@ -2312,6 +3044,76 @@ interface CustomSkill {
   installed_at: string;
 }
 
+interface SkillRoutingAuditEntry {
+  skill_id: string;
+  declared_modes: string[];
+  admitting_modes: string[];
+  anomalies: string[];
+}
+
+interface SkillRoutingAuditResponse {
+  skill_count: number;
+  mode_count: number;
+  anomaly_count: number;
+  unhealthy_count: number;
+  orphaned: string[];
+  skills_root: string;
+  audit: {
+    skills: SkillRoutingAuditEntry[];
+  };
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+const normalizeSkillRoutingAudit = (value: unknown): SkillRoutingAuditResponse | null => {
+  if (!isRecord(value)) return null;
+  const audit = isRecord(value.audit) ? value.audit : {};
+  const rawSkills = Array.isArray(audit.skills) ? audit.skills : [];
+  const skills = rawSkills
+    .filter(isRecord)
+    .map((entry) => ({
+      skill_id: typeof entry.skill_id === "string" ? entry.skill_id : "",
+      declared_modes: stringList(entry.declared_modes),
+      admitting_modes: stringList(entry.admitting_modes),
+      anomalies: stringList(entry.anomalies),
+    }))
+    .filter((entry) => entry.skill_id.length > 0);
+
+  return {
+    skill_count: typeof value.skill_count === "number" ? value.skill_count : skills.length,
+    mode_count: typeof value.mode_count === "number" ? value.mode_count : 0,
+    anomaly_count: typeof value.anomaly_count === "number" ? value.anomaly_count : 0,
+    unhealthy_count: typeof value.unhealthy_count === "number" ? value.unhealthy_count : 0,
+    orphaned: stringList(value.orphaned),
+    skills_root: typeof value.skills_root === "string" ? value.skills_root : "",
+    audit: { skills },
+  };
+};
+
+const skillRoutingLabel = (entry?: SkillRoutingAuditEntry, modeCount?: number): string => {
+  if (!entry) return "routing unknown";
+  if (entry.anomalies.length > 0) return "needs routing";
+  if (entry.admitting_modes.length === 0) return "no mode";
+  if (modeCount && entry.admitting_modes.length >= modeCount) return "global";
+  if (entry.admitting_modes.length === 1) return entry.admitting_modes[0];
+  return `${entry.admitting_modes.length} modes`;
+};
+
+const skillRoutingVariant = (
+  entry?: SkillRoutingAuditEntry,
+  modeCount?: number,
+): "primary" | "neutral" | "success" | "warn" | "danger" | "info" => {
+  if (!entry) return "neutral";
+  if (entry.anomalies.length > 0 || entry.admitting_modes.length === 0) return "warn";
+  if (entry.admitting_modes.length === 1 && entry.admitting_modes[0] === DIAGNOSTIC_MODE_ID) return "success";
+  if (modeCount && entry.admitting_modes.length >= modeCount) return "primary";
+  return "info";
+};
+
 const loadPausedSkills = (): Set<string> => {
   if (typeof window === "undefined") return new Set();
   try {
@@ -2348,10 +3150,12 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
   const [caps, setCaps] = useState<CapabilityDescriptor[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [scope, setScope] = useState<"catalog" | "user">("catalog");
+  const [scope, setScope] = useState<"catalog" | "user" | "routing">("catalog");
   const [sort, setSort] = useState<"name" | "lane" | "status">("name");
   const [paused, setPaused] = useState<Set<string>>(() => loadPausedSkills());
   const [custom, setCustom] = useState<CustomSkill[]>(() => loadCustomSkills());
+  const [skillAudit, setSkillAudit] = useState<SkillRoutingAuditResponse | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [draftCap, setDraftCap] = useState("");
   const [draftDesc, setDraftDesc] = useState("");
@@ -2375,8 +3179,21 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
     }
   };
 
+  const refreshSkillAudit = async () => {
+    try {
+      const out = await invokeTool("skills.audit_routing", {});
+      if (cancelled.current) return;
+      setSkillAudit(normalizeSkillRoutingAudit(out));
+      setAuditError(null);
+    } catch (err: unknown) {
+      if (cancelled.current) return;
+      setAuditError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   useEffect(() => {
     void refreshCapabilities();
+    void refreshSkillAudit();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cancelled]);
 
@@ -2492,6 +3309,7 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
       setEditingSkillId(null);
       setSkillDraft("");
       await refreshCapabilities();
+      await refreshSkillAudit();
     } catch (err: unknown) {
       setToast(`save failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -2513,6 +3331,7 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
         savePausedSkills(nextPaused);
       }
       await refreshCapabilities();
+      await refreshSkillAudit();
     } catch (err: unknown) {
       setToast(`delete failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -2569,6 +3388,42 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
   const totalCount = (caps?.filter((c) => c.lane.group === "domain" || c.lane.group === "interface").length ?? 0) + custom.length;
   const pausedCount = paused.size;
   const userSkillCount = filteredCustom.length + installedSkills.length;
+  const auditEntries = skillAudit?.audit.skills ?? [];
+  const auditBySkill = useMemo(
+    () => new Map(auditEntries.map((entry) => [entry.skill_id, entry])),
+    [auditEntries],
+  );
+  const globalSkillCount = auditEntries.filter(
+    (entry) => Boolean(skillAudit?.mode_count) && entry.admitting_modes.length >= (skillAudit?.mode_count ?? 0),
+  ).length;
+  const diagnosticOnlyCount = auditEntries.filter(
+    (entry) => entry.admitting_modes.length === 1 && entry.admitting_modes[0] === DIAGNOSTIC_MODE_ID,
+  ).length;
+  const scopedSkillCount = Math.max(0, auditEntries.length - globalSkillCount);
+  const filteredAuditEntries = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    const list = q
+      ? auditEntries.filter(
+          (entry) =>
+            entry.skill_id.toLowerCase().includes(q) ||
+            entry.declared_modes.some((mode) => mode.toLowerCase().includes(q)) ||
+            entry.admitting_modes.some((mode) => mode.toLowerCase().includes(q)),
+        )
+      : auditEntries;
+    return [...list].sort((a, b) => {
+      if (sort === "status") {
+        return (
+          b.anomalies.length - a.anomalies.length ||
+          skillRoutingLabel(a, skillAudit?.mode_count).localeCompare(skillRoutingLabel(b, skillAudit?.mode_count)) ||
+          a.skill_id.localeCompare(b.skill_id)
+        );
+      }
+      if (sort === "lane") {
+        return (a.admitting_modes[0] ?? "").localeCompare(b.admitting_modes[0] ?? "") || a.skill_id.localeCompare(b.skill_id);
+      }
+      return a.skill_id.localeCompare(b.skill_id);
+    });
+  }, [auditEntries, filter, skillAudit?.mode_count, sort]);
 
   return (
     <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
@@ -2587,6 +3442,9 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
               <DirectoryPill active={scope === "user"} onClick={() => setScope("user")}>
                 User Added
               </DirectoryPill>
+              <DirectoryPill active={scope === "routing"} onClick={() => setScope("routing")}>
+                Routing
+              </DirectoryPill>
             </div>
             <div className="flex items-center gap-2">
               <DirectorySelect
@@ -2598,6 +3456,16 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
                   { value: "status", label: "Sort by status" },
                 ]}
               />
+              <Button
+                onClick={() => {
+                  void refreshCapabilities();
+                  void refreshSkillAudit();
+                }}
+                size="md"
+                title="Refresh skills and routing"
+              >
+                <RefreshCcw size={14} />
+              </Button>
               <Button onClick={openInstallCustom} variant="primary" size="md">
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                   <Plus size={13} strokeWidth={2.5} /> Install skill
@@ -2609,10 +3477,55 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
       >
         <div className="space-y-4">
           {error && <Alert variant="danger">{error}</Alert>}
+          {auditError && <Alert variant="danger">skill routing audit failed: {auditError}</Alert>}
           {toast && <Alert variant="success">{toast}</Alert>}
           <Mono size={11} upper track="0.18em" color={UI.textMuted}>
             {totalCount} skills catalogued{pausedCount > 0 ? ` / ${pausedCount} paused` : ""}
           </Mono>
+
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
+            {[
+              {
+                label: "runtime skills",
+                value: skillAudit?.skill_count ?? installedSkills.length,
+                sub: skillAudit?.skills_root ? "user-files/skills" : "catalog",
+              },
+              { label: "mode scoped", value: scopedSkillCount, sub: "admitted by selected modes" },
+              { label: "global", value: globalSkillCount, sub: "available to every mode" },
+              { label: "tech specialist", value: diagnosticOnlyCount, sub: "diagnostic-only skills" },
+              { label: "routing issues", value: skillAudit?.anomaly_count ?? 0, sub: "should stay zero" },
+            ].map((item) => {
+              const isIssue = item.label === "routing issues" && item.value > 0;
+              return (
+                <div
+                  key={item.label}
+                  style={{
+                    minHeight: 82,
+                    borderRadius: 10,
+                    border: `1px solid ${isIssue ? RED : UI.cardBorder}`,
+                    background: isIssue ? "rgba(232,93,93,0.08)" : UI.cardBg,
+                    padding: "12px 14px",
+                  }}
+                >
+                  <Mono size={10} upper track="0.16em" color={UI.textDim}>
+                    {item.label}
+                  </Mono>
+                  <div
+                    style={{
+                      color: isIssue ? RED : PARCHMENT,
+                      fontFamily: FRAUNCES,
+                      fontSize: 26,
+                      lineHeight: 1.15,
+                      marginTop: 4,
+                    }}
+                  >
+                    {item.value}
+                  </div>
+                  <div style={{ color: UI.textMuted, fontSize: 12 }}>{item.sub}</div>
+                </div>
+              );
+            })}
+          </div>
 
           {scope === "catalog" && builtInSkills.length > 0 && (
             <DirectoryGrid>
@@ -2736,7 +3649,42 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
                       <>
                         <Badge variant="info">user</Badge>
                         <Badge variant="neutral">{skill.tier}</Badge>
+                        <Badge variant={skillRoutingVariant(auditBySkill.get(skill.capability), skillAudit?.mode_count)}>
+                          {skillRoutingLabel(auditBySkill.get(skill.capability), skillAudit?.mode_count)}
+                        </Badge>
                         {isPaused && <Badge variant="warn">paused</Badge>}
+                      </>
+                    }
+                  />
+                );
+              })}
+            </DirectoryGrid>
+          )}
+
+          {scope === "routing" && filteredAuditEntries.length > 0 && (
+            <DirectoryGrid>
+              {filteredAuditEntries.map((entry) => {
+                const modeLabel = entry.admitting_modes.length > 0 ? entry.admitting_modes.join(", ") : "No mode admits this skill";
+                const anomalyLabel = entry.anomalies.length > 0 ? entry.anomalies.join(", ") : "clean";
+                return (
+                  <DirectoryCard
+                    key={`routing:${entry.skill_id}`}
+                    icon={<GitBranch size={20} />}
+                    title={entry.skill_id}
+                    source={skillRoutingLabel(entry, skillAudit?.mode_count)}
+                    description={modeLabel}
+                    muted={entry.anomalies.length > 0 || entry.admitting_modes.length === 0}
+                    badges={
+                      <>
+                        <Badge variant={skillRoutingVariant(entry, skillAudit?.mode_count)}>
+                          {skillRoutingLabel(entry, skillAudit?.mode_count)}
+                        </Badge>
+                        <Badge variant={entry.anomalies.length > 0 ? "warn" : "success"}>{anomalyLabel}</Badge>
+                        {entry.declared_modes.length === 0 ? (
+                          <Badge variant="warn">undeclared</Badge>
+                        ) : (
+                          <Badge variant="neutral">{entry.declared_modes.length} declared</Badge>
+                        )}
                       </>
                     }
                   />
@@ -2756,6 +3704,12 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
             <DirectoryEmpty
               title="No user skills yet"
               sub="Install a skill to add your own reasoning or orchestration capability."
+            />
+          )}
+          {caps !== null && scope === "routing" && filteredAuditEntries.length === 0 && !error && (
+            <DirectoryEmpty
+              title="No routing records"
+              sub={filter ? "Try a different search." : "The runtime has not returned skill routing data yet."}
             />
           )}
         </div>
@@ -3875,7 +4829,14 @@ const AgentMemorySurface = () => {
 const RagSurface = () => {
   const [collections, setCollections] = useState<RagCollection[] | null>(null);
   const [storage, setStorage] = useState<RuntimeStorage | null>(null);
+  const [profileData, setProfileData] = useState<RuntimeProfile | null>(null);
+  const [settings, setSettings] = useState<RuntimeSettingsSnapshot | null>(null);
   const [budgetGb, setBudgetGb] = useState(0);
+  const [embeddingMode, setEmbeddingMode] = useState<"hash" | "model">("hash");
+  const [embeddingBinary, setEmbeddingBinary] = useState("");
+  const [embeddingModelPath, setEmbeddingModelPath] = useState("");
+  const [embeddingDimensions, setEmbeddingDimensions] = useState(384);
+  const [embeddingContextSize, setEmbeddingContextSize] = useState(512);
   const [previewGoal, setPreviewGoal] = useState("summarize the current project notes");
   const [previewLanes, setPreviewLanes] = useState<string[] | null>(null);
   const [previewHits, setPreviewHits] = useState<number | null>(null);
@@ -3885,10 +4846,48 @@ const RagSurface = () => {
 
   const refresh = async () => {
     try {
-      const [cols, s] = await Promise.all([fetchRagCollections(), fetchRuntimeStorage()]);
+      const [cols, s, p, set] = await Promise.all([
+        fetchRagCollections(),
+        fetchRuntimeStorage(),
+        fetchRuntimeProfile(),
+        fetchRuntimeSettings(),
+      ]);
       setCollections(cols.collections);
       setStorage(s);
+      setProfileData(p);
+      setSettings(set);
       setBudgetGb(bytesToGb(s.rag_budget_bytes));
+      const effective = set.effective ?? {};
+      const persisted = set.persisted ?? {};
+      const modelPath =
+        typeof effective.embedding_model_path === "string"
+          ? effective.embedding_model_path
+          : typeof persisted.embedding_model_path === "string"
+            ? persisted.embedding_model_path
+            : "";
+      const binaryPath =
+        typeof effective.embedding_llama_cpp_binary === "string"
+          ? effective.embedding_llama_cpp_binary
+          : typeof persisted.embedding_llama_cpp_binary === "string"
+            ? persisted.embedding_llama_cpp_binary
+            : "";
+      const dims =
+        typeof effective.embedding_dimensions === "number"
+          ? effective.embedding_dimensions
+          : typeof persisted.embedding_dimensions === "number"
+            ? persisted.embedding_dimensions
+            : p.embedding_dimensions || 384;
+      const context =
+        typeof effective.embedding_context_size === "number"
+          ? effective.embedding_context_size
+          : typeof persisted.embedding_context_size === "number"
+            ? persisted.embedding_context_size
+            : 512;
+      setEmbeddingMode(p.embedding_backend === "hashing" && !modelPath ? "hash" : "model");
+      setEmbeddingBinary(binaryPath);
+      setEmbeddingModelPath(modelPath);
+      setEmbeddingDimensions(dims);
+      setEmbeddingContextSize(context);
       setError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -3927,6 +4926,50 @@ const RagSurface = () => {
     }
   };
 
+  const saveEmbeddingSettings = async () => {
+    setBusy(true);
+    setToast(null);
+    try {
+      if (embeddingMode === "hash") {
+        const res = await updateRuntimeSettings({
+          embedding_llama_cpp_binary: "",
+          embedding_model_path: "",
+          embedding_dimensions: 96,
+          embedding_context_size: 512,
+        });
+        setToast(
+          res.restart_required
+            ? "RAG saved to hash fallback. Restart Ordo to activate it."
+            : "RAG is using hash fallback.",
+        );
+      } else {
+        if (!embeddingBinary.trim() || !embeddingModelPath.trim()) {
+          setToast("embedding binary and model path are required.");
+          return;
+        }
+        const res = await updateRuntimeSettings({
+          embedding_llama_cpp_binary: embeddingBinary.trim(),
+          embedding_model_path: embeddingModelPath.trim(),
+          embedding_dimensions: Math.max(8, Math.floor(embeddingDimensions) || 384),
+          embedding_context_size: Math.max(128, Math.floor(embeddingContextSize) || 512),
+        });
+        setToast(
+          res.restart_required
+            ? "Embedding model saved. Restart Ordo to activate it."
+            : "Embedding model saved.",
+        );
+      }
+      await refresh();
+    } catch (err: unknown) {
+      setToast(`embedding save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const embeddingBackend = profileData?.embedding_backend ?? "hashing";
+  const hashingActive = embeddingBackend === "hashing";
+
   return (
     <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
       <SectionHeader
@@ -3941,8 +4984,79 @@ const RagSurface = () => {
       />
       {error && <Alert variant="danger">{error}</Alert>}
       {toast && <Alert variant="success">{toast}</Alert>}
+      {hashingActive && (
+        <Alert variant="warn">
+          RAG is using hash fallback. It works without shipping a model, but semantic retrieval improves when you configure an embedding model.
+        </Alert>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Mono size={11} upper track="0.18em" color={UI.textMuted}>
+                Embedding backend
+              </Mono>
+              <div style={{ marginTop: 8, fontFamily: FRAUNCES, fontSize: 22, color: UI.parchment }}>
+                {hashingActive ? "Hash fallback" : embeddingBackend}
+              </div>
+              <Mono size={10} color={UI.textDim}>
+                {hashingActive ? "no embedding model detected" : `${profileData?.embedding_dimensions ?? embeddingDimensions} dimensions`}
+              </Mono>
+            </div>
+            <Badge variant={hashingActive ? "warn" : "success"}>{hashingActive ? "fallback" : "semantic"}</Badge>
+          </div>
+          <div className="flex items-center gap-2" style={{ marginTop: 14 }}>
+            <Button
+              size="sm"
+              variant={embeddingMode === "hash" ? "primary" : "secondary"}
+              onClick={() => setEmbeddingMode("hash")}
+            >
+              Hash
+            </Button>
+            <Button
+              size="sm"
+              variant={embeddingMode === "model" ? "primary" : "secondary"}
+              onClick={() => setEmbeddingMode("model")}
+            >
+              Embedding model
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void saveEmbeddingSettings()}
+              disabled={busy}
+              style={{ marginLeft: "auto" }}
+            >
+              Save
+            </Button>
+          </div>
+          {embeddingMode === "model" && (
+            <div className="grid gap-2" style={{ marginTop: 12 }}>
+              <TextInput
+                value={embeddingBinary}
+                onChange={setEmbeddingBinary}
+                placeholder="llama.cpp embedding binary path"
+              />
+              <TextInput
+                value={embeddingModelPath}
+                onChange={setEmbeddingModelPath}
+                placeholder="embedding model .gguf path"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <TextInput
+                  value={String(embeddingDimensions)}
+                  onChange={(value) => setEmbeddingDimensions(Math.max(8, Number(value) || 0))}
+                  placeholder="384"
+                />
+                <TextInput
+                  value={String(embeddingContextSize)}
+                  onChange={(value) => setEmbeddingContextSize(Math.max(128, Number(value) || 0))}
+                  placeholder="512"
+                />
+              </div>
+            </div>
+          )}
+        </Card>
         <Card>
           <Mono size={11} upper track="0.18em" color={UI.textMuted}>
             RAG storage budget
@@ -5032,6 +6146,20 @@ const uniqueModels = (models: Array<string | null | undefined>): string[] =>
     ),
   );
 
+const credentialUpdatedAtMs = (credential: CloudCredentialRow): number => {
+  const raw = credential.updated_at ?? credential.created_at ?? "";
+  const parsed = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const newestCredentialForService = (
+  credentials: CloudCredentialRow[],
+  service: string,
+): CloudCredentialRow | undefined =>
+  credentials
+    .filter((credential) => credential.service === service)
+    .sort((a, b) => credentialUpdatedAtMs(b) - credentialUpdatedAtMs(a))[0];
+
 const cloudOllamaModels = (models: string[]) =>
   models.filter((name) => /(^|[:\-_])cloud$/i.test(name) || name.toLowerCase().includes(":cloud"));
 
@@ -5054,8 +6182,18 @@ const localDiscoveryProvider = (
   const service = credential.service.toLowerCase();
   const base = (credential.base_url ?? credential.endpoint ?? "").toLowerCase();
   if (service === "ollama-cloud-api" || base.includes("ollama.com")) return null;
-  if (service.includes("ollama") || base.includes("localhost:11434")) return "ollama";
-  if (service.includes("lmstudio") || service.includes("lm-studio") || base.includes("localhost:1234")) {
+  const isLocalOllama =
+    base.includes("localhost:11434") ||
+    base.includes("127.0.0.1:11434") ||
+    base.includes("[::1]:11434") ||
+    base.includes("0.0.0.0:11434");
+  const isLocalLmStudio =
+    base.includes("localhost:1234") ||
+    base.includes("127.0.0.1:1234") ||
+    base.includes("[::1]:1234") ||
+    base.includes("0.0.0.0:1234");
+  if (service.includes("ollama") || isLocalOllama) return "ollama";
+  if (service.includes("lmstudio") || service.includes("lm-studio") || isLocalLmStudio) {
     return "lmstudio";
   }
   return null;
@@ -5433,6 +6571,13 @@ const CloudSurface = () => {
       if (id) window.localStorage.setItem("ordo:default_provider", id);
       else window.localStorage.removeItem("ordo:default_provider");
     }
+    void setCloudCredentialDefault(id).then((result) => {
+      if (result?.ok === false) {
+        setToast(result.error || "runtime default provider update failed");
+      }
+    }).catch((err: unknown) => {
+      setToast(`runtime default provider update failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
   };
 
   const refresh = async () => {
@@ -5440,12 +6585,23 @@ const CloudSurface = () => {
       const res = await listCloudCredentials();
       setCreds(res.credentials);
       setError(null);
-      const enabledCredentials = res.credentials.filter(credentialIsEnabled);
-      if (defaultId && !enabledCredentials.some((c) => c.service === defaultId)) {
-        setDefaultId(null);
+      const enabledCredentials = res.credentials
+        .filter(credentialIsEnabled)
+        .sort((a, b) => credentialUpdatedAtMs(b) - credentialUpdatedAtMs(a));
+      const runtimeDefault =
+        res.default_service && enabledCredentials.some((c) => c.service === res.default_service)
+          ? res.default_service
+          : null;
+      const effectiveDefault =
+        defaultId && enabledCredentials.some((c) => c.service === defaultId)
+          ? defaultId
+          : runtimeDefault;
+      if (effectiveDefault !== defaultId) {
+        setDefaultId(effectiveDefault);
+        return;
       }
-      // Auto-promote first enabled credential to default if nothing chosen yet.
-      if (!defaultId && enabledCredentials.length > 0) {
+      // Auto-promote the newest enabled credential to default if nothing chosen yet.
+      if (!effectiveDefault && enabledCredentials.length > 0) {
         setDefaultId(enabledCredentials[0].service);
       }
     } catch (err: unknown) {
@@ -5500,7 +6656,7 @@ const CloudSurface = () => {
         setToast(
           `${t.label} added. Ordo will read ${envVar} from the runtime environment when it calls this provider.`,
         );
-        if (!defaultId) setDefaultId(t.id);
+        setDefaultId(t.id);
         await refresh();
       } catch (err: unknown) {
         setToast(
@@ -5748,7 +6904,8 @@ const CloudSurface = () => {
           timeout_secs: String(loadTimeoutPreset()),
         },
       });
-      if (!defaultId) setDefaultId(template.id);
+      setDefaultId(template.id);
+      setLocalSelectedModel((prev) => ({ ...prev, [provider]: model }));
       publishUxiDebugEvent("ordo.provider", "local_model_connected", "Local model connected.", {
         provider: template.id,
         model,
@@ -5792,7 +6949,8 @@ const CloudSurface = () => {
           timeout_secs: String(loadTimeoutPreset()),
         },
       });
-      if (!defaultId) setDefaultId(template.id);
+      setDefaultId(template.id);
+      setLocalSelectedModel((prev) => ({ ...prev, "ollama-cloud": selectedModel }));
       publishUxiDebugEvent("ordo.provider", "ollama_cloud_connected", "Ollama Cloud provider connected.", {
         provider: template.id,
         model: selectedModel,
@@ -5924,8 +7082,16 @@ const CloudSurface = () => {
         secret_source: isEnvironmentBacked ? "environment" : "vault",
       });
       setToast(`${editing.name || editing.service}: credential saved.`);
-      // Promote to default if no default yet.
-      if (!defaultId) setDefaultId(editing.service);
+      if (localDiscoveryProvider({
+        service: trimmedService,
+        base_url: editing.endpoint || null,
+        endpoint: editing.endpoint || null,
+        auth_style: editing.auth_style,
+      })) {
+        setDefaultId(trimmedService);
+      } else if (!defaultId) {
+        setDefaultId(trimmedService);
+      }
       setEditing(null);
       setSaveError(null);
       await refresh();
@@ -5962,15 +7128,14 @@ const CloudSurface = () => {
     }
   };
 
-  // Live "Test" — pings the appropriate cloud capability with a tiny
-  // request and reports latency + first chars of response.
+  // Live "Test" verifies reachability without waking local runtimes.
   //
-  // Capability dispatch is provider-shape based, not service-name based:
-  // anthropic-style credentials route to `cloud.anthropic.messages`;
-  // every other auth style (bearer / api_key_header / api_key_query)
-  // is OpenAI-shaped and routes to `cloud.openai.chat`. This works for
-  // OpenAI, Ollama, LM Studio, OpenRouter, Groq, Moonshot, Qwen, Azure,
-  // Bedrock, and "OpenAI Compatible" without baking provider names in.
+  // Local OpenAI-compatible servers like Ollama and LM Studio must not
+  // receive chat-completion probes here: LM Studio's JIT loader treats
+  // even a tiny "ping" as a real request and may reload an ejected model.
+  // For local providers, use model-list discovery only. Remote providers
+  // still get a tiny completion probe because auth/model errors are often
+  // only visible at chat time.
   //
   // Runtime auto-injects `extras.model` from the credential when the
   // request omits it (see ordo-mcp-host::cloud_service_call), so the
@@ -6089,6 +7254,7 @@ const CloudSurface = () => {
         provider: credential.service,
         model: nextModel,
       });
+      setDefaultId(credential.service);
       setToast(`${credential.label ?? credential.service}: model set to ${nextModel}.`);
       await refresh();
     } catch (err: unknown) {
@@ -6106,26 +7272,48 @@ const CloudSurface = () => {
 
   const runTest = async (c: CloudCredentialRow) => {
     const isOllamaCloudApi = c.service === "ollama-cloud-api";
+    const localProvider = localDiscoveryProvider(c);
     const cap =
-      isOllamaCloudApi
+      localProvider
+        ? "local.models"
+        : isOllamaCloudApi
         ? "cloud.credentials.models"
         : c.auth_style === "anthropic"
         ? "cloud.anthropic.messages"
         : "cloud.openai.chat";
-    // Anthropic requires `max_tokens`; OpenAI-shape accepts it as a
-    // budget hint. 256 leaves room for a thinking-model trace before
-    // the first content token (qwen, deepseek-r1, …).
+    // Anthropic requires `max_tokens`; OpenAI-shape accepts it as a budget hint.
+    // Keep it tiny so a manual cloud test cannot burn a large thinking trace.
     const args = isOllamaCloudApi
       ? { service: c.service }
       : {
           messages: [{ role: "user", content: "ping" }],
-          max_tokens: 256,
+          max_tokens: 16,
         };
     setTesting(c.service);
     const t0 = performance.now();
     try {
-      const out = await invokeTool(cap, args);
+      const out = localProvider
+        ? await detectLocalLlm(localProvider)
+        : await invokeTool(cap, args);
       const ms = Math.round(performance.now() - t0);
+      if (localProvider && !(out as LocalLlmDiscovery).reachable) {
+        const local = out as LocalLlmDiscovery;
+        setTestResult((r) => ({
+          ...r,
+          [c.service]: {
+            ok: false,
+            ms,
+            body: local.error ?? `${local.provider} not reachable at ${local.base_url}`,
+          },
+        }));
+        publishUxiDebugEvent("ordo.provider", "provider_test_failed", "Provider model-list test failed.", {
+          provider: c.service,
+          capability: cap,
+          elapsed_ms: ms,
+          error: local.error ?? "not reachable",
+        }, "WARN");
+        return;
+      }
       publishUxiDebugEvent("ordo.provider", "provider_test_succeeded", "Provider test succeeded.", {
         provider: c.service,
         capability: cap,
@@ -6181,7 +7369,7 @@ const CloudSurface = () => {
   const orderedCreds = (creds ?? []).slice().sort((a, b) => {
     if (a.service === defaultId) return -1;
     if (b.service === defaultId) return 1;
-    return a.service.localeCompare(b.service);
+    return credentialUpdatedAtMs(b) - credentialUpdatedAtMs(a) || a.service.localeCompare(b.service);
   });
   const enabledCreds = orderedCreds.filter(credentialIsEnabled);
   const openaiTemplate = findTemplate("openai");
@@ -7074,7 +8262,6 @@ const ProviderConfigureModal = ({
   );
 };
 
-
 const DirectoryConnectionsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: DirectoryTabId) => void }) => {
   const [types, setTypes] = useState<ConnectionType[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -7113,24 +8300,27 @@ const DirectoryConnectionsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTa
   const visibleTypes = useMemo(() => {
     const q = filter.trim().toLowerCase();
     const list = (types ?? []).filter((type) => {
+      const label = type.label ?? type.display_name ?? type.id;
       if (!q) return true;
       return (
         type.id.toLowerCase().includes(q) ||
-        type.label.toLowerCase().includes(q) ||
+        label.toLowerCase().includes(q) ||
         (type.service ?? "").toLowerCase().includes(q) ||
         (type.description ?? "").toLowerCase().includes(q)
       );
     });
     return [...list].sort((a, b) => {
-      if (sort === "service") return `${a.service ?? ""}.${a.label}`.localeCompare(`${b.service ?? ""}.${b.label}`);
+      const aLabel = a.label ?? a.display_name ?? a.id;
+      const bLabel = b.label ?? b.display_name ?? b.id;
+      if (sort === "service") return `${a.service ?? ""}.${aLabel}`.localeCompare(`${b.service ?? ""}.${bLabel}`);
       if (sort === "status") {
         const ar = results[a.id];
         const br = results[b.id];
         const av = ar === undefined ? 1 : ar.ok ? 0 : 2;
         const bv = br === undefined ? 1 : br.ok ? 0 : 2;
-        return av - bv || a.label.localeCompare(b.label);
+        return av - bv || aLabel.localeCompare(bLabel);
       }
-      return a.label.localeCompare(b.label);
+      return aLabel.localeCompare(bLabel);
     });
   }, [filter, results, sort, types]);
 
@@ -7177,11 +8367,12 @@ const DirectoryConnectionsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTa
             {visibleTypes.map((type) => {
               const result = results[type.id];
               const dotColor = result === undefined ? UI.slate : result.ok ? UI.jade : UI.red;
+              const label = type.label ?? type.display_name ?? type.id;
               return (
                 <DirectoryCard
                   key={type.id}
                   icon={<Dot color={dotColor} size={10} />}
-                  title={type.label}
+                  title={label}
                   source={`${type.id}${type.service ? ` / ${type.service}` : ""}`}
                   description={
                     <>
@@ -7733,31 +8924,12 @@ const McpSurface = () => {
     setBinPathRaw(v);
     if (typeof window !== "undefined") window.localStorage.setItem("ordo:mcp_bin_path", v);
   };
-  // Browse… — opens the native OS file picker via tauri-plugin-dialog.
-  // No-op fallback when running outside a Tauri shell (vite-only dev
-  // browser preview): the operator types the path manually.
   const browseForBin = async () => {
-    try {
-      const mod = await import("@tauri-apps/plugin-dialog");
-      const picked = await mod.open({
-        multiple: false,
-        directory: false,
-        title: "Locate ordo-mcp executable",
-        defaultPath: binPath || undefined,
-        filters:
-          typeof navigator !== "undefined" && navigator.platform.startsWith("Win")
-            ? [{ name: "Executable", extensions: ["exe"] }]
-            : undefined,
-      });
-      if (typeof picked === "string" && picked.length > 0) {
-        setBinPath(picked);
-        setBinAutoDetected(false);
-      }
-    } catch (err) {
-      // Browser-only dev preview hits this — Tauri plugin not available.
-      setToast(
-        `file picker unavailable here: ${err instanceof Error ? err.message : String(err)}. Type the path manually.`,
-      );
+    const picked = window.prompt("Path to ordo-mcp executable", binPath || ORDO_MCP_BIN_DEFAULT);
+    if (picked && picked.trim()) {
+      setBinPath(picked.trim());
+      setBinAutoDetected(false);
+      setToast("MCP executable path updated.");
     }
   };
 
@@ -8311,7 +9483,11 @@ const AppsSurface = () => {
 // Files lives in the knowledge group (next to RAG and Memory) because
 // uploaded artifacts feed retrieval and grounding, not deployment.
 // Apps are deployable units; files are read-side material.
-const FilesSurface = () => {
+const FilesSurface = ({
+  onOpenArtifact,
+}: {
+  onOpenArtifact: (target: ArtifactBrowserTarget) => void;
+}) => {
   const [files, setFiles] = useState<FileRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -8407,6 +9583,21 @@ const FilesSurface = () => {
             }
             rightBadge={
               <Badge variant="neutral">{f.sha256_hex.slice(0, 8)}</Badge>
+            }
+            actions={
+              <Button
+                size="sm"
+                onClick={() =>
+                  onOpenArtifact({
+                    id: `file-${f.id}`,
+                    label: f.original_name,
+                    url: fileContentUrl(f.id),
+                    source: "generated",
+                  })
+                }
+              >
+                View
+              </Button>
             }
           />
         ))}
@@ -9621,13 +10812,13 @@ const formatChatTimestamp = (date: Date): string =>
 
 const tsNow = (): string => formatChatTimestamp(new Date());
 
-// Persistent chat-session key. Stored in localStorage so reloading
-// the app or reopening the Tauri window picks the conversation back
-// up where it left off. The runtime persists sessions in SQLite,
-// so a stored id survives runtime restarts; a 404 on rehydrate just
-// means the row was pruned and we start fresh.
+// Legacy chat-session key. Sessions still persist in SQLite and can be
+// reopened from the session picker, but Studio boot now starts on a fresh
+// General session so a prior specialist/mode session never becomes the
+// next launch's default.
 const SESSION_ID_KEY = "ordo:chat_session_id";
 const ORDO_THEME_KEY = "ordo:theme";
+const DIAGNOSTIC_AUTO_RETURN_KEY = "ordo:diagnostic_auto_return";
 
 // Active mode-scoped workspace key. The picker writes here; the
 // next session-creation reads it to bind the new session to the
@@ -9644,6 +10835,15 @@ const OS_SPECIALIST_MODE_IDS = new Set([
 ]);
 const modeDefaultsEnabled = (modeId: string): boolean => !OS_SPECIALIST_MODE_IDS.has(modeId);
 const isTemporarySpecialistMode = (modeId: string): boolean => OS_SPECIALIST_MODE_IDS.has(modeId);
+
+const diagnosticAutoReturnEnabled = (): boolean => {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(DIAGNOSTIC_AUTO_RETURN_KEY) !== "false";
+  } catch {
+    return true;
+  }
+};
 
 const readStoredTheme = (): OrdoTheme => {
   if (typeof window === "undefined") return "dark";
@@ -9957,23 +11157,11 @@ const modeUiSetting = (
 });
 
 const readStoredSessionId = (): string | undefined => {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const raw = window.localStorage.getItem(SESSION_ID_KEY);
-    return raw && raw.length > 0 ? raw : undefined;
-  } catch {
-    return undefined;
-  }
+  return undefined;
 };
 
 const readStoredActiveMode = (): string => {
-  if (typeof window === "undefined") return FALLBACK_MODE_ID;
-  try {
-    const raw = window.localStorage.getItem(ACTIVE_MODE_KEY);
-    return raw && raw.length > 0 ? raw : FALLBACK_MODE_ID;
-  } catch {
-    return FALLBACK_MODE_ID;
-  }
+  return FALLBACK_MODE_ID;
 };
 
 // Format a server-side ISO timestamp to the shell's HH:MM display.
@@ -10687,6 +11875,1127 @@ const SimpleSettingsSurface = ({
   </div>
 );
 
+const MaintenanceLockedSurface = ({
+  surface,
+  activeModeLabel,
+  onManual,
+  onSwitch,
+}: {
+  surface: string;
+  activeModeLabel: string;
+  onManual: () => void;
+  onSwitch: () => void;
+}) => (
+  <SimpleSettingsSurface
+    icon={<Stethoscope size={22} />}
+    title="Ask Ordo Tech Specialist"
+    sub={`${surface} changes can be guided by ${DIAGNOSTIC_DISPLAY_LABEL}, or opened manually for operators who prefer direct setup.`}
+  >
+    <Card>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="warn">maintenance gated</Badge>
+          <Badge variant="neutral">current mode: {activeModeLabel}</Badge>
+        </div>
+        <Mono size={12} color={UI.textMuted}>
+          This area can install, change, publish, or remove Ordo capabilities. Use the tech specialist for guided troubleshooting, or open the manual controls if you already know what you want to install or configure.
+        </Mono>
+        <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+          <div
+            style={{
+              borderRadius: 8,
+              border: `1px solid ${UI.cardBorder}`,
+              background: "rgba(255,255,255,0.025)",
+              padding: 14,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Stethoscope size={15} color={UI.lamp} />
+              <Mono size={12} color={UI.parchment} weight={700}>Guided setup</Mono>
+            </div>
+            <div style={{ marginTop: 9 }}>
+              <Mono size={11} color={UI.textMuted}>
+                Let Ordo inspect logs, detect conflicts, explain what changed, and keep secrets redacted.
+              </Mono>
+            </div>
+            <div className="flex justify-end" style={{ marginTop: 14 }}>
+              <Button variant="primary" onClick={onSwitch}>
+                <Stethoscope size={13} /> Use Tech Specialist
+              </Button>
+            </div>
+          </div>
+          <div
+            style={{
+              borderRadius: 8,
+              border: `1px solid ${UI.cardBorder}`,
+              background: "rgba(255,255,255,0.025)",
+              padding: 14,
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Wrench size={15} color={UI.textMuted} />
+              <Mono size={12} color={UI.parchment} weight={700}>Manual controls</Mono>
+            </div>
+            <div style={{ marginTop: 9 }}>
+              <Mono size={11} color={UI.textMuted}>
+                Open the setup surface directly and install or configure things yourself.
+              </Mono>
+            </div>
+            <div className="flex justify-end" style={{ marginTop: 14 }}>
+              <Button variant="secondary" onClick={onManual}>
+                <Wrench size={13} /> Open Manual
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
+  </SimpleSettingsSurface>
+);
+
+type AgentTeamRouting = "lead-routed" | "parallel" | "review-gated";
+type AgentTeamModelLane = "local" | "cloud" | "hybrid";
+type AgentTeamCapabilityTier = "small" | "standard" | "flagship";
+type AgentTeamMemberRole = "lead" | "planner" | "builder" | "reviewer" | "researcher" | "diagnostic" | "dreaming";
+
+interface AgentTeamMember {
+  id: string;
+  name: string;
+  role: AgentTeamMemberRole;
+  mode: string;
+  provider: string;
+  model: string;
+  tools: string;
+  skills: string;
+  memoryScope: string;
+}
+
+interface AgentTeamConfig {
+  id: string;
+  name: string;
+  intent: string;
+  lead: string;
+  routing: AgentTeamRouting;
+  modelLane: AgentTeamModelLane;
+  capabilityTier: AgentTeamCapabilityTier;
+  providerTarget: string;
+  modelTarget: string;
+  sharedSkills: string;
+  maxParallel: number;
+  reviewRequired: boolean;
+  budget: string;
+  members: AgentTeamMember[];
+}
+
+const AGENT_TEAMS_STORAGE_KEY = "ordo:agent_teams";
+const AGENT_TEAM_ACTIVE_KEY = "ordo:active_agent_team";
+
+const AGENT_TEAM_ROLE_OPTIONS: Array<{ value: AgentTeamMemberRole; label: string }> = [
+  { value: "lead", label: "Lead" },
+  { value: "planner", label: "Planner" },
+  { value: "builder", label: "Builder" },
+  { value: "reviewer", label: "Reviewer" },
+  { value: "researcher", label: "Researcher" },
+  { value: "diagnostic", label: "Tech specialist" },
+  { value: "dreaming", label: "Dreaming" },
+];
+
+const AGENT_TEAM_ROUTING_OPTIONS: Array<{ value: AgentTeamRouting; label: string }> = [
+  { value: "lead-routed", label: "Lead routed" },
+  { value: "parallel", label: "Parallel" },
+  { value: "review-gated", label: "Review gated" },
+];
+
+const AGENT_TEAM_MODEL_LANE_OPTIONS: Array<{ value: AgentTeamModelLane; label: string }> = [
+  { value: "hybrid", label: "Hybrid" },
+  { value: "local", label: "Local" },
+  { value: "cloud", label: "Cloud" },
+];
+
+const AGENT_TEAM_CAPABILITY_OPTIONS: Array<{ value: AgentTeamCapabilityTier; label: string }> = [
+  { value: "small", label: "Small / narrow" },
+  { value: "standard", label: "Standard" },
+  { value: "flagship", label: "Flagship / large" },
+];
+
+const AGENT_TEAM_CAPABILITY_NOTES: Record<AgentTeamCapabilityTier, string> = {
+  small:
+    "Small models are best for narrow worker roles, short tool calls, extraction, and checklist execution. Keep planning, arbitration, and final review with a larger model.",
+  standard:
+    "Standard models can run small teams and routine build/review loops, but keep parallelism modest when tasks need deep reasoning.",
+  flagship:
+    "Flagship or large local models can lead multi-agent planning, resolve conflicts, and handle final synthesis across local and cloud lanes.",
+};
+
+const isAgentTeamRole = (value: unknown): value is AgentTeamMemberRole =>
+  AGENT_TEAM_ROLE_OPTIONS.some((option) => option.value === value);
+
+const isAgentTeamRouting = (value: unknown): value is AgentTeamRouting =>
+  AGENT_TEAM_ROUTING_OPTIONS.some((option) => option.value === value);
+
+const isAgentTeamModelLane = (value: unknown): value is AgentTeamModelLane =>
+  AGENT_TEAM_MODEL_LANE_OPTIONS.some((option) => option.value === value);
+
+const isAgentTeamCapabilityTier = (value: unknown): value is AgentTeamCapabilityTier =>
+  AGENT_TEAM_CAPABILITY_OPTIONS.some((option) => option.value === value);
+
+const inferAgentTeamModelLane = (choice: ModelChoiceSignal): AgentTeamModelLane => {
+  const service = (choice.service ?? "").toLowerCase();
+  const base = (choice.baseUrl ?? "").toLowerCase();
+  if (!service && !base) return "hybrid";
+  if (service.includes("ollama-cloud") || base.includes("ollama.com")) return "cloud";
+  if (
+    service.includes("lmstudio") ||
+    service.includes("lm-studio") ||
+    service.includes("ollama") ||
+    base.includes("localhost") ||
+    base.includes("127.0.0.1") ||
+    base.includes("[::1]")
+  ) {
+    return "local";
+  }
+  return "cloud";
+};
+
+const inferAgentTeamCapabilityTier = (model: string): AgentTeamCapabilityTier => {
+  const name = model.toLowerCase();
+  if (!name) return "standard";
+  if (/(^|[-_: ])(1b|2b|3b|4b|7b|8b|9b)([-_: ]|$)/.test(name) || /(mini|small|nano|tiny|flash)/.test(name)) {
+    return "small";
+  }
+  if (/(14b|20b|27b|30b|32b|34b|40b|medium|large)/.test(name)) return "standard";
+  if (/(70b|72b|90b|120b|405b|gpt-5|gpt-4\.1|claude|opus|sonnet|gemini.*pro|o3|o4)/.test(name)) {
+    return "flagship";
+  }
+  return "standard";
+};
+
+const agentTeamId = (prefix: string) => {
+  const suffix =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return `${prefix}-${suffix}`;
+};
+
+const createAgentTeamMember = (
+  name: string,
+  role: AgentTeamMemberRole,
+  mode = "assistant",
+  provider = "team default",
+  model = "team default",
+  tools = "workspace, shell",
+  memoryScope = "team + project",
+  skills = "",
+): AgentTeamMember => ({
+  id: agentTeamId("member"),
+  name,
+  role,
+  mode,
+  provider,
+  model,
+  tools,
+  skills,
+  memoryScope,
+});
+
+const createAgentTeam = (
+  id: string,
+  name: string,
+  intent: string,
+  routing: AgentTeamRouting,
+  maxParallel: number,
+  reviewRequired: boolean,
+  budget: string,
+  members: AgentTeamMember[],
+  modelSettings: Partial<Pick<AgentTeamConfig, "modelLane" | "capabilityTier" | "providerTarget" | "modelTarget" | "sharedSkills">> = {},
+): AgentTeamConfig => ({
+  id,
+  name,
+  intent,
+  lead: members[0]?.id ?? "",
+  routing,
+  modelLane: modelSettings.modelLane ?? "hybrid",
+  capabilityTier: modelSettings.capabilityTier ?? "standard",
+  providerTarget: modelSettings.providerTarget ?? "active provider",
+  modelTarget: modelSettings.modelTarget ?? "active model",
+  sharedSkills: modelSettings.sharedSkills ?? "",
+  maxParallel,
+  reviewRequired,
+  budget,
+  members,
+});
+
+const createDefaultAgentTeams = (): AgentTeamConfig[] => {
+  const buildLead = createAgentTeamMember("Build lead", "lead", "assistant", "team default", "team default", "workspace, shell, builds", "team + project", "planning, handoff");
+  const buildPlanner = createAgentTeamMember("Planner", "planner", "modes", "team default", "team default", "plans, files", "project", "planning, decomposition");
+  const buildBuilder = createAgentTeamMember("Builder", "builder", "assistant", "team default", "team default", "workspace, shell", "project", "coding, refactor");
+  const buildReviewer = createAgentTeamMember("Reviewer", "reviewer", "review", "team default", "team default", "review queue, tests", "project + audit", "code review, tests");
+
+  const diagnosticLead = createAgentTeamMember("Tech specialist lead", "lead", "diagnostic", "team default", "team default", "logs, runtime, provider probes", "runtime", "triage, root cause");
+  const diagnosticWorker = createAgentTeamMember("Runtime specialist", "diagnostic", "diagnostic", "team default", "team default", "logs, automation, dreaming, hooks", "runtime + project", "logs, probes, repair");
+  const diagnosticReviewer = createAgentTeamMember("Fix reviewer", "reviewer", "review", "team default", "team default", "review queue, tests", "audit", "regression review, tests");
+
+  const dreamingLead = createAgentTeamMember("Dreaming lead", "lead", "dreaming", "team default", "team default", "memory, rag, projects", "long memory", "synthesis, long-range planning");
+  const dreamingResearcher = createAgentTeamMember("Research scout", "researcher", "rag", "team default", "team default", "rag, files, memory", "rag tree", "research, retrieval");
+  const dreamingReviewer = createAgentTeamMember("Reality check", "reviewer", "review", "team default", "team default", "review queue, notes", "project", "critique, feasibility");
+
+  return [
+    createAgentTeam(
+      "agent-team-build",
+      "Build Team",
+      "Plan, implement, test, and review project changes with a clear lead.",
+      "review-gated",
+      3,
+      true,
+      "balanced",
+      [buildLead, buildPlanner, buildBuilder, buildReviewer],
+      {
+        modelLane: "hybrid",
+        capabilityTier: "flagship",
+        providerTarget: "local first, cloud fallback",
+        modelTarget: "large local or cloud flagship",
+        sharedSkills: "repo navigation, planning, build verification",
+      },
+    ),
+    createAgentTeam(
+      "agent-team-diagnostic",
+      "Tech Specialist Team",
+      "Trace broken runtime behavior, set up approved automation/dreaming work, isolate causes, and propose safe fixes.",
+      "lead-routed",
+      2,
+      true,
+      "low",
+      [diagnosticLead, diagnosticWorker, diagnosticReviewer],
+      {
+        modelLane: "local",
+        capabilityTier: "standard",
+        providerTarget: "Ollama or LM Studio",
+        modelTarget: "fast local diagnostic model",
+        sharedSkills: "logs, runtime probes, repair notes",
+      },
+    ),
+    createAgentTeam(
+      "agent-team-dreaming",
+      "Dreaming Team",
+      "Grow long-running ideas through memory, RAG, and project context.",
+      "parallel",
+      2,
+      false,
+      "background",
+      [dreamingLead, dreamingResearcher, dreamingReviewer],
+      {
+        modelLane: "hybrid",
+        capabilityTier: "flagship",
+        providerTarget: "local first, cloud fallback",
+        modelTarget: "long-context large model",
+        sharedSkills: "memory synthesis, RAG traversal, project dreaming",
+      },
+    ),
+  ];
+};
+
+const normalizeAgentTeamMember = (value: unknown): AgentTeamMember | null => {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  return {
+    id: typeof row.id === "string" && row.id.trim() ? row.id : agentTeamId("member"),
+    name: typeof row.name === "string" && row.name.trim() ? row.name : "Agent",
+    role: isAgentTeamRole(row.role) ? row.role : "builder",
+    mode: typeof row.mode === "string" && row.mode.trim() ? row.mode : "assistant",
+    provider: typeof row.provider === "string" && row.provider.trim() ? row.provider : "team default",
+    model: typeof row.model === "string" && row.model.trim() ? row.model : "team default",
+    tools: typeof row.tools === "string" ? row.tools : "workspace, shell",
+    skills: typeof row.skills === "string" ? row.skills : "",
+    memoryScope: typeof row.memoryScope === "string" ? row.memoryScope : "project",
+  };
+};
+
+const normalizeAgentTeam = (value: unknown): AgentTeamConfig | null => {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const members = Array.isArray(row.members)
+    ? row.members.map(normalizeAgentTeamMember).filter((member): member is AgentTeamMember => Boolean(member))
+    : [];
+  if (members.length === 0) members.push(createAgentTeamMember("Lead", "lead"));
+  const requestedLead = typeof row.lead === "string" ? row.lead : "";
+  const lead = members.some((member) => member.id === requestedLead) ? requestedLead : members[0].id;
+  return {
+    id: typeof row.id === "string" && row.id.trim() ? row.id : agentTeamId("team"),
+    name: typeof row.name === "string" && row.name.trim() ? row.name : "Agent Team",
+    intent: typeof row.intent === "string" ? row.intent : "",
+    lead,
+    routing: isAgentTeamRouting(row.routing) ? row.routing : "lead-routed",
+    modelLane: isAgentTeamModelLane(row.modelLane) ? row.modelLane : "hybrid",
+    capabilityTier: isAgentTeamCapabilityTier(row.capabilityTier) ? row.capabilityTier : "standard",
+    providerTarget:
+      typeof row.providerTarget === "string" && row.providerTarget.trim() ? row.providerTarget : "active provider",
+    modelTarget: typeof row.modelTarget === "string" && row.modelTarget.trim() ? row.modelTarget : "active model",
+    sharedSkills: typeof row.sharedSkills === "string" ? row.sharedSkills : "",
+    maxParallel:
+      typeof row.maxParallel === "number" && Number.isFinite(row.maxParallel)
+        ? Math.max(1, Math.min(8, Math.round(row.maxParallel)))
+        : 2,
+    reviewRequired: typeof row.reviewRequired === "boolean" ? row.reviewRequired : true,
+    budget: typeof row.budget === "string" && row.budget.trim() ? row.budget : "balanced",
+    members,
+  };
+};
+
+const loadAgentTeams = (): AgentTeamConfig[] => {
+  if (typeof window === "undefined") return createDefaultAgentTeams();
+  try {
+    const raw = window.localStorage.getItem(AGENT_TEAMS_STORAGE_KEY);
+    if (!raw) return createDefaultAgentTeams();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return createDefaultAgentTeams();
+    const teams = parsed.map(normalizeAgentTeam).filter((team): team is AgentTeamConfig => Boolean(team));
+    return teams.length > 0 ? teams : createDefaultAgentTeams();
+  } catch {
+    return createDefaultAgentTeams();
+  }
+};
+
+const saveAgentTeams = (teams: AgentTeamConfig[]) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(AGENT_TEAMS_STORAGE_KEY, JSON.stringify(teams));
+};
+
+const saveActiveAgentTeamId = (teamId: string) => {
+  if (typeof window === "undefined") return;
+  if (teamId) window.localStorage.setItem(AGENT_TEAM_ACTIVE_KEY, teamId);
+  else window.localStorage.removeItem(AGENT_TEAM_ACTIVE_KEY);
+};
+
+const cacheAgentTeamsSnapshot = (teams: AgentTeamConfig[], activeTeamId: string) => {
+  saveAgentTeams(teams);
+  saveActiveAgentTeamId(activeTeamId);
+};
+
+const normalizeAgentTeamsSnapshot = (teams: unknown[], activeTeamId: string) => {
+  const normalized = teams.map(normalizeAgentTeam).filter((team): team is AgentTeamConfig => Boolean(team));
+  const nextTeams = normalized.length > 0 ? normalized : createDefaultAgentTeams();
+  const nextActive = nextTeams.some((team) => team.id === activeTeamId) ? activeTeamId : "";
+  return { teams: nextTeams, activeTeamId: nextActive };
+};
+
+const hydrateAgentTeamsFromBackend = async () => {
+  const snapshot = await fetchAgentTeams();
+  if (snapshot.teams.length === 0) {
+    const localTeams = loadAgentTeams();
+    const localActive = readStoredString(AGENT_TEAM_ACTIVE_KEY, "");
+    const saved = await saveAgentTeamsSnapshot(localTeams, localActive);
+    const normalized = normalizeAgentTeamsSnapshot(saved.teams, saved.active_team_id);
+    cacheAgentTeamsSnapshot(normalized.teams, normalized.activeTeamId);
+    return normalized;
+  }
+  const normalized = normalizeAgentTeamsSnapshot(snapshot.teams, snapshot.active_team_id);
+  cacheAgentTeamsSnapshot(normalized.teams, normalized.activeTeamId);
+  return normalized;
+};
+
+const splitAgentTeamList = (value: string): string[] =>
+  value
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const resolveActiveAgentTeam = (): AgentTeamConfig | null => {
+  const teams = loadAgentTeams();
+  const activeTeamId = readStoredString(AGENT_TEAM_ACTIVE_KEY, "");
+  if (!activeTeamId) return null;
+  return teams.find((team) => team.id === activeTeamId) ?? null;
+};
+
+const isSimpleAssistantTurn = (message: string): boolean => {
+  const normalized = message
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return true;
+  const simple = new Set([
+    "hi",
+    "hello",
+    "hey",
+    "yo",
+    "ok",
+    "okay",
+    "thanks",
+    "thank you",
+    "good morning",
+    "good afternoon",
+    "good evening",
+  ]);
+  return simple.has(normalized) || normalized.length <= 3;
+};
+
+const agentTeamRequestedByMessage = (message: string): boolean =>
+  /\b(agent team|team agents|multi[-\s]?agent|use .*team|build team|diagnostic team|tech specialist team|dreaming team|planner|reviewer|parallel|collaborat(e|ion)|delegate|handoff)\b/i.test(
+    message,
+  );
+
+const shouldUseAgentTeamForTurn = (
+  message: string,
+  team: AgentTeamConfig | null,
+  collaboratorRequest: string,
+): team is AgentTeamConfig => {
+  if (!team) return false;
+  if (collaboratorRequest.trim()) return true;
+  if (isSimpleAssistantTurn(message)) return false;
+  return agentTeamRequestedByMessage(message);
+};
+
+const createBlankAgentTeam = (mode = "assistant"): AgentTeamConfig => {
+  const lead = createAgentTeamMember("Lead", "lead", mode, "team default", "team default", "workspace, shell", "team + project", "planning, coordination");
+  const builder = createAgentTeamMember("Builder", "builder", mode, "team default", "team default", "workspace, shell", "project", "implementation");
+  const reviewer = createAgentTeamMember("Reviewer", "reviewer", "review", "team default", "team default", "review queue, tests", "audit", "review, tests");
+  return createAgentTeam(
+    agentTeamId("team"),
+    "New Agent Team",
+    "Describe what this team owns.",
+    "lead-routed",
+    2,
+    true,
+    "balanced",
+    [lead, builder, reviewer],
+    {
+      modelLane: "hybrid",
+      capabilityTier: "standard",
+      providerTarget: "active provider",
+      modelTarget: "active model",
+      sharedSkills: "planning, execution, review",
+    },
+  );
+};
+
+const AgentsSurface = ({
+  onOpen,
+  modes,
+  modelChoice,
+}: {
+  onOpen: (tab: string) => void;
+  modes: AssistantMode[];
+  modelChoice: ModelChoiceSignal;
+}) => {
+  const [teams, setTeams] = useState<AgentTeamConfig[]>(() => loadAgentTeams());
+  const [activeTeamId, setActiveTeamIdState] = useState(() => readStoredString(AGENT_TEAM_ACTIVE_KEY, ""));
+  const [teamsHydrated, setTeamsHydrated] = useState(false);
+
+  const setActiveTeamId = (teamId: string) => {
+    setActiveTeamIdState(teamId);
+    saveActiveAgentTeamId(teamId);
+    void persistActiveAgentTeam(teamId).catch((err: unknown) => {
+      publishUxiDebugEvent("ordo.agent_teams", "active_team_save_failed", "Active Agent Team save failed.", {
+        team_id: teamId,
+        error: err instanceof Error ? err.message : String(err),
+      }, "WARN");
+    });
+  };
+
+  const modeOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [];
+    const seen = new Set<string>();
+    const add = (value: string, label: string) => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label });
+    };
+    add("assistant", "Assistant");
+    add("modes", "Modes");
+    add("review", "Review");
+    add("diagnostic", "Tech Specialist");
+    add("dreaming", "Dreaming");
+    add("rag", "RAG");
+    modes.forEach((mode) => add(mode.id, mode.label || mode.id));
+    return options;
+  }, [modes]);
+
+  const selectedTeam = teams.find((team) => team.id === activeTeamId) ?? teams[0] ?? null;
+  const hasActiveTeam = Boolean(activeTeamId && teams.some((team) => team.id === activeTeamId));
+
+  useEffect(() => {
+    let cancelled = false;
+    hydrateAgentTeamsFromBackend()
+      .then((snapshot) => {
+        if (cancelled) return;
+        setTeams(snapshot.teams);
+        setActiveTeamIdState(snapshot.activeTeamId);
+        setTeamsHydrated(true);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setTeamsHydrated(true);
+        publishUxiDebugEvent("ordo.agent_teams", "backend_hydration_failed", "Agent Teams backend hydration failed; using local cache.", {
+          error: err instanceof Error ? err.message : String(err),
+        }, "WARN");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!teamsHydrated) return;
+    cacheAgentTeamsSnapshot(teams, activeTeamId);
+    void saveAgentTeamsSnapshot(teams, activeTeamId).catch((err: unknown) => {
+      publishUxiDebugEvent("ordo.agent_teams", "snapshot_save_failed", "Agent Teams backend save failed.", {
+        error: err instanceof Error ? err.message : String(err),
+      }, "WARN");
+    });
+  }, [activeTeamId, teams, teamsHydrated]);
+
+  const updateSelectedTeam = (patch: Partial<AgentTeamConfig>) => {
+    if (!selectedTeam) return;
+    setTeams((current) => current.map((team) => (team.id === selectedTeam.id ? { ...team, ...patch } : team)));
+  };
+
+  const updateMember = (memberId: string, patch: Partial<AgentTeamMember>) => {
+    if (!selectedTeam) return;
+    setTeams((current) =>
+      current.map((team) =>
+        team.id === selectedTeam.id
+          ? {
+              ...team,
+              members: team.members.map((member) => (member.id === memberId ? { ...member, ...patch } : member)),
+            }
+          : team,
+      ),
+    );
+  };
+
+  const addTeam = () => {
+    const team = createBlankAgentTeam(modeOptions[0]?.value ?? "assistant");
+    setTeams((current) => [...current, team]);
+    setActiveTeamId(team.id);
+    publishUxiDebugEvent("ordo.agent_teams", "team_created", "Agent team created.", { team: team.name });
+  };
+
+  const duplicateTeam = () => {
+    if (!selectedTeam) return;
+    const copiedMembers = selectedTeam.members.map((member) => ({ ...member, id: agentTeamId("member") }));
+    const leadIndex = Math.max(0, selectedTeam.members.findIndex((member) => member.id === selectedTeam.lead));
+    const copy: AgentTeamConfig = {
+      ...selectedTeam,
+      id: agentTeamId("team"),
+      name: `${selectedTeam.name} Copy`,
+      lead: copiedMembers[leadIndex]?.id ?? copiedMembers[0]?.id ?? "",
+      members: copiedMembers,
+    };
+    setTeams((current) => [...current, copy]);
+    setActiveTeamId(copy.id);
+    publishUxiDebugEvent("ordo.agent_teams", "team_duplicated", "Agent team duplicated.", { team: selectedTeam.name });
+  };
+
+  const removeSelectedTeam = () => {
+    if (!selectedTeam || teams.length <= 1) return;
+    const nextTeam = teams.find((team) => team.id !== selectedTeam.id);
+    setTeams((current) => current.filter((team) => team.id !== selectedTeam.id));
+    setActiveTeamId(nextTeam?.id ?? "");
+    publishUxiDebugEvent("ordo.agent_teams", "team_deleted", "Agent team deleted.", { team: selectedTeam.name });
+  };
+
+  const resetDefaults = () => {
+    if (typeof window !== "undefined" && !window.confirm("Reset agent teams to defaults?")) return;
+    const defaults = createDefaultAgentTeams();
+    setTeams(defaults);
+    setActiveTeamId("");
+    publishUxiDebugEvent("ordo.agent_teams", "defaults_restored", "Default agent teams restored.");
+  };
+
+  const addMember = () => {
+    if (!selectedTeam) return;
+    const member = createAgentTeamMember("New agent", "builder", modeOptions[0]?.value ?? "assistant");
+    setTeams((current) =>
+      current.map((team) =>
+        team.id === selectedTeam.id ? { ...team, members: [...team.members, member] } : team,
+      ),
+    );
+    publishUxiDebugEvent("ordo.agent_teams", "member_added", "Agent team member added.", { team: selectedTeam.name });
+  };
+
+  const removeMember = (memberId: string) => {
+    if (!selectedTeam || selectedTeam.members.length <= 1) return;
+    setTeams((current) =>
+      current.map((team) => {
+        if (team.id !== selectedTeam.id) return team;
+        const members = team.members.filter((member) => member.id !== memberId);
+        return {
+          ...team,
+          lead: team.lead === memberId ? members[0]?.id ?? "" : team.lead,
+          members,
+        };
+      }),
+    );
+  };
+
+  if (!selectedTeam) {
+    return (
+      <SimpleSettingsSurface
+        icon={<Bot size={22} />}
+        title="Agent Teams"
+        sub="Role-based groups for delegated Ordo work."
+      >
+        <Card>
+          <Button variant="primary" onClick={addTeam}>
+            <Plus size={13} /> New team
+          </Button>
+        </Card>
+      </SimpleSettingsSurface>
+    );
+  }
+
+  const memberModeOptions = (mode: string) =>
+    modeOptions.some((option) => option.value === mode) ? modeOptions : [{ value: mode, label: mode }, ...modeOptions];
+  const leadOptions = selectedTeam.members.map((member) => ({ value: member.id, label: member.name || member.role }));
+  const leadMember = selectedTeam.members.find((member) => member.id === selectedTeam.lead);
+  const activeProviderLabel = modelChoice.service ? modelChoice.providerLabel : "default";
+  const activeModelLabel = modelChoice.selected || "no active model";
+  const capabilityNote = AGENT_TEAM_CAPABILITY_NOTES[selectedTeam.capabilityTier];
+  const smallModelCaution = selectedTeam.capabilityTier === "small" && (selectedTeam.maxParallel > 1 || selectedTeam.routing === "parallel");
+  const applyActiveModelChoice = () => {
+    updateSelectedTeam({
+      modelLane: inferAgentTeamModelLane(modelChoice),
+      capabilityTier: inferAgentTeamCapabilityTier(modelChoice.selected),
+      providerTarget: activeProviderLabel,
+      modelTarget: activeModelLabel,
+    });
+    publishUxiDebugEvent("ordo.agent_teams", "active_model_applied", "Active chat model assigned to agent team.", {
+      team: selectedTeam.name,
+      provider: activeProviderLabel,
+      model: activeModelLabel,
+    });
+  };
+
+  return (
+    <SimpleSettingsSurface
+      icon={<Bot size={22} />}
+      title="Agent Teams"
+      sub="Role-based groups for delegated Ordo work."
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="primary">{teams.length} teams</Badge>
+          <Badge variant={hasActiveTeam ? "success" : "neutral"}>
+            {hasActiveTeam ? "armed for explicit team tasks" : "off by default"}
+          </Badge>
+          <Badge variant={selectedTeam.reviewRequired ? "warn" : "neutral"}>
+            {selectedTeam.reviewRequired ? "review gated" : "direct"}
+          </Badge>
+          <Badge variant="info">{selectedTeam.routing}</Badge>
+          <Badge variant={selectedTeam.modelLane === "cloud" ? "info" : selectedTeam.modelLane === "local" ? "success" : "primary"}>
+            {selectedTeam.modelLane}
+          </Badge>
+          <Badge variant={selectedTeam.capabilityTier === "small" ? "warn" : selectedTeam.capabilityTier === "flagship" ? "primary" : "neutral"}>
+            {selectedTeam.capabilityTier}
+          </Badge>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="primary" onClick={addTeam}>
+            <Plus size={13} /> New team
+          </Button>
+          <Button size="sm" onClick={() => setActiveTeamId("")} disabled={!hasActiveTeam}>
+            <X size={13} /> Turn off
+          </Button>
+          <Button size="sm" onClick={duplicateTeam}>
+            <Copy size={13} /> Duplicate
+          </Button>
+          <Button size="sm" variant="danger" onClick={removeSelectedTeam} disabled={teams.length <= 1}>
+            <Trash2 size={13} /> Delete
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+        <div className="space-y-3">
+          <SettingsList>
+            {teams.map((team) => {
+              const current = team.id === activeTeamId;
+              const selected = team.id === selectedTeam.id;
+              const teamSkillCount =
+                splitAgentTeamList(team.sharedSkills).length +
+                team.members.reduce((total, member) => total + splitAgentTeamList(member.skills).length, 0);
+              return (
+                <button
+                  key={team.id}
+                  type="button"
+                  onClick={() => setActiveTeamId(team.id)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    padding: "14px 16px",
+                    textAlign: "left",
+                    border: 0,
+                    borderBottom: `1px solid ${UI.cardBorder}`,
+                    background: current ? UI.primarySoft : selected ? "rgba(255,255,255,0.025)" : "transparent",
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <Serif size={16} weight={650} color={UI.parchment}>
+                      {team.name}
+                    </Serif>
+                    <div style={{ marginTop: 6 }}>
+                      <Mono size={10} color={UI.textMuted}>
+                        {team.members.length} members / {teamSkillCount} skills / {team.modelLane} / {team.capabilityTier}
+                      </Mono>
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <Mono size={10} color={UI.textDim}>
+                        {team.intent}
+                      </Mono>
+                    </div>
+                  </div>
+                  {current && <Badge variant="primary">active</Badge>}
+                  {!current && selected && <Badge variant="neutral">selected</Badge>}
+                </button>
+              );
+            })}
+          </SettingsList>
+          <Button size="sm" variant="ghost" onClick={resetDefaults}>
+            Reset defaults
+          </Button>
+        </div>
+
+        <div className="space-y-3">
+          <Card>
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+              <Field label="Team name">
+                <TextInput
+                  value={selectedTeam.name}
+                  onChange={(name) => updateSelectedTeam({ name })}
+                  placeholder="Build Team"
+                />
+              </Field>
+              <Field label="Lead">
+                <SmallSelect<string>
+                  value={selectedTeam.lead}
+                  onChange={(lead) => updateSelectedTeam({ lead })}
+                  options={leadOptions}
+                />
+              </Field>
+              <Field label="Routing">
+                <SmallSelect<AgentTeamRouting>
+                  value={selectedTeam.routing}
+                  onChange={(routing) => updateSelectedTeam({ routing })}
+                  options={AGENT_TEAM_ROUTING_OPTIONS}
+                />
+              </Field>
+              <Field label="Model lane">
+                <SmallSelect<AgentTeamModelLane>
+                  value={selectedTeam.modelLane}
+                  onChange={(modelLane) => updateSelectedTeam({ modelLane })}
+                  options={AGENT_TEAM_MODEL_LANE_OPTIONS}
+                />
+              </Field>
+              <Field label="Capability">
+                <SmallSelect<AgentTeamCapabilityTier>
+                  value={selectedTeam.capabilityTier}
+                  onChange={(capabilityTier) => updateSelectedTeam({ capabilityTier })}
+                  options={AGENT_TEAM_CAPABILITY_OPTIONS}
+                />
+              </Field>
+              <Field label="Budget">
+                <TextInput
+                  value={selectedTeam.budget}
+                  onChange={(budget) => updateSelectedTeam({ budget })}
+                  placeholder="balanced"
+                />
+              </Field>
+              <Field label="Max parallel">
+                <NumberInput
+                  value={selectedTeam.maxParallel}
+                  min={1}
+                  max={8}
+                  step={1}
+                  onChange={(maxParallel) =>
+                    updateSelectedTeam({ maxParallel: Math.max(1, Math.min(8, Math.round(maxParallel || 1))) })
+                  }
+                />
+              </Field>
+              <Field label="Review gate">
+                <div className="flex items-center justify-between gap-3" style={{ minHeight: 36 }}>
+                  <Mono size={11} color={selectedTeam.reviewRequired ? UI.primary : UI.textMuted}>
+                    {selectedTeam.reviewRequired ? "required" : "optional"}
+                  </Mono>
+                  <ToggleSwitch
+                    checked={selectedTeam.reviewRequired}
+                    onChange={(reviewRequired) => updateSelectedTeam({ reviewRequired })}
+                  />
+                </div>
+              </Field>
+              <Field label="Provider target">
+                <TextInput
+                  value={selectedTeam.providerTarget}
+                  onChange={(providerTarget) => updateSelectedTeam({ providerTarget })}
+                  placeholder="Ollama, LM Studio, OpenAI, Anthropic"
+                />
+              </Field>
+              <Field label="Default model">
+                <TextInput
+                  value={selectedTeam.modelTarget}
+                  onChange={(modelTarget) => updateSelectedTeam({ modelTarget })}
+                  placeholder="qwen, llama, gpt, claude"
+                />
+              </Field>
+              <Field label="Team skills">
+                <TextInput
+                  value={selectedTeam.sharedSkills}
+                  onChange={(sharedSkills) => updateSelectedTeam({ sharedSkills })}
+                  placeholder="planning, repo navigation, verification"
+                />
+              </Field>
+            </div>
+            <div
+              className="flex flex-wrap items-center justify-between gap-3"
+              style={{
+                marginTop: 14,
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: `1px solid ${smallModelCaution ? UI.amber : UI.cardBorder}`,
+                background: smallModelCaution ? `${UI.amber}14` : "rgba(255,255,255,0.025)",
+              }}
+            >
+              <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                <Mono size={10} upper track="0.14em" color={smallModelCaution ? UI.amber : UI.textMuted}>
+                  model fit
+                </Mono>
+                <div style={{ marginTop: 5 }}>
+                  <Mono size={11} color={smallModelCaution ? UI.parchment : UI.textMuted}>
+                    {capabilityNote}
+                  </Mono>
+                </div>
+                <div style={{ marginTop: 5 }}>
+                  <Mono size={10} color={UI.textDim}>
+                    Active chat model: {activeProviderLabel} / {activeModelLabel}
+                  </Mono>
+                </div>
+              </div>
+              <Button size="sm" onClick={applyActiveModelChoice} disabled={!modelChoice.service && !modelChoice.selected}>
+                Use active model
+              </Button>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <Field label="Team intent">
+                <Textarea
+                  value={selectedTeam.intent}
+                  onChange={(intent) => updateSelectedTeam({ intent })}
+                  rows={3}
+                  placeholder="What this team owns."
+                  spellCheck={false}
+                />
+              </Field>
+            </div>
+          </Card>
+
+          <SettingsList>
+            <SettingsRow
+              title="Members"
+              sub={leadMember ? `Lead: ${leadMember.name}` : "Choose a lead member."}
+              control={
+                <Button size="sm" variant="primary" onClick={addMember}>
+                  <Plus size={13} /> Add member
+                </Button>
+              }
+            />
+            {selectedTeam.members.map((member) => (
+              <div key={member.id} style={{ padding: 16, borderBottom: `1px solid ${UI.cardBorder}` }}>
+                <div className="flex flex-wrap items-center justify-between gap-2" style={{ marginBottom: 12 }}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={member.id === selectedTeam.lead ? "primary" : "neutral"}>
+                      {member.id === selectedTeam.lead ? "lead" : member.role}
+                    </Badge>
+                    <Mono size={12} color={UI.parchment} weight={600}>
+                      {member.name}
+                    </Mono>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => removeMember(member.id)}
+                    disabled={selectedTeam.members.length <= 1}
+                    title="Remove member"
+                  >
+                    <Trash2 size={13} />
+                  </Button>
+                </div>
+                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+                  <Field label="Name">
+                    <TextInput
+                      value={member.name}
+                      onChange={(name) => updateMember(member.id, { name })}
+                      placeholder="Agent"
+                    />
+                  </Field>
+                  <Field label="Role">
+                    <SmallSelect<AgentTeamMemberRole>
+                      value={member.role}
+                      onChange={(role) => updateMember(member.id, { role })}
+                      options={AGENT_TEAM_ROLE_OPTIONS}
+                    />
+                  </Field>
+                  <Field label="Mode">
+                    <SmallSelect<string>
+                      value={member.mode}
+                      onChange={(mode) => updateMember(member.id, { mode })}
+                      options={memberModeOptions(member.mode)}
+                    />
+                  </Field>
+                  <Field label="Provider">
+                    <TextInput
+                      value={member.provider}
+                      onChange={(provider) => updateMember(member.id, { provider })}
+                      placeholder="team default"
+                    />
+                  </Field>
+                  <Field label="Model">
+                    <TextInput
+                      value={member.model}
+                      onChange={(model) => updateMember(member.id, { model })}
+                      placeholder="team default"
+                    />
+                  </Field>
+                  <Field label="Skills">
+                    <TextInput
+                      value={member.skills}
+                      onChange={(skills) => updateMember(member.id, { skills })}
+                      placeholder="coding, review, research"
+                    />
+                  </Field>
+                  <Field label="Tools">
+                    <TextInput
+                      value={member.tools}
+                      onChange={(tools) => updateMember(member.id, { tools })}
+                      placeholder="workspace, shell"
+                    />
+                  </Field>
+                  <Field label="Memory">
+                    <TextInput
+                      value={member.memoryScope}
+                      onChange={(memoryScope) => updateMember(member.id, { memoryScope })}
+                      placeholder="project"
+                    />
+                  </Field>
+                </div>
+              </div>
+            ))}
+          </SettingsList>
+        </div>
+      </div>
+
+      <SettingsList>
+        <SettingsRow
+          title="Agent persona"
+          sub="Durable behavior instructions shared by agent teams."
+          control={<Button size="sm" onClick={() => onOpen("agent-persona")}>Open</Button>}
+        />
+        <SettingsRow
+          title="Agent memory"
+          sub="Persistent facts and operating memory the teams can draw from."
+          control={<Button size="sm" onClick={() => onOpen("agent-memory")}>Open</Button>}
+        />
+        <SettingsRow
+          title="Operator persona"
+          sub="Operator profile Ordo should consider when responding."
+          control={<Button size="sm" onClick={() => onOpen("persona")}>Open</Button>}
+        />
+      </SettingsList>
+    </SimpleSettingsSurface>
+  );
+};
+
+const TeamAgentActivityIndicator = ({
+  active,
+  team,
+  activeMode,
+  collaboratorRequest,
+  modelChoice,
+  queuedCount,
+}: {
+  active: boolean;
+  team: AgentTeamConfig | null;
+  activeMode: string;
+  collaboratorRequest: string;
+  modelChoice: ModelChoiceSignal;
+  queuedCount: number;
+}) => {
+  if (!active) return null;
+  const lane = team?.modelLane ?? inferAgentTeamModelLane(modelChoice);
+  const tier = team?.capabilityTier ?? inferAgentTeamCapabilityTier(modelChoice.selected);
+  const members =
+    team?.members.slice(0, 5) ??
+    [
+      createAgentTeamMember("Lead", "lead"),
+      createAgentTeamMember("Planner", "planner"),
+      createAgentTeamMember("Reviewer", "reviewer"),
+    ];
+  const skillCount = team
+    ? splitAgentTeamList(team.sharedSkills).length +
+      team.members.reduce((total, member) => total + splitAgentTeamList(member.skills).length, 0)
+    : 0;
+  const laneColor = lane === "cloud" ? VIOLET : lane === "local" ? JADE : LAMP;
+  const title = [
+    team ? `Team: ${team.name}` : "Team: active assistant team",
+    `Lane: ${lane}`,
+    `Capability: ${tier}`,
+    `Model: ${modelChoice.providerLabel} / ${modelChoice.selected || "default"}`,
+    collaboratorRequest ? `Requested collaborator: ${collaboratorRequest}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return (
+    <div
+      className="ordo-team-working flex flex-wrap items-center gap-2"
+      title={title}
+      style={{
+        borderRadius: 10,
+        border: `1px solid ${laneColor}55`,
+        background: `linear-gradient(90deg, ${laneColor}18, rgba(255,255,255,0.025))`,
+        padding: "8px 10px",
+        boxShadow: `0 0 18px ${laneColor}1f`,
+      }}
+    >
+      <div className="flex items-center gap-2" style={{ flex: "1 1 260px", minWidth: 0 }}>
+        <Bot size={14} color={laneColor} />
+        <Mono size={10} upper track="0.16em" color={laneColor} weight={700}>
+          team agents working
+        </Mono>
+        <span className="ordo-team-dot" style={{ background: laneColor }} />
+        <Mono size={10} color={UI.textMuted} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {(team?.name ?? "Active team")} / {lane} / {tier}
+        </Mono>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {members.map((member, index) => (
+          <span
+            key={`${member.id}-${index}`}
+            style={{
+              fontFamily: MONO,
+              fontSize: 9,
+              padding: "3px 7px",
+              borderRadius: 999,
+              color: member.role === "lead" ? INK : UI.textMuted,
+              background: member.role === "lead" ? laneColor : "rgba(255,255,255,0.055)",
+              border: `1px solid ${member.role === "lead" ? laneColor : "rgba(255,255,255,0.08)"}`,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            {member.role}
+          </span>
+        ))}
+        {collaboratorRequest && <Badge variant="info">consult {collaboratorRequest}</Badge>}
+        {skillCount > 0 && <Badge variant="success">{skillCount} skills</Badge>}
+        {activeMode && <Badge variant="neutral">{activeMode}</Badge>}
+        {queuedCount > 0 && <Badge variant="warn">{queuedCount} queued</Badge>}
+      </div>
+    </div>
+  );
+};
+
 const publishUxiDebugEvent = (
   source: string,
   action: string,
@@ -10987,37 +13296,390 @@ const DeviceConnectionsSurface = () => {
   );
 };
 
-type RemoteChannelId = "email" | "signal" | "matrix" | "telegram" | "sms";
+type RemoteChannelId = "email" | "signal" | "matrix" | "telegram";
+type RemoteEmailProvider = "gmail" | "outlook" | "icloud" | "proton_bridge" | "custom_imap";
+type RemoteMailboxAccess = "none" | "read" | "write";
+
+interface RemoteEmailAccount {
+  id: string;
+  connectionId?: string;
+  label: string;
+  provider: RemoteEmailProvider;
+  address: string;
+  displayName: string;
+  imapHost: string;
+  imapPort: string;
+  smtpHost: string;
+  smtpPort: string;
+  username: string;
+  mailbox: string;
+  pollSeconds: number;
+  commandPrefix: string;
+  authorizedSenders: string;
+  enabled: boolean;
+  remoteCommandAccess: boolean;
+  userReadAccess: boolean;
+  userSendAccess: boolean;
+  secretConfigured: boolean;
+  connectionStatus?: string;
+  statusDetail?: string | null;
+  lastTestAtMs?: number | null;
+}
+
+interface RemoteChannelConfig {
+  id: RemoteChannelId;
+  enabled: boolean;
+  identity: string;
+  authorizedSenders: string;
+  commandPrefix: string;
+  remoteCommandAccess: boolean;
+  userReadAccess: boolean;
+  userSendAccess: boolean;
+}
+
+const REMOTE_EMAIL_ACCOUNTS_KEY = "ordo:remote_email_accounts";
+const REMOTE_EMAIL_SELECTED_KEY = "ordo:remote_email_selected";
+const REMOTE_EMAIL_COMMAND_ACCOUNT_KEY = "ordo:remote_email_command_account";
+const REMOTE_CHANNEL_CONFIGS_KEY = "ordo:remote_channel_configs";
+
+const REMOTE_EMAIL_PROVIDERS: Array<{
+  id: RemoteEmailProvider;
+  label: string;
+  imapHost: string;
+  smtpHost: string;
+  imapPort: string;
+  smtpPort: string;
+}> = [
+  { id: "gmail", label: "Gmail", imapHost: "imap.gmail.com", smtpHost: "smtp.gmail.com", imapPort: "993", smtpPort: "587" },
+  { id: "outlook", label: "Outlook", imapHost: "outlook.office365.com", smtpHost: "smtp.office365.com", imapPort: "993", smtpPort: "587" },
+  { id: "icloud", label: "iCloud", imapHost: "imap.mail.me.com", smtpHost: "smtp.mail.me.com", imapPort: "993", smtpPort: "587" },
+  { id: "proton_bridge", label: "Proton Bridge", imapHost: "127.0.0.1", smtpHost: "127.0.0.1", imapPort: "1143", smtpPort: "1025" },
+  { id: "custom_imap", label: "Custom IMAP/SMTP", imapHost: "", smtpHost: "", imapPort: "993", smtpPort: "587" },
+];
+
+const REMOTE_CHANNELS: Array<{
+  id: RemoteChannelId;
+  label: string;
+  sub: string;
+  status: "native" | "planned";
+  glyph: typeof Mail;
+}> = [
+  { id: "email", label: "Email", sub: "Mailboxes, client access, and Ordo command inbox.", status: "native", glyph: Mail },
+  { id: "signal", label: "Signal", sub: "Linked-device secure command bridge.", status: "planned", glyph: MessageSquare },
+  { id: "matrix", label: "Matrix", sub: "Room-based command and alert bridge.", status: "planned", glyph: Network },
+  { id: "telegram", label: "Telegram", sub: "Bot-token commands and notifications.", status: "planned", glyph: Send },
+];
+
+const remoteId = (prefix: string) =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${prefix}-${crypto.randomUUID().slice(0, 8)}`
+    : `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+const createRemoteEmailAccount = (): RemoteEmailAccount => ({
+  id: remoteId("mailbox"),
+  connectionId: undefined,
+  label: "Ordo Command Mailbox",
+  provider: "gmail",
+  address: "",
+  displayName: "Ordo",
+  imapHost: "imap.gmail.com",
+  imapPort: "993",
+  smtpHost: "smtp.gmail.com",
+  smtpPort: "587",
+  username: "",
+  mailbox: "INBOX",
+  pollSeconds: 30,
+  commandPrefix: "ordo:",
+  authorizedSenders: "",
+  enabled: true,
+  remoteCommandAccess: true,
+  userReadAccess: false,
+  userSendAccess: false,
+  secretConfigured: false,
+  connectionStatus: "local",
+  statusDetail: null,
+  lastTestAtMs: null,
+});
+
+const normalizeRemoteEmailAccount = (value: unknown): RemoteEmailAccount | null => {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const fallback = createRemoteEmailAccount();
+  const provider = REMOTE_EMAIL_PROVIDERS.some((item) => item.id === row.provider)
+    ? (row.provider as RemoteEmailProvider)
+    : fallback.provider;
+  return {
+    id: typeof row.id === "string" && row.id.trim() ? row.id : remoteId("mailbox"),
+    connectionId: typeof row.connectionId === "string" && row.connectionId.trim() ? row.connectionId : undefined,
+    label: typeof row.label === "string" && row.label.trim() ? row.label : fallback.label,
+    provider,
+    address: typeof row.address === "string" ? row.address : "",
+    displayName: typeof row.displayName === "string" && row.displayName.trim() ? row.displayName : "Ordo",
+    imapHost: typeof row.imapHost === "string" ? row.imapHost : fallback.imapHost,
+    imapPort: typeof row.imapPort === "string" ? row.imapPort : fallback.imapPort,
+    smtpHost: typeof row.smtpHost === "string" ? row.smtpHost : fallback.smtpHost,
+    smtpPort: typeof row.smtpPort === "string" ? row.smtpPort : fallback.smtpPort,
+    username: typeof row.username === "string" ? row.username : "",
+    mailbox: typeof row.mailbox === "string" && row.mailbox.trim() ? row.mailbox : "INBOX",
+    pollSeconds: typeof row.pollSeconds === "number" && Number.isFinite(row.pollSeconds) ? Math.max(10, Math.round(row.pollSeconds)) : 30,
+    commandPrefix: typeof row.commandPrefix === "string" && row.commandPrefix.trim() ? row.commandPrefix : "ordo:",
+    authorizedSenders: typeof row.authorizedSenders === "string" ? row.authorizedSenders : "",
+    enabled: typeof row.enabled === "boolean" ? row.enabled : true,
+    remoteCommandAccess: typeof row.remoteCommandAccess === "boolean" ? row.remoteCommandAccess : false,
+    userReadAccess: typeof row.userReadAccess === "boolean" ? row.userReadAccess : false,
+    userSendAccess: typeof row.userSendAccess === "boolean" ? row.userSendAccess : false,
+    secretConfigured: typeof row.secretConfigured === "boolean" ? row.secretConfigured : false,
+    connectionStatus: typeof row.connectionStatus === "string" ? row.connectionStatus : fallback.connectionStatus,
+    statusDetail: typeof row.statusDetail === "string" ? row.statusDetail : null,
+    lastTestAtMs: typeof row.lastTestAtMs === "number" ? row.lastTestAtMs : null,
+  };
+};
+
+const loadRemoteEmailAccounts = (): RemoteEmailAccount[] => {
+  if (typeof window === "undefined") return [createRemoteEmailAccount()];
+  try {
+    const raw = window.localStorage.getItem(REMOTE_EMAIL_ACCOUNTS_KEY);
+    if (!raw) return [createRemoteEmailAccount()];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [createRemoteEmailAccount()];
+    const accounts = parsed
+      .map(normalizeRemoteEmailAccount)
+      .filter((account): account is RemoteEmailAccount => Boolean(account));
+    return accounts.length > 0 ? accounts : [createRemoteEmailAccount()];
+  } catch {
+    return [createRemoteEmailAccount()];
+  }
+};
+
+const saveRemoteEmailAccounts = (accounts: RemoteEmailAccount[]) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(REMOTE_EMAIL_ACCOUNTS_KEY, JSON.stringify(accounts));
+};
+
+const createRemoteChannelConfig = (id: RemoteChannelId): RemoteChannelConfig => ({
+  id,
+  enabled: false,
+  identity: "",
+  authorizedSenders: "",
+  commandPrefix: "ordo:",
+  remoteCommandAccess: true,
+  userReadAccess: false,
+  userSendAccess: false,
+});
+
+const loadRemoteChannelConfigs = (): Record<RemoteChannelId, RemoteChannelConfig> => {
+  const defaults = Object.fromEntries(
+    REMOTE_CHANNELS.map((channel) => [channel.id, createRemoteChannelConfig(channel.id)]),
+  ) as Record<RemoteChannelId, RemoteChannelConfig>;
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = window.localStorage.getItem(REMOTE_CHANNEL_CONFIGS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const channel of REMOTE_CHANNELS) {
+      const row = parsed[channel.id];
+      if (!row || typeof row !== "object") continue;
+      const item = row as Record<string, unknown>;
+      defaults[channel.id] = {
+        id: channel.id,
+        enabled: typeof item.enabled === "boolean" ? item.enabled : false,
+        identity: typeof item.identity === "string" ? item.identity : "",
+        authorizedSenders: typeof item.authorizedSenders === "string" ? item.authorizedSenders : "",
+        commandPrefix: typeof item.commandPrefix === "string" && item.commandPrefix.trim() ? item.commandPrefix : "ordo:",
+        remoteCommandAccess: typeof item.remoteCommandAccess === "boolean" ? item.remoteCommandAccess : true,
+        userReadAccess: typeof item.userReadAccess === "boolean" ? item.userReadAccess : false,
+        userSendAccess: typeof item.userSendAccess === "boolean" ? item.userSendAccess : false,
+      };
+    }
+    return defaults;
+  } catch {
+    return defaults;
+  }
+};
+
+const saveRemoteChannelConfigs = (configs: Record<RemoteChannelId, RemoteChannelConfig>) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(REMOTE_CHANNEL_CONFIGS_KEY, JSON.stringify(configs));
+};
+
+const remoteListCount = (value: string) =>
+  value
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+
+const REMOTE_MAILBOX_ACCESS_OPTIONS: Array<{ value: RemoteMailboxAccess; label: string }> = [
+  { value: "none", label: "None" },
+  { value: "read", label: "Read" },
+  { value: "write", label: "Write" },
+];
+
+const remoteMailboxAccess = (account: RemoteEmailAccount): RemoteMailboxAccess => {
+  if (account.userSendAccess) return "write";
+  if (account.userReadAccess) return "read";
+  return "none";
+};
+
+const remoteMailboxAccessPatch = (access: RemoteMailboxAccess): Pick<RemoteEmailAccount, "userReadAccess" | "userSendAccess"> => ({
+  userReadAccess: access === "read" || access === "write",
+  userSendAccess: access === "write",
+});
+
+const fieldString = (fields: Record<string, unknown>, key: string, fallback = "") => {
+  const value = fields[key];
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+};
+
+const fieldBool = (fields: Record<string, unknown>, key: string, fallback = false) => {
+  const value = fields[key];
+  return typeof value === "boolean" ? value : fallback;
+};
+
+const fieldNumber = (fields: Record<string, unknown>, key: string, fallback: number) => {
+  const value = fields[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+};
+
+const providerFromField = (value: string): RemoteEmailProvider =>
+  REMOTE_EMAIL_PROVIDERS.some((provider) => provider.id === value)
+    ? (value as RemoteEmailProvider)
+    : "custom_imap";
+
+const remoteEmailFields = (account: RemoteEmailAccount): Record<string, unknown> => ({
+  email_address: account.address.trim(),
+  display_name: account.displayName.trim(),
+  imap_host: account.imapHost.trim(),
+  imap_port: Number(account.imapPort) || 993,
+  smtp_host: account.smtpHost.trim(),
+  smtp_port: Number(account.smtpPort) || 587,
+  imap_username: account.username.trim(),
+  authorized_senders: account.authorizedSenders,
+  command_prefix: account.commandPrefix.trim() || "ordo:",
+  mailbox: account.mailbox.trim() || "INBOX",
+  poll_seconds: Math.max(10, Math.round(account.pollSeconds || 30)),
+  provider: account.provider,
+  enabled: account.enabled,
+  remote_command_access: account.remoteCommandAccess,
+  user_read_access: account.userReadAccess,
+  user_send_access: account.userSendAccess,
+});
+
+const remoteEmailFromConnection = (
+  row: ConnectionRow,
+  existing?: RemoteEmailAccount,
+): RemoteEmailAccount => {
+  const fields = row.fields ?? {};
+  return {
+    id: existing?.id ?? row.id,
+    connectionId: row.id,
+    label: row.friendly_name || existing?.label || "Email mailbox",
+    provider: providerFromField(fieldString(fields, "provider", existing?.provider ?? "custom_imap")),
+    address: fieldString(fields, "email_address", existing?.address ?? ""),
+    displayName: fieldString(fields, "display_name", existing?.displayName ?? "Ordo"),
+    imapHost: fieldString(fields, "imap_host", existing?.imapHost ?? ""),
+    imapPort: fieldString(fields, "imap_port", existing?.imapPort ?? "993"),
+    smtpHost: fieldString(fields, "smtp_host", existing?.smtpHost ?? ""),
+    smtpPort: fieldString(fields, "smtp_port", existing?.smtpPort ?? "587"),
+    username: fieldString(fields, "imap_username", existing?.username ?? ""),
+    mailbox: fieldString(fields, "mailbox", existing?.mailbox ?? "INBOX"),
+    pollSeconds: fieldNumber(fields, "poll_seconds", existing?.pollSeconds ?? 30),
+    commandPrefix: fieldString(fields, "command_prefix", existing?.commandPrefix ?? "ordo:"),
+    authorizedSenders: fieldString(fields, "authorized_senders", existing?.authorizedSenders ?? ""),
+    enabled: fieldBool(fields, "enabled", existing?.enabled ?? true),
+    remoteCommandAccess: fieldBool(fields, "remote_command_access", existing?.remoteCommandAccess ?? false),
+    userReadAccess: fieldBool(fields, "user_read_access", existing?.userReadAccess ?? false),
+    userSendAccess: fieldBool(fields, "user_send_access", existing?.userSendAccess ?? false),
+    secretConfigured: Boolean(row.vault_secret_id || existing?.secretConfigured),
+    connectionStatus: row.status,
+    statusDetail: row.status_detail ?? null,
+    lastTestAtMs: row.last_test_at_ms ?? null,
+  };
+};
 
 const RemoteCommunicationSurface = ({ refreshKey = 0 }: { refreshKey?: number }) => {
   const [channel, setChannel] = useState<RemoteChannelId>("email");
   const [catalogReady, setCatalogReady] = useState(false);
   const [catalogDescription, setCatalogDescription] = useState("Checking local connection catalog...");
-  const [emailAddress, setEmailAddress] = useState("");
-  const [displayName, setDisplayName] = useState("Ordo");
-  const [imapHost, setImapHost] = useState("");
-  const [imapPort, setImapPort] = useState("993");
-  const [smtpHost, setSmtpHost] = useState("");
-  const [smtpPort, setSmtpPort] = useState("587");
-  const [imapUsername, setImapUsername] = useState("");
-  const [secret, setSecret] = useState("");
-  const [authorizedSenders, setAuthorizedSenders] = useState("");
-  const [commandPrefix, setCommandPrefix] = useState("ordo:");
+  const [emailAccounts, setEmailAccounts] = useState<RemoteEmailAccount[]>(() => loadRemoteEmailAccounts());
+  const [selectedEmailId, setSelectedEmailIdState] = useState(() => readStoredString(REMOTE_EMAIL_SELECTED_KEY, ""));
+  const [remoteEmailAccountId, setRemoteEmailAccountId] = useState(() => readStoredString(REMOTE_EMAIL_COMMAND_ACCOUNT_KEY, ""));
+  const [channelConfigs, setChannelConfigs] = useState<Record<RemoteChannelId, RemoteChannelConfig>>(() => loadRemoteChannelConfigs());
+  const [secretDraft, setSecretDraft] = useState("");
   const [validation, setValidation] = useState<string | null>(null);
-  const remoteChannels: Array<{
-    id: RemoteChannelId;
-    label: string;
-    sub: string;
-    status: "native" | "planned";
-    glyph: typeof Mail;
-  }> = [
-    { id: "email", label: "Email", sub: "IMAP command intake and SMTP replies.", status: "native", glyph: Mail },
-    { id: "signal", label: "Signal", sub: "Linked-device secure message bridge.", status: "planned", glyph: MessageSquare },
-    { id: "matrix", label: "Matrix", sub: "Room-based command and alert bridge.", status: "planned", glyph: Network },
-    { id: "telegram", label: "Telegram", sub: "Bot-token command and notification bridge.", status: "planned", glyph: Send },
-    { id: "sms", label: "SMS", sub: "Phone-number or provider-backed fallback channel.", status: "planned", glyph: Radio },
-  ];
-  const selectedChannel = remoteChannels.find((item) => item.id === channel) ?? remoteChannels[0];
+  const [emailSyncMessage, setEmailSyncMessage] = useState<string | null>(null);
+  const [emailBusyAction, setEmailBusyAction] = useState<string | null>(null);
+  const selectedChannel = REMOTE_CHANNELS.find((item) => item.id === channel) ?? REMOTE_CHANNELS[0];
+  const selectedEmail = emailAccounts.find((account) => account.id === selectedEmailId) ?? emailAccounts[0] ?? null;
+  const remoteEmailAccount = emailAccounts.find((account) => account.id === remoteEmailAccountId) ?? null;
+  const selectedChannelConfig = channelConfigs[channel] ?? createRemoteChannelConfig(channel);
+  const savedEmailCount = emailAccounts.filter((account) => account.connectionId).length;
+
+  const syncEmailConnections = async () => {
+    setEmailBusyAction("sync");
+    try {
+      const res = await listConnections();
+      const rows = (res.connections ?? []).filter((row) => row.type_id === "email");
+      let commandMailboxId = "";
+      setEmailAccounts((current) => {
+        const onlyBlankDraft =
+          current.length === 1 &&
+          !current[0].connectionId &&
+          !current[0].address.trim() &&
+          current[0].label === "Ordo Command Mailbox";
+        const merged = onlyBlankDraft ? [] : [...current];
+        for (const row of rows) {
+          const rowAddress = fieldString(row.fields ?? {}, "email_address", "").toLowerCase();
+          const index = merged.findIndex((account) =>
+            account.connectionId === row.id ||
+            account.id === row.id ||
+            (!account.connectionId && Boolean(account.address) && account.address.toLowerCase() === rowAddress),
+          );
+          if (index >= 0) {
+            merged[index] = remoteEmailFromConnection(row, merged[index]);
+            if (merged[index].remoteCommandAccess) commandMailboxId = merged[index].id;
+          } else {
+            const account = remoteEmailFromConnection(row);
+            if (account.remoteCommandAccess) commandMailboxId = account.id;
+            merged.push(account);
+          }
+        }
+        return merged.length > 0 ? merged : [createRemoteEmailAccount()];
+      });
+      if (commandMailboxId) setRemoteEmailAccountId(commandMailboxId);
+      setEmailSyncMessage(rows.length > 0 ? `${rows.length} saved email connection${rows.length === 1 ? "" : "s"} loaded.` : "No saved email connections yet.");
+      setValidation(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setEmailSyncMessage(`Email connection sync failed: ${message}`);
+    } finally {
+      setEmailBusyAction(null);
+    }
+  };
+
+  useEffect(() => {
+    saveRemoteEmailAccounts(emailAccounts);
+  }, [emailAccounts]);
+
+  useEffect(() => {
+    saveRemoteChannelConfigs(channelConfigs);
+  }, [channelConfigs]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (selectedEmailId) window.localStorage.setItem(REMOTE_EMAIL_SELECTED_KEY, selectedEmailId);
+  }, [selectedEmailId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (remoteEmailAccountId) window.localStorage.setItem(REMOTE_EMAIL_COMMAND_ACCOUNT_KEY, remoteEmailAccountId);
+    else window.localStorage.removeItem(REMOTE_EMAIL_COMMAND_ACCOUNT_KEY);
+  }, [remoteEmailAccountId]);
+
+  useEffect(() => {
+    if (selectedEmail && selectedEmail.id !== selectedEmailId) setSelectedEmailIdState(selectedEmail.id);
+  }, [selectedEmail, selectedEmailId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -11026,10 +13688,7 @@ const RemoteCommunicationSurface = ({ refreshKey = 0 }: { refreshKey?: number })
         if (cancelled) return;
         const emailType = res.types.find((type) => type.id === "email" || type.service === "email");
         setCatalogReady(Boolean(emailType));
-        setCatalogDescription(
-          emailType?.description ??
-            "Email connection type is not present in the local catalog yet.",
-        );
+        setCatalogDescription(emailType?.description ?? "Email connection type is not present in the local catalog yet.");
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -11041,6 +13700,31 @@ const RemoteCommunicationSurface = ({ refreshKey = 0 }: { refreshKey?: number })
     };
   }, [refreshKey]);
 
+  useEffect(() => {
+    void syncEmailConnections();
+  }, [refreshKey]);
+
+  const setSelectedEmailId = (id: string) => {
+    setSelectedEmailIdState(id);
+    setSecretDraft("");
+    setValidation(null);
+    if (typeof window !== "undefined") window.localStorage.setItem(REMOTE_EMAIL_SELECTED_KEY, id);
+  };
+
+  const updateSelectedEmail = (patch: Partial<RemoteEmailAccount>) => {
+    if (!selectedEmail) return;
+    setEmailAccounts((current) =>
+      current.map((account) => (account.id === selectedEmail.id ? { ...account, ...patch } : account)),
+    );
+  };
+
+  const updateChannelConfig = (patch: Partial<RemoteChannelConfig>) => {
+    setChannelConfigs((current) => ({
+      ...current,
+      [channel]: { ...(current[channel] ?? createRemoteChannelConfig(channel)), ...patch, id: channel },
+    }));
+  };
+
   const selectChannel = (nextChannel: RemoteChannelId) => {
     setChannel(nextChannel);
     setValidation(null);
@@ -11049,67 +13733,195 @@ const RemoteCommunicationSurface = ({ refreshKey = 0 }: { refreshKey?: number })
     });
   };
 
-  const preparePlannedChannel = () => {
-    publishUxiDebugEvent("ordo.remote_communication", "planned_channel_requested", "Remote communication channel planning requested.", {
-      channel,
-      label: selectedChannel.label,
+  const addEmailAccount = () => {
+    const account = createRemoteEmailAccount();
+    setEmailAccounts((current) => [...current, account]);
+    setSelectedEmailId(account.id);
+    publishUxiDebugEvent("ordo.email_client", "mailbox_created", "Remote email mailbox created.", { mailbox: account.label });
+  };
+
+  const duplicateEmailAccount = () => {
+    if (!selectedEmail) return;
+    const copy: RemoteEmailAccount = {
+      ...selectedEmail,
+      id: remoteId("mailbox"),
+      label: `${selectedEmail.label} Copy`,
+      secretConfigured: false,
+    };
+    setEmailAccounts((current) => [...current, copy]);
+    setSelectedEmailId(copy.id);
+    publishUxiDebugEvent("ordo.email_client", "mailbox_duplicated", "Remote email mailbox duplicated.", { mailbox: selectedEmail.label });
+  };
+
+  const deleteEmailAccount = async () => {
+    if (!selectedEmail || emailAccounts.length <= 1) return;
+    setEmailBusyAction("delete");
+    try {
+      if (selectedEmail.connectionId) {
+        await deleteConnectionRow(selectedEmail.connectionId);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setValidation(`Delete failed: ${message}`);
+      publishUxiDebugEvent("ordo.email_client", "mailbox_delete_failed", message, { mailbox: selectedEmail.label }, "ERROR");
+      setEmailBusyAction(null);
+      return;
+    }
+    const next = emailAccounts.find((account) => account.id !== selectedEmail.id);
+    setEmailAccounts((current) => current.filter((account) => account.id !== selectedEmail.id));
+    if (remoteEmailAccountId === selectedEmail.id) setRemoteEmailAccountId("");
+    setSelectedEmailId(next?.id ?? "");
+    setValidation(`${selectedEmail.label} removed.`);
+    setEmailBusyAction(null);
+    publishUxiDebugEvent("ordo.email_client", "mailbox_deleted", "Remote email mailbox deleted.", { mailbox: selectedEmail.label });
+  };
+
+  const applyProvider = (provider: RemoteEmailProvider) => {
+    const preset = REMOTE_EMAIL_PROVIDERS.find((item) => item.id === provider);
+    if (!preset) return;
+    updateSelectedEmail({
+      provider,
+      imapHost: preset.imapHost || selectedEmail?.imapHost || "",
+      smtpHost: preset.smtpHost || selectedEmail?.smtpHost || "",
+      imapPort: preset.imapPort,
+      smtpPort: preset.smtpPort,
     });
   };
 
-  const requiredMissing = [
-    ["Email address", emailAddress],
-    ["IMAP host", imapHost],
-    ["SMTP host", smtpHost],
-    ["Username", imapUsername],
-    ["App password", secret],
-  ].filter(([, value]) => !String(value).trim());
+  const toggleRemoteEmail = (checked: boolean) => {
+    if (!selectedEmail) return;
+    setEmailAccounts((current) =>
+      current.map((account) =>
+        account.id === selectedEmail.id
+          ? { ...account, remoteCommandAccess: checked }
+          : checked
+            ? { ...account, remoteCommandAccess: false }
+            : account,
+      ),
+    );
+    setRemoteEmailAccountId(checked ? selectedEmail.id : "");
+  };
 
-  const validateEmailConfig = () => {
+  const selectedEmailSecretReady = Boolean(selectedEmail?.secretConfigured || secretDraft.trim());
+  const requiredMissing = selectedEmail
+    ? [
+        ["Email address", selectedEmail.address],
+        ["IMAP host", selectedEmail.imapHost],
+        ["SMTP host", selectedEmail.smtpHost],
+        ["Username", selectedEmail.username],
+        ["App password", selectedEmailSecretReady ? "ready" : ""],
+      ].filter(([, value]) => !String(value).trim())
+    : [];
+
+  const validateEmailAccount = async () => {
+    if (!selectedEmail) return;
     if (requiredMissing.length > 0) {
       const message = `Missing ${requiredMissing.map(([label]) => label).join(", ")}.`;
       setValidation(message);
-      publishUxiDebugEvent("ordo.email", "email_config_validation_failed", message, {
+      publishUxiDebugEvent("ordo.email_client", "mailbox_validation_failed", message, {
+        mailbox: selectedEmail.label,
         missing: requiredMissing.map(([label]) => label),
       }, "WARN");
       return;
     }
-    const message = "Email configuration fields are ready for vault-backed save/test wiring.";
-    setValidation(message);
-    publishUxiDebugEvent("ordo.email", "email_config_validated", message, {
-      email_address: emailAddress,
-      imap_host: imapHost,
-      imap_port: imapPort,
-      smtp_host: smtpHost,
-      smtp_port: smtpPort,
-      command_prefix: commandPrefix,
-      authorized_sender_count: authorizedSenders.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).length,
-    });
+    if (!selectedEmail.connectionId) {
+      const message = `${selectedEmail.label} is ready to save into Ordo's connection vault.`;
+      setValidation(message);
+      publishUxiDebugEvent("ordo.email_client", "mailbox_validated", message, {
+        mailbox: selectedEmail.label,
+        provider: selectedEmail.provider,
+        remote_command: selectedEmail.id === remoteEmailAccountId,
+        user_read: selectedEmail.userReadAccess,
+        user_send: selectedEmail.userSendAccess,
+        authorized_sender_count: remoteListCount(selectedEmail.authorizedSenders),
+      });
+      return;
+    }
+    setEmailBusyAction("test");
+    try {
+      const out = await testConnection(selectedEmail.connectionId, {});
+      const row = (out as { connection?: ConnectionRow }).connection;
+      if (row) {
+        const updated = remoteEmailFromConnection(row, selectedEmail);
+        setEmailAccounts((current) => current.map((account) => (account.id === selectedEmail.id ? updated : account)));
+      }
+      const report = (out as { report?: { status?: string; detail?: string } }).report;
+      const status = report?.status ?? row?.status ?? "ok";
+      const detail = report?.detail ?? row?.status_detail ?? "Mailbox test completed.";
+      setValidation(`${selectedEmail.label}: ${status} - ${detail}`);
+      publishUxiDebugEvent("ordo.email_client", "mailbox_tested", "Remote email mailbox tested.", {
+        mailbox: selectedEmail.label,
+        status,
+        detail,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setValidation(`Mailbox test failed: ${message}`);
+      publishUxiDebugEvent("ordo.email_client", "mailbox_test_failed", message, { mailbox: selectedEmail.label }, "ERROR");
+    } finally {
+      setEmailBusyAction(null);
+    }
   };
 
-  const saveEmailConfig = () => {
-    publishUxiDebugEvent("ordo.email", "email_config_save_requested", "Email config save requested.", {
-      email_address: emailAddress,
-      display_name: displayName,
-      imap_host: imapHost,
-      imap_port: imapPort,
-      smtp_host: smtpHost,
-      smtp_port: smtpPort,
-      imap_username: imapUsername,
-      command_prefix: commandPrefix,
-      has_secret: Boolean(secret.trim()),
-      authorized_sender_count: authorizedSenders.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).length,
+  const saveEmailClientDraft = async () => {
+    if (!selectedEmail) return;
+    if (requiredMissing.length > 0) {
+      setValidation(`Missing ${requiredMissing.map(([label]) => label).join(", ")}.`);
+      return;
+    }
+    setEmailBusyAction("save");
+    try {
+      const body = {
+        friendly_name: selectedEmail.label.trim() || selectedEmail.address.trim() || "Email mailbox",
+        fields: remoteEmailFields(selectedEmail),
+        ...(secretDraft.trim() ? { secret: secretDraft.trim() } : {}),
+      };
+      const row = selectedEmail.connectionId
+        ? await updateConnection(selectedEmail.connectionId, body)
+        : await createConnection({ type_id: "email", ...body });
+      const saved = remoteEmailFromConnection(row, { ...selectedEmail, secretConfigured: selectedEmail.secretConfigured || Boolean(secretDraft.trim()) });
+      setEmailAccounts((current) => current.map((account) => (account.id === selectedEmail.id ? saved : account)));
+      setSelectedEmailId(saved.id);
+      if (selectedEmail.id === remoteEmailAccountId || selectedEmail.remoteCommandAccess) setRemoteEmailAccountId(saved.id);
+      setSecretDraft("");
+      setValidation(`${saved.label} saved to Ordo connections.`);
+      publishUxiDebugEvent("ordo.email_client", "mailbox_saved", "Remote email mailbox saved to Ordo connections.", {
+        mailbox: saved.label,
+        provider: saved.provider,
+        remote_command: saved.id === remoteEmailAccountId || saved.remoteCommandAccess,
+        user_read: saved.userReadAccess,
+        user_send: saved.userSendAccess,
+        has_secret: saved.secretConfigured,
+        connection_id: saved.connectionId,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      setValidation(`Save failed: ${message}`);
+      publishUxiDebugEvent("ordo.email_client", "mailbox_save_failed", message, { mailbox: selectedEmail.label }, "ERROR");
+    } finally {
+      setEmailBusyAction(null);
+    }
+  };
+
+  const preparePlannedChannel = () => {
+    publishUxiDebugEvent("ordo.remote_communication", "planned_channel_requested", "Remote communication channel planning requested.", {
+      channel,
+      label: selectedChannel.label,
+      enabled: selectedChannelConfig.enabled,
+      remote_command: selectedChannelConfig.remoteCommandAccess,
+      user_read: selectedChannelConfig.userReadAccess,
+      user_send: selectedChannelConfig.userSendAccess,
     });
-    setValidation("Save is queued for the future vault-backed email connection endpoint.");
   };
 
   return (
     <SimpleSettingsSurface
       icon={<Mail size={22} />}
       title="Remote Communication"
-      sub="Channels that let Ordo receive commands and send replies outside the main desktop UXI."
+      sub="Mailboxes and message channels Ordo can use for remote commands and operator-approved communication."
     >
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
-        {remoteChannels.map((item) => {
+        {REMOTE_CHANNELS.map((item) => {
           const Icon = item.glyph;
           const active = item.id === channel;
           return (
@@ -11141,29 +13953,42 @@ const RemoteCommunicationSurface = ({ refreshKey = 0 }: { refreshKey?: number })
 
       {channel !== "email" ? (
         <>
-          <Card>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <Mono size={11} upper track="0.16em" color={UI.textMuted}>Planned channel</Mono>
-                <div style={{ marginTop: 8 }}>
-                  <span style={{ fontFamily: FRAUNCES, fontSize: 22, fontWeight: 650, color: UI.parchment }}>
-                    {selectedChannel.label}
-                  </span>
-                </div>
-                <div style={{ marginTop: 8 }}>
-                  <Mono size={12} color={UI.textMuted}>
-                    This slot is reserved for a native Ordo remote channel. It is surfaced now so the UXI has a stable home before backend pairing, vault secrets, and command intake are wired.
-                  </Mono>
-                </div>
-              </div>
-              <Badge variant="warn">skeleton</Badge>
-            </div>
-          </Card>
           <SettingsList>
-            <SettingsRow title={`${selectedChannel.label} identity`} sub="Linked account, device name, or bot identity." control={<TextInput value="" onChange={() => undefined} placeholder="coming next" />} />
-            <SettingsRow title="Authorized senders" sub="One account, phone number, or room per line." control={<Textarea value="" onChange={() => undefined} placeholder="trusted sender list" rows={4} />} />
-            <SettingsRow title="Command prefix" sub="Prefix that marks an inbound message as an Ordo command." control={<TextInput value="ordo:" onChange={() => undefined} placeholder="ordo:" />} />
-            <SettingsRow title="Runtime state" sub="No runtime bridge is installed for this channel yet." control={<Badge variant="neutral">not wired</Badge>} />
+            <SettingsRow
+              title={`${selectedChannel.label} enabled`}
+              sub="Expose this channel as an Ordo remote communication lane."
+              control={<ToggleSwitch checked={selectedChannelConfig.enabled} onChange={(enabled) => updateChannelConfig({ enabled })} />}
+            />
+            <SettingsRow
+              title={`${selectedChannel.label} identity`}
+              sub="Linked account, device, bot name, room, or phone number."
+              control={<TextInput value={selectedChannelConfig.identity} onChange={(identity) => updateChannelConfig({ identity })} placeholder={`${selectedChannel.label} identity`} />}
+            />
+            <SettingsRow
+              title="Authorized senders"
+              sub="One account, phone number, room, or handle per line."
+              control={<Textarea value={selectedChannelConfig.authorizedSenders} onChange={(authorizedSenders) => updateChannelConfig({ authorizedSenders })} placeholder="trusted sender list" rows={4} />}
+            />
+            <SettingsRow
+              title="Command prefix"
+              sub="Prefix that marks an inbound message as an Ordo command."
+              control={<TextInput value={selectedChannelConfig.commandPrefix} onChange={(commandPrefix) => updateChannelConfig({ commandPrefix })} placeholder="ordo:" />}
+            />
+            <SettingsRow
+              title="Remote commands"
+              sub="Allow inbound messages on this channel to reach Ordo command intake."
+              control={<ToggleSwitch checked={selectedChannelConfig.remoteCommandAccess} onChange={(remoteCommandAccess) => updateChannelConfig({ remoteCommandAccess })} />}
+            />
+            <SettingsRow
+              title="Read access"
+              sub="Allow Ordo to read messages on behalf of the operator."
+              control={<ToggleSwitch checked={selectedChannelConfig.userReadAccess} onChange={(userReadAccess) => updateChannelConfig({ userReadAccess })} />}
+            />
+            <SettingsRow
+              title="Send access"
+              sub="Allow Ordo to send messages on behalf of the operator."
+              control={<ToggleSwitch checked={selectedChannelConfig.userSendAccess} onChange={(userSendAccess) => updateChannelConfig({ userSendAccess })} />}
+            />
           </SettingsList>
           <div className="flex justify-end">
             <Button onClick={preparePlannedChannel}><Plus size={13} /> Queue channel wiring</Button>
@@ -11171,47 +13996,185 @@ const RemoteCommunicationSurface = ({ refreshKey = 0 }: { refreshKey?: number })
         </>
       ) : (
         <>
-      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))" }}>
-        <Card>
-          <Mono size={11} upper track="0.16em" color={UI.textMuted}>Native crate</Mono>
-          <div style={{ marginTop: 8 }}><Mono size={14} color={UI.parchment} weight={700}>ordo-email</Mono></div>
-          <div style={{ marginTop: 8 }}><Mono size={11} color={UI.textMuted}>Polls IMAP, extracts command subjects, publishes bus events, and sends SMTP replies.</Mono></div>
-        </Card>
-        <Card>
-          <Mono size={11} upper track="0.16em" color={UI.textMuted}>Connection catalog</Mono>
-          <div style={{ marginTop: 8 }}><Badge variant={catalogReady ? "success" : "warn"}>{catalogReady ? "registered" : "not registered"}</Badge></div>
-          <div style={{ marginTop: 8 }}><Mono size={11} color={UI.textMuted}>{catalogDescription}</Mono></div>
-        </Card>
-        <Card>
-          <Mono size={11} upper track="0.16em" color={UI.textMuted}>Command prefix</Mono>
-          <div style={{ marginTop: 8 }}><Mono size={14} color={LAMP} weight={700}>{commandPrefix || "ordo:"}</Mono></div>
-          <div style={{ marginTop: 8 }}><Mono size={11} color={UI.textMuted}>Only messages using this subject prefix should become Ordo commands.</Mono></div>
-        </Card>
-      </div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))" }}>
+            <Card>
+              <Mono size={11} upper track="0.16em" color={UI.textMuted}>Email client</Mono>
+              <div style={{ marginTop: 8 }}><Mono size={14} color={UI.parchment} weight={700}>{emailAccounts.length} mailbox{emailAccounts.length === 1 ? "" : "es"}</Mono></div>
+              <div style={{ marginTop: 8 }}><Mono size={11} color={UI.textMuted}>{savedEmailCount} saved in Ordo connections. Provider accounts stay separate from Ordo's command inbox.</Mono></div>
+            </Card>
+            <Card>
+              <Mono size={11} upper track="0.16em" color={UI.textMuted}>Ordo command inbox</Mono>
+              <div style={{ marginTop: 8 }}><Badge variant={remoteEmailAccount ? "success" : "warn"}>{remoteEmailAccount ? remoteEmailAccount.label : "not selected"}</Badge></div>
+              <div style={{ marginTop: 8 }}><Mono size={11} color={UI.textMuted}>{remoteEmailAccount?.address || "No mailbox is assigned to remote commands."}</Mono></div>
+            </Card>
+            <Card>
+              <Mono size={11} upper track="0.16em" color={UI.textMuted}>Connection catalog</Mono>
+              <div style={{ marginTop: 8 }}><Badge variant={catalogReady ? "success" : "warn"}>{catalogReady ? "registered" : "not registered"}</Badge></div>
+              <div style={{ marginTop: 8 }}><Mono size={11} color={UI.textMuted}>{catalogDescription}</Mono></div>
+            </Card>
+          </div>
+          {emailSyncMessage && (
+            <Alert variant={emailSyncMessage.includes("failed") ? "warn" : "success"}>
+              {emailSyncMessage}
+            </Alert>
+          )}
 
-      <SettingsList>
-        <SettingsRow title="Email address" sub="Address Ordo polls and sends from." control={<TextInput value={emailAddress} onChange={(value) => { setEmailAddress(value); if (!imapUsername) setImapUsername(value); }} placeholder="ordo@example.com" />} />
-        <SettingsRow title="Display name" sub="Name shown on outgoing replies." control={<TextInput value={displayName} onChange={setDisplayName} placeholder="Ordo" />} />
-        <SettingsRow title="IMAP host" sub="Inbox server used for command polling." control={<TextInput value={imapHost} onChange={setImapHost} placeholder="imap.gmail.com" />} />
-        <SettingsRow title="IMAP port" sub="Defaults to 993 for TLS." control={<TextInput value={imapPort} onChange={setImapPort} placeholder="993" />} />
-        <SettingsRow title="SMTP host" sub="Outgoing reply server." control={<TextInput value={smtpHost} onChange={setSmtpHost} placeholder="smtp.gmail.com" />} />
-        <SettingsRow title="SMTP port" sub="Defaults to 587 for STARTTLS." control={<TextInput value={smtpPort} onChange={setSmtpPort} placeholder="587" />} />
-        <SettingsRow title="Username" sub="IMAP login username, usually the same as the email address." control={<TextInput value={imapUsername} onChange={setImapUsername} placeholder="ordo@example.com" />} />
-        <SettingsRow title="App password" sub="Use an app password or vault secret, never your mailbox login password." control={<TextInput value={secret} onChange={setSecret} placeholder="stored in vault later" type="password" />} />
-        <SettingsRow title="Authorized senders" sub="One sender per line. Empty means accept all senders." control={<Textarea value={authorizedSenders} onChange={setAuthorizedSenders} placeholder="you@example.com" rows={4} />} />
-        <SettingsRow title="Command prefix" sub="Subject prefix that marks a message as an Ordo command." control={<TextInput value={commandPrefix} onChange={setCommandPrefix} placeholder="ordo:" />} />
-      </SettingsList>
+          <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="primary" onClick={addEmailAccount} disabled={Boolean(emailBusyAction)}><Plus size={13} /> Add mailbox</Button>
+                <Button size="sm" onClick={duplicateEmailAccount} disabled={!selectedEmail || Boolean(emailBusyAction)}>Duplicate</Button>
+                <Button size="sm" onClick={() => void syncEmailConnections()} disabled={Boolean(emailBusyAction)}>
+                  {emailBusyAction === "sync" ? "Syncing..." : "Refresh mailboxes"}
+                </Button>
+                <Button size="sm" variant="danger" onClick={() => void deleteEmailAccount()} disabled={emailAccounts.length <= 1 || Boolean(emailBusyAction)}>Delete</Button>
+              </div>
+              <SettingsList>
+                {emailAccounts.map((account) => {
+                  const active = account.id === selectedEmail?.id;
+                  const access = remoteMailboxAccess(account);
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      onClick={() => setSelectedEmailId(account.id)}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "14px 16px",
+                        border: 0,
+                        borderBottom: `1px solid ${UI.cardBorder}`,
+                        background: active ? UI.primarySoft : "transparent",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <Mono size={12} color={UI.parchment} weight={700}>{account.label}</Mono>
+                        {account.id === remoteEmailAccountId && <Badge variant="success">remote</Badge>}
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        <Mono size={10} color={UI.textMuted}>{account.address || "(no address)"} / {account.provider}</Mono>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5" style={{ marginTop: 8 }}>
+                        <Badge variant={access === "write" ? "warn" : access === "read" ? "info" : "neutral"}>{access}</Badge>
+                        <Badge variant={account.secretConfigured ? "success" : "neutral"}>{account.secretConfigured ? "secret" : "no secret"}</Badge>
+                        <Badge variant={account.connectionId ? "success" : "neutral"}>{account.connectionId ? account.connectionStatus ?? "saved" : "draft"}</Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+              </SettingsList>
+            </div>
 
-      {validation && (
-        <Alert variant={validation.startsWith("Missing") ? "warn" : "success"}>
-          {validation}
-        </Alert>
-      )}
+            {selectedEmail && (
+              <div className="space-y-3">
+                <Card>
+                  <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                    <Field label="Mailbox label">
+                      <TextInput value={selectedEmail.label} onChange={(label) => updateSelectedEmail({ label })} placeholder="Work Gmail" />
+                    </Field>
+                    <Field label="Provider">
+                      <SmallSelect<RemoteEmailProvider>
+                        value={selectedEmail.provider}
+                        onChange={applyProvider}
+                        options={REMOTE_EMAIL_PROVIDERS.map((provider) => ({ value: provider.id, label: provider.label }))}
+                      />
+                    </Field>
+                    <Field label="Email address">
+                      <TextInput
+                        type="email"
+                        value={selectedEmail.address}
+                        onChange={(address) => updateSelectedEmail({ address, username: selectedEmail.username || address })}
+                        placeholder="ordo@example.com"
+                      />
+                    </Field>
+                    <Field label="Display name">
+                      <TextInput value={selectedEmail.displayName} onChange={(displayName) => updateSelectedEmail({ displayName })} placeholder="Ordo" />
+                    </Field>
+                    <Field label="IMAP host">
+                      <TextInput value={selectedEmail.imapHost} onChange={(imapHost) => updateSelectedEmail({ imapHost })} placeholder="imap.gmail.com" />
+                    </Field>
+                    <Field label="IMAP port">
+                      <TextInput value={selectedEmail.imapPort} onChange={(imapPort) => updateSelectedEmail({ imapPort })} placeholder="993" />
+                    </Field>
+                    <Field label="SMTP host">
+                      <TextInput value={selectedEmail.smtpHost} onChange={(smtpHost) => updateSelectedEmail({ smtpHost })} placeholder="smtp.gmail.com" />
+                    </Field>
+                    <Field label="SMTP port">
+                      <TextInput value={selectedEmail.smtpPort} onChange={(smtpPort) => updateSelectedEmail({ smtpPort })} placeholder="587" />
+                    </Field>
+                    <Field label="Username">
+                      <TextInput value={selectedEmail.username} onChange={(username) => updateSelectedEmail({ username })} placeholder="ordo@example.com" />
+                    </Field>
+                    <Field label="Mailbox">
+                      <TextInput value={selectedEmail.mailbox} onChange={(mailbox) => updateSelectedEmail({ mailbox })} placeholder="INBOX" />
+                    </Field>
+                    <Field label="Poll seconds">
+                      <NumberInput
+                        value={selectedEmail.pollSeconds}
+                        min={10}
+                        max={3600}
+                        step={5}
+                        onChange={(pollSeconds) => updateSelectedEmail({ pollSeconds: Math.max(10, Math.round(pollSeconds || 30)) })}
+                      />
+                    </Field>
+                    <Field label="Command prefix">
+                      <TextInput value={selectedEmail.commandPrefix} onChange={(commandPrefix) => updateSelectedEmail({ commandPrefix })} placeholder="ordo:" />
+                    </Field>
+                  </div>
+                </Card>
 
-      <div className="flex justify-end gap-2">
-        <Button onClick={validateEmailConfig}>Validate fields</Button>
-        <Button variant="primary" onClick={saveEmailConfig} disabled={requiredMissing.length > 0}>Save email channel</Button>
-      </div>
+                <SettingsList>
+                  <SettingsRow
+                    title="Mailbox enabled"
+                    sub="Keep this account available to the Ordo mail client."
+                    control={<ToggleSwitch checked={selectedEmail.enabled} onChange={(enabled) => updateSelectedEmail({ enabled })} />}
+                  />
+                  <SettingsRow
+                    title="Ordo command inbox"
+                    sub="Use this mailbox for remote commands addressed to Ordo."
+                    control={<ToggleSwitch checked={selectedEmail.id === remoteEmailAccountId && selectedEmail.remoteCommandAccess} onChange={toggleRemoteEmail} />}
+                  />
+                  <SettingsRow
+                    title="User mailbox access"
+                    sub="Choose what Ordo can do with this user mailbox. Write includes sending mail from it."
+                    control={
+                      <SmallSelect<RemoteMailboxAccess>
+                        value={remoteMailboxAccess(selectedEmail)}
+                        onChange={(access) => updateSelectedEmail(remoteMailboxAccessPatch(access))}
+                        options={REMOTE_MAILBOX_ACCESS_OPTIONS}
+                      />
+                    }
+                  />
+                  <SettingsRow
+                    title="App password"
+                    sub={selectedEmail.secretConfigured ? "A secret has been noted for this mailbox." : "Secret is required before live IMAP/SMTP use."}
+                    control={<TextInput value={secretDraft} onChange={setSecretDraft} placeholder={selectedEmail.secretConfigured ? "rotate secret" : "app password"} type="password" />}
+                  />
+                  <SettingsRow
+                    title="Authorized senders"
+                    sub={`${remoteListCount(selectedEmail.authorizedSenders) || "Any"} trusted sender${remoteListCount(selectedEmail.authorizedSenders) === 1 ? "" : "s"}.`}
+                    control={<Textarea value={selectedEmail.authorizedSenders} onChange={(authorizedSenders) => updateSelectedEmail({ authorizedSenders })} placeholder="you@example.com" rows={4} />}
+                  />
+                </SettingsList>
+
+                {validation && (
+                  <Alert variant={validation.startsWith("Missing") ? "warn" : "success"}>
+                    {validation}
+                  </Alert>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button onClick={() => void validateEmailAccount()} disabled={Boolean(emailBusyAction)}>
+                    {emailBusyAction === "test" ? "Testing..." : "Validate mailbox"}
+                  </Button>
+                  <Button variant="primary" onClick={() => void saveEmailClientDraft()} disabled={Boolean(emailBusyAction)}>
+                    {emailBusyAction === "save" ? "Saving..." : "Save mailbox"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </>
       )}
     </SimpleSettingsSurface>
@@ -11554,8 +14517,21 @@ const BuildsSurface = () => {
   );
 };
 
-const RoutinesSurface = ({ modes }: { modes: AssistantMode[] }) => {
+const RoutinesSurface = ({
+  modes,
+  activeMode,
+  settings,
+  onModeChange,
+  onSettingsChange,
+}: {
+  modes: AssistantMode[];
+  activeMode: string;
+  settings: Record<string, ModeUiSetting>;
+  onModeChange: (mode: string) => void;
+  onSettingsChange: (modeId: string, patch: Partial<ModeUiSetting>) => void;
+}) => {
   type CronKind = "cron" | "heartbeat" | "routine" | "webhook" | "local_event" | "dreaming" | "coding";
+  type AutomationPanel = "jobs" | "hooks" | "dreaming";
   type CronStatus = "enabled" | "paused";
   type CronJob = {
     id: string;
@@ -11744,6 +14720,7 @@ const RoutinesSurface = ({ modes }: { modes: AssistantMode[] }) => {
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<CronJob | null>(null);
   const [form, setForm] = useState<CronJob>(blankJob);
+  const [panel, setPanel] = useState<AutomationPanel>("jobs");
   const [loading, setLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
   const modeOptions = useMemo(
@@ -11777,6 +14754,25 @@ const RoutinesSurface = ({ modes }: { modes: AssistantMode[] }) => {
     const now = new Date().toISOString();
     setEditing(null);
     setForm({ ...blankJob(), ...patch, createdAt: now, updatedAt: now });
+  };
+  const chooseJobKind = (kind: CronKind, patch: Partial<CronJob> = {}) => {
+    setPanel("jobs");
+    beginNew({
+      kind,
+      mode: kind === "coding" ? "rust_vibe_coder" : kind === "dreaming" ? "dreaming" : "general",
+      schedule: kind === "cron" ? "operator-defined schedule" : kind === "heartbeat" ? "operator heartbeat" : "",
+      ...patch,
+    });
+    publishUxiDebugEvent("ordo.automation", "automation_kind_selected", "Automation kind selected from top chooser.", {
+      kind,
+      panel: "jobs",
+    });
+  };
+  const choosePanel = (nextPanel: AutomationPanel) => {
+    setPanel(nextPanel);
+    publishUxiDebugEvent("ordo.automation", "automation_panel_selected", "Automation panel selected from top chooser.", {
+      panel: nextPanel,
+    });
   };
   const beginEdit = (job: CronJob) => {
     setEditing(job);
@@ -11899,9 +14895,75 @@ const RoutinesSurface = ({ modes }: { modes: AssistantMode[] }) => {
     ["Coding warning audit", "Run checks in the selected workspace and propose warning fixes without applying them.", "Manual or daily", "coding"],
     ["Coding regression review", "Inspect recent project changes, summarize risk, and propose a test plan.", "Before release", "coding"],
   ];
+  const automationChoices = [
+    {
+      id: "cron",
+      label: "Cron",
+      sub: "Run on a schedule.",
+      icon: Zap,
+      active: panel === "jobs" && form.kind === "cron",
+      onClick: () => chooseJobKind("cron", { name: "Scheduled automation", instruction: "Run this on the selected schedule." }),
+    },
+    {
+      id: "heartbeat",
+      label: "Heartbeat",
+      sub: "Repeat a project check.",
+      icon: Radio,
+      active: panel === "jobs" && form.kind === "heartbeat",
+      onClick: () => chooseJobKind("heartbeat", { name: "Project heartbeat", instruction: "Resume the selected thread or project check." }),
+    },
+    {
+      id: "routine",
+      label: "Routine",
+      sub: "A reusable task.",
+      icon: RefreshCcw,
+      active: panel === "jobs" && form.kind === "routine",
+      onClick: () => chooseJobKind("routine", { name: "Operator routine", instruction: "Run this bounded routine when requested." }),
+    },
+    {
+      id: "hooks",
+      label: "Hooks",
+      sub: "Lifecycle guardrails.",
+      icon: ShieldCheck,
+      active: panel === "hooks",
+      onClick: () => choosePanel("hooks"),
+    },
+    {
+      id: "webhook",
+      label: "Webhook",
+      sub: "External event trigger.",
+      icon: Webhook,
+      active: panel === "jobs" && form.kind === "webhook",
+      onClick: () => chooseJobKind("webhook", { name: "Webhook automation", instruction: "Run this when the approved webhook event arrives." }),
+    },
+    {
+      id: "local_event",
+      label: "Local Event",
+      sub: "React to local signals.",
+      icon: Monitor,
+      active: panel === "jobs" && form.kind === "local_event",
+      onClick: () => chooseJobKind("local_event", { name: "Local event automation", instruction: "Run this when the local event is observed." }),
+    },
+    {
+      id: "dreaming",
+      label: "Dreaming",
+      sub: "Reflection and learning.",
+      icon: Brain,
+      active: panel === "dreaming",
+      onClick: () => choosePanel("dreaming"),
+    },
+    {
+      id: "coding",
+      label: "Coding",
+      sub: "Bounded project work.",
+      icon: Laptop,
+      active: panel === "jobs" && form.kind === "coding",
+      onClick: () => chooseJobKind("coding", { name: "Coding automation", instruction: "Inspect the selected workspace and propose a bounded coding change." }),
+    },
+  ];
   return (
     <SimpleSettingsSurface icon={<Zap size={22} />} title="Automation" sub="Cron jobs, heartbeats, routines, webhooks, local events, and bounded dreaming reviews.">
-      <div className="flex justify-between gap-3 flex-wrap">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <Mono size={12} upper track="0.16em" color={UI.textMuted}>Autonomy condition</Mono>
           <div style={{ marginTop: 6, maxWidth: 780 }}>
@@ -11912,14 +14974,65 @@ const RoutinesSurface = ({ modes }: { modes: AssistantMode[] }) => {
             </Mono>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex items-start gap-2 flex-wrap">
           <Button onClick={() => void refreshJobs()}><RefreshCcw size={13} /> Refresh</Button>
           <Button onClick={runTick}>Tick now</Button>
-          <Button variant="primary" onClick={() => { beginNew(); publishUxiDebugEvent("ordo.automation", "new_automation_requested", "New automation requested."); }}><Plus size={13} /> New automation</Button>
+          <Button variant="primary" onClick={() => { setPanel("jobs"); beginNew(); publishUxiDebugEvent("ordo.automation", "new_automation_requested", "New automation requested."); }}><Plus size={13} /> New automation</Button>
         </div>
       </div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+        {automationChoices.map((choice) => {
+          const Icon = choice.icon;
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              onClick={choice.onClick}
+              style={{
+                minHeight: 82,
+                textAlign: "left",
+                borderRadius: 8,
+                border: `1px solid ${choice.active ? UI.primary : UI.primaryBorder}`,
+                background: choice.active
+                  ? `linear-gradient(135deg, ${UI.primary}, ${LAMP_HOT})`
+                  : `linear-gradient(135deg, ${UI.primarySoft}, rgba(244,201,93,0.05))`,
+                color: choice.active ? UI.ink : UI.parchment,
+                boxShadow: choice.active ? `0 0 18px ${UI.primary}44` : `0 0 12px ${UI.primary}18`,
+                cursor: "pointer",
+                padding: "12px 13px",
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Icon size={15} color={choice.active ? UI.ink : UI.primary} />
+                <Mono size={12} color={choice.active ? UI.ink : UI.primary} weight={800} upper track="0.12em">
+                  {choice.label}
+                </Mono>
+              </span>
+              <span style={{ display: "block", marginTop: 8 }}>
+                <Mono size={10} color={choice.active ? "rgba(6,8,10,0.74)" : UI.textMuted}>
+                  {choice.sub}
+                </Mono>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {panel === "hooks" && <HookManagerSurface modes={modes} />}
+      {panel === "dreaming" && (
+        <DreamingSurface
+          modes={modes}
+          activeMode={activeMode}
+          settings={settings}
+          onModeChange={onModeChange}
+          onSettingsChange={onSettingsChange}
+        />
+      )}
+      {panel === "jobs" && (
+        <>
       {syncError && <Alert variant="warn">Automation runtime sync failed: {syncError}</Alert>}
-      <TextInput value={draft} onChange={setDraft} placeholder="What do you want automated?" />
+      <div style={{ minWidth: 0 }}>
+        <TextInput value={draft} onChange={setDraft} placeholder="What do you want automated?" />
+      </div>
       <div className="flex gap-2 flex-wrap">
         {["Summarize open PRs every weekday morning", "Triage new issues each morning", "Draft release notes when a PR merges"].map((prompt) => (
           <Button key={prompt} size="sm" onClick={() => { setDraft(prompt); beginNew({ name: prompt, instruction: prompt, schedule: "operator-defined" }); publishUxiDebugEvent("ordo.automation", "routine_prompt_selected", "Routine prompt template selected.", { prompt }); }}>{prompt}</Button>
@@ -12018,6 +15131,8 @@ const RoutinesSurface = ({ modes }: { modes: AssistantMode[] }) => {
           </Card>
         ))}
       </div>
+        </>
+      )}
     </SimpleSettingsSurface>
   );
 };
@@ -12185,8 +15300,8 @@ const DiagnosticSurface = ({
 }) => {
   const diagnosticMode = modes.find((mode) => mode.id === "diagnostic") ?? {
     id: "diagnostic",
-    label: "Diagnostic",
-    description: "Always-on Ordo self-diagnosis, repair planning, and bounded maintenance. Cloud models are denied by default unless allowed.",
+    label: DIAGNOSTIC_DISPLAY_LABEL,
+    description: "Friendly Ordo tech support for setup, installs, avatar, email, troubleshooting, repair planning, and bounded maintenance. Cloud models are denied by default unless allowed.",
     memory_scope: ["global", "mode:diagnostic"],
     rag_domains: [
       "diagnostic_self_learning_tree",
@@ -12196,8 +15311,8 @@ const DiagnosticSurface = ({
       "diagnostic_recommendations",
       "diagnostic_quarantine",
     ],
-    allowed_tool_lanes: ["filesystem.read_", "knowledge.", "memory.list_", "memory.remember_", "logic.", "runtime.describe_", "files.", "self_heal.", "mcp.", "ssh.", "api.", "rest.", "automation.", "logs."],
-    blocked_tool_capabilities: ["web.search", "web.strain", "filesystem.write_file", "files.delete", "runtime.update_settings", "automation.create", "automation.delete", "automation.approve", "automation.enable", "automation.disable", "automation.tick", "logs.clear", "logs.delete", "logs.write", "cloud.rest.request", "ssh.execute"],
+    allowed_tool_lanes: ["filesystem.read_", "knowledge.", "skills.", "plugins.", "memory.list_", "memory.remember_", "logic.", "runtime.describe_", "files.", "self_heal.", "mcp.", "apps.", "webhooks.", "hooks.", "ssh.", "api.", "rest.", "automation.", "logs.", "avatar.", "email.", "remote_communication.", "connections."],
+    blocked_tool_capabilities: ["web.search", "web.strain", "filesystem.write_file", "files.delete", "runtime.update_settings", "logs.clear", "logs.delete", "logs.write", "cloud.rest.request", "ssh.execute"],
     policies: ["cloud_models_denied_by_default", "diagnostic_rag_private", "no_web_access", "no_core_source_changes", "operator_approval_required_for_mutation"],
     planner_bias: [],
     persona: ["ordo_diagnostician", "maintenance_operator", "security_contained"],
@@ -12209,32 +15324,48 @@ const DiagnosticSurface = ({
     if (typeof window === "undefined") return "approval";
     return window.localStorage.getItem("ordo:diagnostic_maintenance_gate") || "approval";
   });
+  const [autoReturn, setAutoReturn] = useState(diagnosticAutoReturnEnabled);
   const setStored = (key: string, value: string, setter: (value: string) => void) => {
     setter(value);
     if (typeof window !== "undefined") window.localStorage.setItem(key, value);
-    publishUxiDebugEvent("ordo.diagnostic", "diagnostic_setting_changed", "Diagnostic setting changed.", {
+    publishUxiDebugEvent("ordo.diagnostic", "diagnostic_setting_changed", "Tech specialist setting changed.", {
+      key,
+      value,
+    });
+  };
+  const setStoredBoolean = (key: string, value: boolean, setter: (value: boolean) => void) => {
+    setter(value);
+    if (typeof window !== "undefined") window.localStorage.setItem(key, value ? "true" : "false");
+    publishUxiDebugEvent("ordo.diagnostic", "diagnostic_setting_changed", "Tech specialist setting changed.", {
       key,
       value,
     });
   };
   const containment = [
-    ["Cloud denied by default", "Diagnostic refuses non-local credentials unless the operator flips the cloud-model toggle for the task."],
+    ["Cloud denied by default", "The tech specialist refuses non-local credentials unless the operator flips the cloud-model toggle for the task."],
+    ["Auto-return", "After a completed task, it drops back to General unless the operator keeps it awake."],
     ["Private memory", "New diagnostic facts stay in mode:diagnostic; other modes cannot borrow this mode."],
     ["No web", "Search, crawl, fetch, and web strain capabilities are blocked from this mode."],
-    ["No core edits", "Core Rust, Tauri/WebView, hooks, security, and policy changes are recommendation-only."],
+    ["Secrets redacted", "API keys, tokens, and SSH material can be set up through approved tools, but raw secret values are never displayed."],
+    ["No core edits", "Core Rust, Servo shell, security, and policy changes stay recommendation-only; hook writes stay approval-gated."],
   ];
   const maintenance = [
     ["MCP and plugins", "Inspect, install, remove, and repair through approved maintenance routes."],
-    ["Skills and modes", "Audit registrations and propose repairs without opening diagnostic memory to other modes."],
-    ["Provider profiles", "Check local model credentials and compatible API descriptors without exposing secrets."],
-    ["SSH and APIs", "Validate descriptors and connection metadata; command execution stays blocked."],
+    ["Skills and modes", "Audit registrations, install approved skills, and propose repairs without opening diagnostic memory to other modes."],
+    ["Hooks", "Create, inspect, test, enable, disable, and export lifecycle hooks through approved Hook Manager routes."],
+    ["Automation and Dreaming", "Set up approved routines, heartbeats, scheduled checks, and bounded Dreaming reviews."],
+    ["Provider profiles", "Create, update, test, and retire local or cloud API-key profiles without exposing secret values."],
+    ["Avatar setup", "Read and update avatar brain, persona, voice, skills, and behavior setup through approved configuration routes."],
+    ["Email and remote communication", "Configure user mailboxes, Ordo remote-command mailboxes, and message channels with read/write/none access controls."],
+    ["SSH and APIs", "Set up SSH host descriptors, API auth profiles, and connection metadata; raw command execution stays blocked."],
+    ["Troubleshooting logs", "Record symptom, evidence, action, result, verification, and follow-up with secrets redacted."],
   ];
   return (
     <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
       <SurfaceTitle
-        kicker="ordo - diagnostic"
-        title="Diagnostic"
-        sub="Always-on self-diagnosis with wide visibility and bounded hands. It learns locally, recommends repairs, and keeps its own evidence tree isolated."
+        kicker="ordo - tech specialist"
+        title={DIAGNOSTIC_DISPLAY_LABEL}
+        sub="Friendly setup, installs, troubleshooting, local health checks, and private diagnostic memory."
       />
       <Card>
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -12244,7 +15375,7 @@ const DiagnosticSurface = ({
             </Mono>
             <div style={{ marginTop: 7 }}>
               <Serif size={15} italic color={UI.textMuted}>
-                Diagnostic is on by default, denies cloud models unless explicitly allowed, and can maintain peripheral configuration only through approved maintenance tools.
+                The tech specialist is on by default, denies cloud models unless explicitly allowed, and is the only assistant mode that should install or maintain Ordo capabilities.
               </Serif>
             </div>
           </div>
@@ -12259,22 +15390,27 @@ const DiagnosticSurface = ({
         <div className="grid gap-3" style={{ marginTop: 16, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
           <SettingsRow
             title="Mode enabled"
-            sub="Keeps Diagnostic active and visible in Ordo."
+            sub="Keeps Ordo Tech Specialist active and visible."
             control={<ToggleSwitch checked={ui.enabled} onChange={(enabled) => onSettingsChange("diagnostic", { enabled })} />}
           />
           <SettingsRow
             title="Use mode"
-            sub="Switch the assistant into Diagnostic."
-            control={<Button variant={activeMode === "diagnostic" ? "primary" : "secondary"} disabled={!ui.enabled} onClick={() => onModeChange("diagnostic")}>{activeMode === "diagnostic" ? "Current" : "Use Diagnostic"}</Button>}
+            sub="Switch the assistant into the Ordo tech specialist."
+            control={<Button variant={activeMode === "diagnostic" ? "primary" : "secondary"} disabled={!ui.enabled} onClick={() => onModeChange("diagnostic")}>{activeMode === "diagnostic" ? "Current" : "Use Tech Specialist"}</Button>}
+          />
+          <SettingsRow
+            title="Auto-return after task"
+            sub="Switches back to General after a completed tech specialist turn unless the operator wakes it again."
+            control={<ToggleSwitch checked={autoReturn} onChange={(enabled) => setStoredBoolean(DIAGNOSTIC_AUTO_RETURN_KEY, enabled, setAutoReturn)} />}
           />
           <SettingsRow
             title="Self-learning RAG budget"
-            sub={`${ui.ragLimitMb} MB reserved for diagnostic evidence and repair history.`}
+            sub={`${ui.ragLimitMb} MB reserved for troubleshooting evidence and repair history.`}
             control={<TextInput value={String(ui.ragLimitMb)} onChange={(value) => onSettingsChange("diagnostic", { ragLimitMb: Math.max(0, Number(value) || 0) })} placeholder="1024" />}
           />
           <SettingsRow
             title="Cloud model access"
-            sub="Denied by default. Allow only when you want Diagnostic to use the selected cloud provider for this diagnostic task."
+            sub="Denied by default. Allow only when you want the tech specialist to use the selected cloud provider for this diagnostic task."
             control={
               <div className="flex items-center justify-end gap-2">
                 <Badge variant={ui.allowCloudModels ? "warn" : "success"}>
@@ -12356,32 +15492,21 @@ const ProjectsSurface = ({
     onScopeChange(next);
   };
   const pickLocalFolder = async () => {
-    try {
-      const mod = await import("@tauri-apps/plugin-dialog");
-      const picked = await mod.open({
-        multiple: false,
-        directory: true,
-        title: "Select Ordo project workspace",
-        defaultPath: scope.localPath || undefined,
-      });
-      if (typeof picked === "string" && picked.length > 0) {
-        const label = picked.split(/[\\/]/).filter(Boolean).pop() ?? "Local project";
-        setLocalPathDraft(picked);
-        onScopeChange(
-          normalizeWorkspaceScope({
-            ...scope,
-            kind: "local",
-            label,
-            localPath: picked,
-            sandboxEnabled: true,
-          }),
-        );
-        setToast(`Workspace selected: ${label}`);
-      }
-    } catch (err) {
-      setToast(
-        `folder picker unavailable: ${err instanceof Error ? err.message : String(err)}. Paste a path manually.`,
+    const picked = window.prompt("Path to Ordo project workspace", scope.localPath || localPathDraft);
+    if (picked && picked.trim()) {
+      const nextPath = picked.trim();
+      const label = nextPath.split(/[\\/]/).filter(Boolean).pop() ?? "Local project";
+      setLocalPathDraft(nextPath);
+      onScopeChange(
+        normalizeWorkspaceScope({
+          ...scope,
+          kind: "local",
+          label,
+          localPath: nextPath,
+          sandboxEnabled: true,
+        }),
       );
+      setToast(`Workspace selected: ${label}`);
     }
   };
   return (
@@ -12576,7 +15701,7 @@ const DevDocsSurface = () => (
         ["UXI recovery notes", "UXI_DEV_NOTES.md documents the current official UXI behavior, what worked, and what should not be rebuilt differently."],
         ["Project instructions", "AGENTS.md and CLAUDE.md carry project-wide rules, including no Rust patching and workspace ownership expectations."],
         ["Architecture map", "UXI_SOURCE_MAP.md points future sessions to the canonical Ordo Studio shell files."],
-        ["Verification gates", "Run npm build and check:tauri after UXI work. Rust runtime changes need the relevant cargo checks/tests."],
+        ["Verification gates", "Run npm build after UXI work. Rust runtime changes need the relevant cargo checks/tests."],
         ["Workspace sandboxing", "The UXI sends workspace_scope metadata; runtime/tool adapters must enforce the root boundary before filesystem access."],
         ["Design rule", "New surfaces should match Ordo's compact dark/lamp visual language and avoid adding parallel design systems."],
       ].map(([title, body]) => (
@@ -12683,13 +15808,13 @@ const HOOK_DECISIONS: Array<{ value: HookDecision; label: string; sub: string }>
 const SAMPLE_MANAGED_HOOKS: ManagedHook[] = [
   {
     id: "sample-rust-patches",
-    name: "Block Rust Patches",
+    name: "Gate Rust Changes",
     scope: "global",
     modeId: "",
     event: "PreToolUse",
     matcher: "apply_patch|Edit|Write",
-    decision: "deny",
-    message: "Do not patch .rs files. Rebuild the affected Rust implementation natively.",
+    decision: "context",
+    message: "Rust changes require explicit operator permission. Once approved, rebuild the affected Rust implementation natively and keep the scope tight.",
     fileFilter: ".rs",
     timeout: 10,
     enabled: true,
@@ -13054,7 +16179,7 @@ const HookManagerSurface = ({ modes }: { modes: AssistantMode[] }) => {
                 <TextInput
                   value={draft.name}
                   onChange={(value) => setDraft((hook) => ({ ...hook, name: value }))}
-                  placeholder="Block Rust Patches"
+                  placeholder="Gate Rust Changes"
                 />
               </Field>
 
@@ -13210,7 +16335,7 @@ const HookManagerSurface = ({ modes }: { modes: AssistantMode[] }) => {
                   value={draft.message}
                   onChange={(value) => setDraft((hook) => ({ ...hook, message: value }))}
                   rows={3}
-                  placeholder="Do not patch .rs files. Rebuild the affected implementation natively."
+                  placeholder="Rust changes require explicit operator permission; keep approved edits scoped."
                 />
               </Field>
 
@@ -13441,10 +16566,47 @@ const SettingsSurface = ({
     <SurfaceTitle
       kicker="ordo - settings"
       title="All surfaces"
-      sub="The left rail shows the daily controls. Everything else stays reachable here."
+      sub="Common settings stay close to the top. Daily controls stay on the rail."
     />
-    {(["primary", "agent", "knowledge", "advanced", "docs"] as const).map((group) => {
-      const groupTabs = TABS.filter((tab) => tab.group === group && tab.id !== "settings");
+    <div className="space-y-3">
+      <Mono size={11} upper track="0.18em" color={UI.textMuted}>common settings</Mono>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+        {TABS.filter((tab) => COMMON_SETTINGS_TAB_IDS.has(tab.id)).map((tab) => {
+          const Icon = tab.glyph;
+          const current = tab.id === activeTab;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onOpen(tab.id)}
+              style={{
+                minHeight: 78,
+                textAlign: "left",
+                borderRadius: 10,
+                border: `1px solid ${current ? UI.primaryBorder : UI.cardBorder}`,
+                background: current ? UI.primarySoft : UI.cardBg,
+                padding: 14,
+                cursor: "pointer",
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <Icon size={18} color={current ? UI.primary : UI.textMuted} />
+                <div style={{ fontFamily: FRAUNCES, fontSize: 16, fontWeight: 650, color: UI.parchment }}>
+                  {tab.label}
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <Mono size={10} color={UI.textDim}>
+                  {LEFT_RAIL_TAB_IDS.has(tab.id) ? "shown on left rail" : "common setting"}
+                </Mono>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+    {(["primary", "agent", "knowledge", "connectivity", "advanced", "docs"] as const).map((group) => {
+      const groupTabs = TABS.filter((tab) => tab.group === group && tab.id !== "settings" && !COMMON_SETTINGS_TAB_IDS.has(tab.id));
       if (groupTabs.length === 0) return null;
       return (
         <div key={group} className="space-y-3">
@@ -13512,32 +16674,26 @@ export default function OrdoShell() {
   const [tab, setTab] = useState("assistant");
   const [lastNonSettingsTab, setLastNonSettingsTab] = useState("assistant");
   const [settingsRefreshNonce, setSettingsRefreshNonce] = useState(0);
+  const [manualMaintenanceTabs, setManualMaintenanceTabs] = useState<Set<string>>(() => new Set());
   const [input, setInput] = useState("");
   const [theme, setTheme] = useState<OrdoTheme>(readStoredTheme);
   const [thinkingEffort, setThinkingEffortState] = useState<ThinkingEffort>(
     readStoredThinkingEffort,
   );
-  const [ttsEnabled, setTtsEnabledState] = useState(() =>
-    readStoredBoolean(TTS_ENABLED_KEY, false),
-  );
-  const [ttsModel, setTtsModelState] = useState(() =>
-    readStoredString(TTS_MODEL_KEY, DEFAULT_TTS_MODEL),
-  );
-  const [ttsVoice, setTtsVoiceState] = useState(() =>
-    readStoredString(TTS_VOICE_KEY, DEFAULT_TTS_VOICE),
-  );
-  const [ttsFormat] = useState(() =>
-    readStoredString(TTS_FORMAT_KEY, DEFAULT_TTS_FORMAT),
-  );
-  const [ttsBusy, setTtsBusy] = useState(false);
-  const [ttsError, setTtsError] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
   // The "advanced" group is a file-cabinet — collapsed by default,
   // auto-expanded when one of its tabs is the active surface so the
   // operator never sees an empty rail when they're inside it.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [artifactViewOpen, setArtifactViewOpen] = useState(false);
+  const [artifactTarget, setArtifactTarget] = useState<ArtifactBrowserTarget>(() => ({
+    id: "blank",
+    label: "Artifact",
+    url: artifactBlankUrl(),
+    source: "generated",
+  }));
+  const artifactAutoOpenKeyRef = useRef<string | null>(null);
+  const artifactDismissedKeyRef = useRef<string | null>(null);
   const assistantScrollRef = useRef<HTMLDivElement | null>(null);
   const assistantEndRef = useRef<HTMLDivElement | null>(null);
   const assistantPinnedRef = useRef(true);
@@ -13598,9 +16754,69 @@ export default function OrdoShell() {
   const [newChatBusy, setNewChatBusy] = useState(false);
   const [midTaskDraft, setMidTaskDraft] = useState<string | null>(null);
   const [queuedTurns, setQueuedTurns] = useState<QueuedAssistantTurn[]>([]);
+  const [activeTurnAgentTeam, setActiveTurnAgentTeam] = useState<AgentTeamConfig | null>(null);
   const [interrupting, setInterrupting] = useState(false);
   const queuedTurnsRef = useRef<QueuedAssistantTurn[]>([]);
   const suppressCancelledTurnErrorRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    hydrateAgentTeamsFromBackend().catch((err: unknown) => {
+      if (cancelled) return;
+      publishUxiDebugEvent("ordo.agent_teams", "shell_hydration_failed", "Agent Teams shell hydration failed; using local cache.", {
+        error: err instanceof Error ? err.message : String(err),
+      }, "WARN");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const transcriptArtifactTargets = useMemo(() => extractArtifactLinks(messages), [messages]);
+  const openArtifactTarget = useCallback((target: ArtifactBrowserTarget) => {
+    if (!isLocalArtifactBrowserUrl(target.url)) {
+      publishUxiDebugEvent("ordo.artifacts", "artifact_side_view_blocked", "Blocked non-local artifact target.", {
+        label: target.label,
+        url: target.url,
+        source: target.source,
+      });
+      return;
+    }
+    setArtifactTarget(target);
+    setArtifactViewOpen(true);
+    artifactDismissedKeyRef.current = null;
+    publishUxiDebugEvent("ordo.artifacts", "artifact_side_view_opened", "Artifact side view opened.", {
+      label: target.label,
+      url: target.url,
+      source: target.source,
+    });
+  }, []);
+  const closeArtifactTarget = useCallback(() => {
+    const latest = transcriptArtifactTargets[0];
+    if (latest && latest.url === artifactTarget.url) {
+      artifactDismissedKeyRef.current = `${messages.length}:${latest.url}`;
+    }
+    setArtifactViewOpen(false);
+    publishUxiDebugEvent("ordo.artifacts", "artifact_side_view_closed", "Artifact side view closed.", {
+      label: artifactTarget.label,
+      url: artifactTarget.url,
+    });
+  }, [artifactTarget.label, artifactTarget.url, messages.length, transcriptArtifactTargets]);
+
+  useEffect(() => {
+    if (tab !== "assistant") return;
+    const latest = transcriptArtifactTargets[0];
+    if (!latest) return;
+    const openKey = `${messages.length}:${latest.url}`;
+    if (
+      artifactAutoOpenKeyRef.current === openKey ||
+      artifactDismissedKeyRef.current === openKey
+    ) {
+      return;
+    }
+    artifactAutoOpenKeyRef.current = openKey;
+    openArtifactTarget(latest);
+  }, [messages.length, openArtifactTarget, tab, transcriptArtifactTargets]);
 
   const isNearScrollBottom = (el: HTMLDivElement) =>
     el.scrollHeight - el.scrollTop - el.clientHeight < 48;
@@ -14162,6 +17378,15 @@ export default function OrdoShell() {
 
   const startListening = async () => {
     setVoiceError(null);
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof window.MediaRecorder === "undefined"
+    ) {
+      setVoiceUnsupported(true);
+      setVoiceError("Voice recording is not available in this Servo window yet.");
+      return;
+    }
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -14240,8 +17465,15 @@ export default function OrdoShell() {
   };
 
   const toggleListening = () => {
-    if (isListening) stopListening();
-    else void startListening();
+    if (isListening) {
+      stopListening();
+      return;
+    }
+    if (voiceUnsupported) {
+      setVoiceError("Voice recording is not available in this Servo window yet.");
+      return;
+    }
+    void startListening();
   };
 
   // Make sure recognition stops if the shell unmounts while
@@ -14369,13 +17601,29 @@ export default function OrdoShell() {
       try {
         const res = await listCloudCredentials();
         if (cancelled) return;
-        const defaultId =
+        const storedDefaultId =
           (typeof window !== "undefined" &&
             window.localStorage.getItem("ordo:default_provider")) ||
           null;
+        const sortedCredentials = [...res.credentials].sort(
+          (a, b) => credentialUpdatedAtMs(b) - credentialUpdatedAtMs(a),
+        );
+        const runtimeDefaultId =
+          res.default_service &&
+          sortedCredentials.some((credential) => credential.service === res.default_service && credentialIsEnabled(credential))
+            ? res.default_service
+            : null;
+        const defaultId =
+          storedDefaultId &&
+          sortedCredentials.some((credential) => credential.service === storedDefaultId && credentialIsEnabled(credential))
+            ? storedDefaultId
+            : runtimeDefaultId;
+        if (typeof window !== "undefined" && runtimeDefaultId && storedDefaultId !== runtimeDefaultId) {
+          window.localStorage.setItem("ordo:default_provider", runtimeDefaultId);
+        }
         const cred =
-          (defaultId && res.credentials.find((c) => c.service === defaultId)) ||
-          res.credentials[0] ||
+          (defaultId && newestCredentialForService(sortedCredentials, defaultId)) ||
+          sortedCredentials.find(credentialIsEnabled) ||
           null;
         if (!cred) {
           setLlmSignal({
@@ -14645,6 +17893,7 @@ export default function OrdoShell() {
       return;
     }
     if ((!hasText && !hasAttachments) || anyUploadInFlight) return;
+    if (modelSaving && !isOverride) return;
     // Snapshot attachments at send-time. The state could change
     // mid-send (operator picks more files); we want the turn to
     // ship exactly what was visible when they hit Send.
@@ -14688,6 +17937,11 @@ export default function OrdoShell() {
             .join(", ")}. Read them via filesystem.read_file when relevant.]\n\n`
         : "";
     const wireText = `${filePrefix}${txt}`.trim() || "(no text — attachments only)";
+    const candidateTeam = resolveActiveAgentTeam();
+    const turnAgentTeam = shouldUseAgentTeamForTurn(wireText, candidateTeam, collaboratorRequest)
+      ? candidateTeam
+      : null;
+    setActiveTurnAgentTeam(turnAgentTeam);
     // Append the user message + an empty placeholder assistant message
     // that token deltas will fill in. The placeholder's `streaming`
     // flag tells the WS effect to append rather than replace.
@@ -14758,10 +18012,21 @@ export default function OrdoShell() {
       const activeOptionalRags = enabledOptionalRags(activeModeUi);
       const collaboration = modeCollaborationSetting(activeModeUi);
       turnMeta.rag_storage_budget_mb = activeModeUi.ragLimitMb;
-      if (activeMode === "diagnostic") {
+      if (activeMode === DIAGNOSTIC_MODE_ID) {
         turnMeta.diagnostic = {
           allow_cloud_models: activeModeUi.allowCloudModels === true,
           cloud_model_policy: activeModeUi.allowCloudModels === true ? "allow" : "deny",
+          display_name: DIAGNOSTIC_DISPLAY_LABEL,
+          maintenance_authority: {
+            can_install: ["skills", "mcp_servers", "plugins", "webhooks", "hooks", "apps", "agent_teams", "automation", "dreaming_jobs"],
+            can_setup: ["ssh_hosts", "api_keys", "provider_credentials", "api_auth_profiles", "connection_profiles", "hook_policies"],
+            visibility: "all_runtime_state_except_secrets",
+            secret_visibility: "redacted_only",
+            cloud_off_available: true,
+            auto_return_after_turn: diagnosticAutoReturnEnabled(),
+            approval_required_for_mutation: true,
+            log_requirement: "record evidence, action, result, and follow-up for each maintenance change",
+          },
         };
       }
       if (isTemporarySpecialistMode(activeMode)) {
@@ -14796,6 +18061,33 @@ export default function OrdoShell() {
           description: c.description,
           lane: c.lane,
         }));
+      }
+      const teamForTurn = turnAgentTeam;
+      if (teamForTurn) {
+        turnMeta.agent_team = {
+          id: teamForTurn.id,
+          name: teamForTurn.name,
+          intent: teamForTurn.intent,
+          lead: teamForTurn.lead,
+          routing: teamForTurn.routing,
+          model_lane: teamForTurn.modelLane,
+          capability_tier: teamForTurn.capabilityTier,
+          provider_target: teamForTurn.providerTarget,
+          model_target: teamForTurn.modelTarget,
+          shared_skills: splitAgentTeamList(teamForTurn.sharedSkills),
+          members: teamForTurn.members.map((member) => ({
+            id: member.id,
+            name: member.name,
+            role: member.role,
+            mode: member.mode,
+            provider: member.provider,
+            model: member.model,
+            tools: splitAgentTeamList(member.tools),
+            skills: splitAgentTeamList(member.skills),
+            memory_scope: splitAgentTeamList(member.memoryScope),
+            is_lead: member.id === teamForTurn.lead,
+          })),
+        };
       }
       if (override?.meta) {
         Object.assign(turnMeta, override.meta);
@@ -14867,10 +18159,13 @@ export default function OrdoShell() {
           },
         ];
       });
-      if (ttsEnabled && finalAssistantText.trim()) {
-        void speakText(finalAssistantText, "auto");
-      }
-      if (isTemporarySpecialistMode(activeMode)) {
+      if (activeMode === DIAGNOSTIC_MODE_ID && diagnosticAutoReturnEnabled()) {
+        setActiveMode(FALLBACK_MODE_ID);
+        setSessionId(undefined);
+        publishUxiDebugEvent("ordo.diagnostic", "tech_specialist_auto_returned", "Tech specialist returned to General after completing a task.", {
+          mode_id: activeMode,
+        });
+      } else if (isTemporarySpecialistMode(activeMode)) {
         updateModeUiSettings(activeMode, { enabled: false });
         setActiveMode(FALLBACK_MODE_ID);
         setSessionId(undefined);
@@ -14955,6 +18250,7 @@ export default function OrdoShell() {
     } finally {
       const queued = shiftQueuedAssistantTurn();
       setSending(false);
+      setActiveTurnAgentTeam(null);
       setInterrupting(false);
       suppressCancelledTurnErrorRef.current = false;
       if (queued) {
@@ -15139,75 +18435,6 @@ export default function OrdoShell() {
       effort,
     });
   };
-  const cleanupSpeechAudio = () => {
-    audioRef.current?.pause();
-    audioRef.current = null;
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
-  };
-  useEffect(() => cleanupSpeechAudio, []);
-  const setTtsEnabled = (enabled: boolean) => {
-    setTtsEnabledState(enabled);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(TTS_ENABLED_KEY, String(enabled));
-    }
-    if (!enabled) cleanupSpeechAudio();
-    publishUxiDebugEvent("ordo.voice", "tts_enabled_changed", "Voice output preference changed.", {
-      enabled,
-    });
-  };
-  const setTtsModel = (model: string) => {
-    setTtsModelState(model);
-    if (typeof window !== "undefined") window.localStorage.setItem(TTS_MODEL_KEY, model);
-  };
-  const setTtsVoice = (voice: string) => {
-    setTtsVoiceState(voice);
-    if (typeof window !== "undefined") window.localStorage.setItem(TTS_VOICE_KEY, voice);
-  };
-  const speakText = async (text: string, reason: "auto" | "manual") => {
-    const clean = text.trim();
-    if (!clean || ttsBusy) return;
-    setTtsBusy(true);
-    setTtsError(null);
-    try {
-      cleanupSpeechAudio();
-      const speech = await postVoiceSpeech({
-        input: clean.slice(0, 4096),
-        service: modelChoice.service ?? undefined,
-        model: ttsModel,
-        voice: ttsVoice,
-        format: ttsFormat,
-      });
-      const url = URL.createObjectURL(speech.blob);
-      audioUrlRef.current = url;
-      const audio = new Audio(url);
-      audioRef.current = audio;
-      audio.onended = cleanupSpeechAudio;
-      await audio.play();
-      publishUxiDebugEvent("ordo.voice", "tts_playback_started", "Assistant response speech playback started.", {
-        reason,
-        provider: speech.provider,
-        model: speech.model,
-        voice: speech.voice,
-        format: speech.format,
-      });
-    } catch (err: unknown) {
-      const reasonText = err instanceof Error ? err.message : String(err);
-      setTtsError(reasonText);
-      publishUxiDebugEvent("ordo.voice", "tts_playback_failed", "Assistant response speech playback failed.", {
-        reason,
-        error: reasonText,
-      }, "ERROR");
-    } finally {
-      setTtsBusy(false);
-    }
-  };
-  const speakLatestAssistantMessage = () => {
-    const latest = [...messages].reverse().find((message) => message.role === "assistant" && message.text.trim());
-    if (latest) void speakText(latest.text, "manual");
-  };
   const setActiveModelChoice = async (model: string) => {
     const service = modelChoice.service;
     if (!service || !model.trim()) return;
@@ -15230,6 +18457,8 @@ export default function OrdoShell() {
         label: previous.providerLabel,
         extras: nextChoice.extras,
       });
+      await setCloudCredentialDefault(service);
+      if (typeof window !== "undefined") window.localStorage.setItem("ordo:default_provider", service);
       publishUxiDebugEvent("ordo.provider", "active_model_changed", "Active chat model changed.", {
         provider: service,
         model: nextModel,
@@ -15269,6 +18498,33 @@ export default function OrdoShell() {
   };
 
   const renderSurface = () => {
+    const maintenanceSurface = MAINTENANCE_ADMIN_TABS.get(tab);
+    if (maintenanceSurface && activeMode !== DIAGNOSTIC_MODE_ID && !manualMaintenanceTabs.has(tab)) {
+      const activeModeLabel =
+        activeMode === DIAGNOSTIC_MODE_ID
+          ? DIAGNOSTIC_DISPLAY_LABEL
+          : modes.find((mode) => mode.id === activeMode)?.label ?? activeMode;
+      return (
+        <MaintenanceLockedSurface
+          surface={maintenanceSurface}
+          activeModeLabel={activeModeLabel}
+          onManual={() => {
+            setManualMaintenanceTabs((current) => {
+              const next = new Set(current);
+              next.add(tab);
+              return next;
+            });
+            publishUxiDebugEvent("ordo.maintenance", "manual_controls_opened", "Manual maintenance controls opened.", {
+              tab,
+              surface: maintenanceSurface,
+              active_mode: activeMode,
+            });
+          }}
+          onSwitch={() => handleModeChange(DIAGNOSTIC_MODE_ID)}
+        />
+      );
+    }
+
     switch (tab) {
       case "assistant":
         return (
@@ -15310,6 +18566,8 @@ export default function OrdoShell() {
             onModesChanged={reloadModes}
           />
         );
+      case "agents":
+        return <AgentsSurface onOpen={navigateToTab} modes={modes} modelChoice={modelChoice} />;
       case "skills":
         return <SkillsSurface onOpenDirectoryTab={navigateToTab} />;
       case "avatar":
@@ -15347,12 +18605,20 @@ export default function OrdoShell() {
       case "apps":
         return <AppsSurface />;
       case "files":
-        return <FilesSurface />;
+        return <FilesSurface onOpenArtifact={openArtifactTarget} />;
       case "webhooks":
         return <WebhooksSurface />;
       case "automation":
       case "routines":
-        return <RoutinesSurface modes={modes} />;
+        return (
+          <RoutinesSurface
+            modes={modes}
+            activeMode={activeMode}
+            settings={modeUiSettings}
+            onModeChange={handleModeChange}
+            onSettingsChange={updateModeUiSettings}
+          />
+        );
       case "builds":
         return <BuildsSurface />;
       case "dreaming":
@@ -15455,6 +18721,24 @@ export default function OrdoShell() {
           100% { box-shadow: 0 0 0 0 ${RED}00; }
         }
         .ordo-mic-pulse { animation: ordoMicPulse 1.2s ease-out infinite; }
+        @keyframes ordoTeamWorking {
+          0%   { box-shadow: 0 0 0 0 rgba(127,209,197,0.22), inset 0 0 0 1px rgba(127,209,197,0.10); }
+          50%  { box-shadow: 0 0 20px 2px rgba(127,209,197,0.18), inset 0 0 0 1px rgba(244,201,93,0.16); }
+          100% { box-shadow: 0 0 0 0 rgba(127,209,197,0.22), inset 0 0 0 1px rgba(127,209,197,0.10); }
+        }
+        @keyframes ordoTeamDot {
+          0%, 100% { opacity: 0.35; transform: scale(0.82); }
+          50% { opacity: 1; transform: scale(1.12); }
+        }
+        .ordo-team-working { animation: ordoTeamWorking 1.8s ease-in-out infinite; }
+        .ordo-team-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 999px;
+          display: inline-block;
+          animation: ordoTeamDot 0.95s ease-in-out infinite;
+          flex: 0 0 auto;
+        }
       `}</style>
       <div
         className={`ordo-theme-${theme}`}
@@ -15531,7 +18815,7 @@ export default function OrdoShell() {
               overflow: "auto",
             }}
           >
-            {(["primary", "agent", "knowledge", "connectivity", "advanced", "docs"] as const).map((group) => {
+            {(["primary", "agent", "knowledge", "connectivity", "advanced", "docs", "system"] as const).map((group) => {
               const groupTabs = TABS.filter((t) => t.group === group && LEFT_RAIL_TAB_IDS.has(t.id));
               // Skip empty groups so the rail doesn't show an
               // orphaned label + chevron when a group is in the
@@ -15647,6 +18931,7 @@ export default function OrdoShell() {
           </div>
 
           {/* SURFACE */}
+          <div className="flex-1 flex min-w-0">
           <div className="flex-1 flex flex-col min-w-0">
             <div
               className={`flex-1 p-7 ${showChatComposer ? "overflow-hidden" : "overflow-auto"}`}
@@ -15702,7 +18987,11 @@ export default function OrdoShell() {
             >
               <div
                 className="px-6 py-2.5 flex items-center gap-3"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                style={{
+                  borderBottom: "1px solid rgba(255,255,255,0.04)",
+                  flexWrap: "wrap",
+                  overflow: "hidden",
+                }}
               >
                 <ContextUsageIndicator
                   usedTokens={contextUsedTokens}
@@ -15713,88 +19002,137 @@ export default function OrdoShell() {
                   thinkingEffort={thinkingEffort}
                   onThinkingEffortChange={setThinkingEffort}
                 />
-                <label className="flex items-center gap-2" title="Speak assistant responses with cloud TTS">
-                  <input
-                    type="checkbox"
-                    checked={ttsEnabled}
-                    onChange={(event) => setTtsEnabled(event.target.checked)}
-                  />
-                  <Mono size={10} upper track="0.16em" color={ttsEnabled ? LAMP : SLATE}>
-                    speak
-                  </Mono>
-                </label>
-                <select
-                  value={ttsModel}
-                  onChange={(event) => setTtsModel(event.target.value)}
-                  disabled={!ttsEnabled || ttsBusy}
-                  title="Speech model"
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: 10,
-                    background: "rgba(255,255,255,0.04)",
-                    color: PARCHMENT,
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 999,
-                    padding: "5px 10px",
-                    opacity: ttsEnabled ? 1 : 0.45,
-                  }}
+                {/* Assistant voice playback controls live on the Avatar surface.
+                    The chat composer keeps only voice-to-text dictation. */}
+                {/*
+                <div
+                  className="flex items-center gap-2"
+                  style={{ flex: "0 0 auto", marginLeft: "auto", maxWidth: "100%" }}
                 >
-                  {TTS_MODEL_OPTIONS.map((model) => (
-                    <option key={model} value={model}>{model}</option>
-                  ))}
-                </select>
-                <select
-                  value={ttsVoice}
-                  onChange={(event) => setTtsVoice(event.target.value)}
-                  disabled={!ttsEnabled || ttsBusy}
-                  title="Speech voice"
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: 10,
-                    background: "rgba(255,255,255,0.04)",
-                    color: PARCHMENT,
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 999,
-                    padding: "5px 10px",
-                    opacity: ttsEnabled ? 1 : 0.45,
-                  }}
-                >
-                  {TTS_VOICE_OPTIONS.map((voice) => (
-                    <option key={voice} value={voice}>{voice}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={speakLatestAssistantMessage}
-                  disabled={ttsBusy || messages.every((message) => message.role !== "assistant" || !message.text.trim())}
-                  title="Speak the latest assistant message"
-                  className="rounded-full px-2.5 py-1.5 transition-all"
-                  style={{
-                    background: ttsBusy ? `${LAMP}22` : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${ttsBusy ? `${LAMP}55` : "rgba(255,255,255,0.1)"}`,
-                    color: ttsBusy ? LAMP : PARCHMENT,
-                    opacity: ttsBusy ? 0.75 : 1,
-                  }}
-                >
-                  <Volume2 size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void openAvatarPopout().catch((e) =>
-                      alert(`Avatar pop-out failed: ${e instanceof Error ? e.message : String(e)}`),
-                    )
-                  }
-                  title="Open the avatar in a resizable pop-out window"
-                  className="rounded-full px-2.5 py-1.5 transition-all"
-                  style={{
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    color: PARCHMENT,
-                  }}
-                >
-                  <Bot size={13} />
-                </button>
+                  <label
+                    className="flex items-center gap-2"
+                    title="Speak assistant responses with cloud TTS"
+                    style={{ cursor: "pointer", userSelect: "none" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={ttsEnabled}
+                      onChange={(event) => setTtsEnabled(event.target.checked)}
+                      aria-label="Speak assistant responses"
+                      style={{
+                        position: "absolute",
+                        opacity: 0,
+                        pointerEvents: "none",
+                      }}
+                    />
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 4,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: ttsEnabled ? LAMP : "rgba(244,236,216,0.08)",
+                        border: `1px solid ${ttsEnabled ? LAMP : "rgba(244,236,216,0.34)"}`,
+                        boxShadow: ttsEnabled ? `0 0 10px ${LAMP}44` : "none",
+                        color: INK,
+                        fontFamily: MONO,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {ttsEnabled ? "✓" : ""}
+                    </span>
+                    <Mono size={10} upper track="0.16em" color={ttsEnabled ? LAMP : SLATE}>
+                      speak
+                    </Mono>
+                  </label>
+                  <select
+                    value={ttsModel}
+                    onChange={(event) => setTtsModel(event.target.value)}
+                    disabled={!ttsEnabled || ttsBusy}
+                    title="Speech model"
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 10,
+                      background: "rgba(255,255,255,0.04)",
+                      color: PARCHMENT,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 999,
+                      padding: "5px 10px",
+                      opacity: ttsEnabled ? 1 : 0.45,
+                      maxWidth: 150,
+                    }}
+                  >
+                    {TTS_MODEL_OPTIONS.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={ttsVoice}
+                    onChange={(event) => setTtsVoice(event.target.value)}
+                    disabled={!ttsEnabled || ttsBusy}
+                    title="Speech voice"
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 10,
+                      background: "rgba(255,255,255,0.04)",
+                      color: PARCHMENT,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 999,
+                      padding: "5px 10px",
+                      opacity: ttsEnabled ? 1 : 0.45,
+                      maxWidth: 98,
+                    }}
+                  >
+                    {TTS_VOICE_OPTIONS.map((voice) => (
+                      <option key={voice} value={voice}>{voice}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={speakLatestAssistantMessage}
+                    disabled={ttsBusy}
+                    title={
+                      ttsPlaying
+                        ? "Stop voice playback"
+                        : messages.some((message) => message.role === "assistant" && message.text.trim())
+                        ? "Speak the latest assistant message"
+                        : "No assistant response to speak yet"
+                    }
+                    aria-label={ttsPlaying ? "Stop voice playback" : "Speak latest assistant message"}
+                    className="rounded-full px-2.5 py-1.5 transition-all"
+                    style={{
+                      background: ttsPlaying ? `${RED}22` : ttsBusy ? `${LAMP}22` : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${ttsPlaying ? `${RED}88` : ttsBusy ? `${LAMP}55` : "rgba(255,255,255,0.1)"}`,
+                      color: ttsPlaying ? RED : ttsBusy ? LAMP : PARCHMENT,
+                      opacity: ttsBusy ? 0.75 : 1,
+                    }}
+                  >
+                    {ttsPlaying ? <VolumeX size={13} color="#e85d5d" /> : <Volume2 size={13} color="#f4ecd8" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void openAvatarPopout().catch((e) =>
+                        alert(`Avatar pop-out failed: ${e instanceof Error ? e.message : String(e)}`),
+                      )
+                    }
+                    title="Open the avatar in a resizable pop-out window"
+                    className="rounded-full px-2.5 py-1.5 transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: PARCHMENT,
+                    }}
+                  >
+                    <Bot size={13} color="#f4ecd8" />
+                  </button>
+                </div>
+                */}
               </div>
 
               <Modal
@@ -15874,6 +19212,9 @@ export default function OrdoShell() {
                 </div>
               )}
 
+              {/*
+              Assistant speech output moved to Avatar. The chat composer
+              only reports dictation/STT errors here.
               {ttsError && (
                 <div
                   className="px-6 py-2 flex items-center gap-2"
@@ -15904,6 +19245,8 @@ export default function OrdoShell() {
                   </button>
                 </div>
               )}
+
+              */}
 
               {/* Pending attachments — chip strip above the input.
                   Operator sees what's about to ship, can remove
@@ -16007,7 +19350,7 @@ export default function OrdoShell() {
                 </div>
               )}
 
-              <div className="px-4 py-3 flex items-end gap-2">
+              <div className="px-4 pt-3 pb-5 flex items-end gap-2">
                 {/* Three hidden file inputs — image / file / folder.
                     Each opens with appropriate filters. The folder
                     input uses webkitdirectory so the picker becomes
@@ -16042,15 +19385,26 @@ export default function OrdoShell() {
                 <div
                   className="flex-1 rounded-xl px-4 py-3"
                   style={{
-                    background: "rgba(255,255,255,0.03)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    minHeight: 148,
+                    background: sending
+                      ? "linear-gradient(180deg, rgba(127,209,197,0.08), rgba(244,236,216,0.045))"
+                      : "rgba(244,236,216,0.055)",
+                    border: `1px solid ${sending ? "rgba(127,209,197,0.58)" : "rgba(244,236,216,0.16)"}`,
+                    boxShadow: sending ? "0 0 0 1px rgba(127,209,197,0.16), 0 0 26px rgba(127,209,197,0.12)" : "none",
+                    minHeight: 132,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "stretch",
                     gap: 10,
                   }}
                 >
+                  <TeamAgentActivityIndicator
+                    active={sending && Boolean(activeTurnAgentTeam)}
+                    team={activeTurnAgentTeam}
+                    activeMode={activeMode}
+                    collaboratorRequest={collaboratorRequest}
+                    modelChoice={modelChoice}
+                    queuedCount={queuedTurns.length}
+                  />
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -16063,6 +19417,8 @@ export default function OrdoShell() {
                     placeholder={
                       sending
                         ? "Agent is working. Type a steer, queue, or interrupt..."
+                        : modelSaving
+                        ? "saving model selection..."
                         : anyUploadInFlight
                         ? "uploading…"
                         : pendingImages.length + pendingFiles.length > 0
@@ -16070,14 +19426,14 @@ export default function OrdoShell() {
                         : "Tell Ordo the brief…"
                     }
                     className="w-full bg-transparent outline-none"
-                    rows={4}
+                    rows={3}
                     style={{
                       fontFamily: FRAUNCES,
                       color: PARCHMENT,
                       fontSize: 15,
                       lineHeight: 1.45,
                       resize: "none",
-                      minHeight: 86,
+                      minHeight: 72,
                       maxHeight: 160,
                       flex: 1,
                     }}
@@ -16085,99 +19441,77 @@ export default function OrdoShell() {
                   <div
                     className="flex items-center justify-between gap-3"
                     style={{
-                      borderTop: "1px solid rgba(255,255,255,0.06)",
+                      borderTop: "1px solid rgba(244,236,216,0.12)",
                       paddingTop: 8,
                     }}
                   >
-                    <div className="flex items-center gap-2">
-                      <button
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <ChatIconButton
                         onClick={() => imageInputRef.current?.click()}
                         disabled={sending}
-                        className="rounded-lg px-2 py-2 transition-all"
-                        style={{
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          color: PARCHMENT,
-                          cursor: sending ? "not-allowed" : "pointer",
-                        }}
+                        label="Attach image"
                         title="Attach image (vision)"
                       >
                         <ImageIcon size={14} />
-                      </button>
-                      <button
+                      </ChatIconButton>
+                      <ChatIconButton
                         onClick={() => fileInputRef.current?.click()}
                         disabled={sending}
-                        className="rounded-lg px-2 py-2 transition-all"
-                        style={{
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          color: PARCHMENT,
-                          cursor: sending ? "not-allowed" : "pointer",
-                        }}
+                        label="Attach files"
                         title="Attach files (uploaded to user-files)"
                       >
                         <Paperclip size={14} />
-                      </button>
-                      <button
+                      </ChatIconButton>
+                      <ChatIconButton
                         onClick={() => folderInputRef.current?.click()}
                         disabled={sending}
-                        className="rounded-lg px-2 py-2 transition-all"
-                        style={{
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          color: PARCHMENT,
-                          cursor: sending ? "not-allowed" : "pointer",
-                        }}
+                        label="Attach folder"
                         title="Attach folder (uploaded recursively)"
                       >
                         <FolderUp size={14} />
-                      </button>
-                      <button
+                      </ChatIconButton>
+                      <ChatIconButton
                         onClick={exportCurrentConversation}
                         disabled={messages.length === 0}
-                        className="rounded-lg px-2 py-2 transition-all"
-                        style={{
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          color: PARCHMENT,
-                          cursor: messages.length === 0 ? "not-allowed" : "pointer",
-                          opacity: messages.length === 0 ? 0.45 : 1,
-                        }}
+                        label="Export conversation"
                         title="Export this conversation as Markdown"
                       >
                         <Download size={14} />
-                      </button>
-                      <button
+                      </ChatIconButton>
+                      <ChatIconButton
                         onClick={toggleListening}
-                        disabled={sending || voiceUnsupported}
-                        className={`rounded-lg px-2 py-2 transition-all${
-                          isListening ? " ordo-mic-pulse" : ""
-                        }`}
+                        disabled={sending}
+                        label={
+                          voiceUnsupported
+                            ? "Voice unavailable"
+                            : isListening
+                            ? "Stop dictation"
+                            : "Start dictation"
+                        }
+                        iconColor={isListening || voiceUnsupported ? "#e85d5d" : "#f4ecd8"}
                         style={{
-                          background: isListening
+                          background: isListening || voiceUnsupported
                             ? `${RED}22`
                             : "rgba(255,255,255,0.04)",
                           border: `1px solid ${
-                            isListening ? `${RED}88` : "rgba(255,255,255,0.08)"
+                            isListening || voiceUnsupported ? `${RED}88` : "rgba(255,255,255,0.08)"
                           }`,
-                          color: isListening ? RED : PARCHMENT,
-                          cursor:
-                            sending || voiceUnsupported ? "not-allowed" : "pointer",
-                          opacity: voiceUnsupported ? 0.4 : 1,
+                          color: isListening || voiceUnsupported ? RED : PARCHMENT,
                         }}
                         title={
                           voiceUnsupported
-                            ? "Voice input unavailable (microphone/recording not supported here)"
+                            ? "Voice recording is not available in this Servo window yet"
                             : isListening
                             ? "Stop & transcribe"
                             : "Dictate — record speech and transcribe it into the message (needs an STT provider configured)"
                         }
                       >
-                        {isListening ? <MicOff size={14} /> : <Mic size={14} />}
-                      </button>
+                        {isListening || voiceUnsupported ? <MicOff size={14} /> : <Mic size={14} />}
+                      </ChatIconButton>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
+                        type="button"
                         onClick={() => void handleNewChat()}
                         disabled={newChatBusy || sending}
                         className="rounded-xl px-3 py-2.5 transition-all"
@@ -16192,39 +19526,46 @@ export default function OrdoShell() {
                         }}
                         title={sending ? "Stop or finish the current turn before starting a new chat" : "Start a new chat"}
                         aria-label="start new chat"
-                      >
+                        >
                         {newChatBusy ? "STARTING" : "+ CHAT"}
                       </button>
-                      <button
+                      <ChatIconButton
                         onClick={() => (sending ? void stopActiveAssistantTurn() : void send())}
                         disabled={
                           sending
                             ? interrupting
                             : anyUploadInFlight ||
+                              modelSaving ||
                               (!input.trim() &&
                                 pendingImages.length === 0 &&
-                                pendingFiles.length === 0)
+                              pendingFiles.length === 0)
                         }
-                        className="rounded-xl px-4 py-2.5 transition-all"
+                        label={sending ? "Stop current assistant turn" : "Send message"}
+                        tone={sending ? "danger" : "lamp"}
                         style={{
-                          background: sending
-                            ? `linear-gradient(180deg, ${RED}, #b83f3f)`
-                            : `linear-gradient(180deg, ${LAMP}, #c89a3d)`,
-                          color: sending ? PARCHMENT : INK,
-                          boxShadow: sending ? `0 6px 16px ${RED}30` : `0 6px 16px ${LAMP}40`,
-                          opacity: anyUploadInFlight || interrupting ? 0.6 : 1,
+                          width: 48,
+                          borderRadius: 14,
+                          opacity: anyUploadInFlight || modelSaving || interrupting ? 0.6 : undefined,
                         }}
-                        title={sending ? "Stop current assistant turn" : "Send message"}
+                        title={sending ? "Stop current assistant turn" : modelSaving ? "Saving selected model" : "Send message"}
                       >
                         {sending ? <Square size={14} strokeWidth={2.5} /> : <Send size={14} strokeWidth={2.5} />}
-                      </button>
+                      </ChatIconButton>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
+          <ArtifactBrowserSideView
+            open={artifactViewOpen}
+            target={artifactTarget}
+            targets={transcriptArtifactTargets}
+            onClose={closeArtifactTarget}
+            onOpenTarget={openArtifactTarget}
+          />
         </div>
+      </div>
       </div>
     </>
   );

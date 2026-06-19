@@ -486,7 +486,4 @@ persistent_memory_access: optional
 available_to_modes:
   - coding
   - research
-  - orchestration
-  - runtime
-  - security
 ```

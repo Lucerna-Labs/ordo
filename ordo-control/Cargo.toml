@@ -27,6 +27,7 @@ ordo-automation-primitives = { path = "../ordo-automation-primitives" }
 ordo-build-planner = { path = "../ordo-build-planner" }
 ordo-orchestrator = { path = "../ordo-orchestrator" }
 ordo-protocol = { path = "../ordo-protocol" }
+ordo-store = { path = "../ordo-store" }
 axum = { workspace = true, features = ["macros"] }
 parking_lot.workspace = true
 tokio.workspace = true
@@ -37,6 +38,7 @@ tower.workspace = true
 futures.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 ordo-cloud = { path = "../ordo-cloud" }

@@ -1,6 +1,16 @@
 ---
 name: ordo-uxi-builder
 description: Ordo UXI and user-friendly application design discipline. Use when building or modifying any Ordo tab, settings screen, app UXI, workflow surface, logs/events panel, controls, uploads, chat composer, provider setup, automation screen, mode UI, diagnostic UI, or when a coding agent needs to avoid bland developer interfaces and produce operator-friendly, fully surfaced controls with static snapshots and human-like usage verification.
+category:
+  - uxi
+  - interface
+  - coding
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+  - diagnostic
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo UXI Builder

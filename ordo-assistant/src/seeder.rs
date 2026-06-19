@@ -13,7 +13,7 @@
 //!    pass.
 //!
 //! 2. **Domain notes** â€” one `Note` per named domain slot
-//!    (planning / orchestration / research / content_store) with a short blurb explaining
+//!    (planning / orchestration / research) with a short blurb explaining
 //!    what that domain covers. Gives the router something concrete to
 //!    retrieve when it scopes `knowledge_lookup` to a domain.
 //!
@@ -28,8 +28,7 @@ use futures::StreamExt;
 use ordo_bus::Bus;
 use ordo_protocol::{
     topics, CapabilityDescriptor, CorrelationId, Envelope, NodeId, OrdoMessage,
-    RAG_COLLECTION_CONTENT_STORE, RAG_COLLECTION_ORCHESTRATION, RAG_COLLECTION_PLANNING,
-    RAG_COLLECTION_RESEARCH,
+    RAG_COLLECTION_ORCHESTRATION, RAG_COLLECTION_PLANNING, RAG_COLLECTION_RESEARCH,
 };
 use tokio::time::timeout;
 use tracing::{info, warn};
@@ -191,41 +190,32 @@ pub struct SeedReport {
     pub errors: usize,
 }
 
-/// Blurbs for each *named* domain slot. Reserved slots 5â€“10 stay
+/// Blurbs for each named domain slot. Reserved slots 4-10 stay
 /// empty on purpose.
 const DOMAIN_BLURBS: &[(&str, &str, &str)] = &[
     (
         RAG_COLLECTION_PLANNING,
         "Planning domain",
-        "Briefs, initiatives, resource production, and operator profile deliverables. \
-         Use assistant.knowledge_lookup with domain='planning' for persona guides, \
-         voice notes, and past planning observations. Invoke planning.* \
-         capabilities to capture briefs, generate response, and promote \
-         resources through the review flow.",
+        "Task breakdowns, initiative plans, resource grouping, and operator-facing
+         coordination notes. Use assistant.knowledge_lookup with domain='planning'
+         for planning observations and past execution notes. planning.*
+         capabilities support neutral project planning and resource organization.",
     ),
     (
         RAG_COLLECTION_ORCHESTRATION,
         "Orchestration domain",
-        "Reviews, approvals, handoffs, and revision pipelines. Use \
-         assistant.knowledge_lookup with domain='orchestration' for playbooks on how \
-         work moves through stages. orchestration.* capabilities drive the \
+        "Reviews, approvals, handoffs, and revision pipelines. Use
+         assistant.knowledge_lookup with domain='orchestration' for playbooks on how
+         work moves through stages. orchestration.* capabilities drive the
          actual pipeline transitions.",
     ),
     (
         RAG_COLLECTION_RESEARCH,
         "Research domain",
-        "Metadata, keyword research, search intent, and ranking signal \
-         hygiene. Use assistant.knowledge_lookup with domain='research' before \
-         choosing keywords, slugs, or meta descriptions. research.* \
-         capabilities run the actual analysis.",
-    ),
-    (
-        RAG_COLLECTION_CONTENT_STORE,
-        "Content Store domain",
-        "Taxonomies, templates, publishing orchestrations, and entry \
-         management. Use assistant.knowledge_lookup with domain='content_store' for \
-         structural conventions and publishing policies. content_store.* \
-         capabilities interact with the Content Store directly.",
+        "Source gathering, evidence notes, citation trails, and review context.
+         Use assistant.knowledge_lookup with domain='research' before summarizing
+         external material or comparing source quality. research.* capabilities
+         should stay focused on evidence, not publishing metadata.",
     ),
 ];
 

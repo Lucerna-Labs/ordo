@@ -6,6 +6,13 @@ runtime (control API on `127.0.0.1:4141`) is the `ordo` binary.
 
 This folder is the full workspace. Three ways to use it:
 
+> **Servo self-rendering path:** the current packaged app is still the Tauri
+> compatibility shell. The Servo integration now lives in
+> `ordo-servo-shell`; run `Launch-Ordo-Servo.ps1` to build the Studio bundle,
+> start the runtime, serve the built assets from Ordo's own control API, and
+> open the Servo shell. `Launch-Ordo-Servo-Proof.ps1` remains available for
+> offscreen screenshot diagnostics.
+
 > **Linux / macOS:** the steps below are Windows-centric (`.exe`, PowerShell).
 > Use the `Launch-Ordo-Studio.sh` / `Launch-Ordo-Portable.sh` scripts, and see
 > [`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md) for the build

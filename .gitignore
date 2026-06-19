@@ -1,6 +1,8 @@
 /target/
 /data/
 /user-files/
+/ordo-servo-shell/target/
+/bin/servo-nightly/
 /ordo-studio/node_modules/
 /ordo-studio/dist/
 /ordo-studio/src-tauri/target/
@@ -39,3 +41,11 @@ ordo-studio/public/avatar/clips/*.webm
 ordo-runtime/user-files/
 runtime-dev.out.log
 runtime-dev.err.log
+runtime-servo.out.log
+runtime-servo.err.log
+servo-shell.out.log
+servo-shell.err.log
+servo-official.out.log
+servo-official.err.log
+studio-servo.out.log
+studio-servo.err.log

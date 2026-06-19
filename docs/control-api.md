@@ -20,8 +20,13 @@ Its job is to give a UI or local automation a stable way to:
 - forget stale remembered self-heal fixes
 - configure optional local self-heal model settings
 
-It now also serves a built-in dashboard at:
+It now also serves the built Studio bundle at:
 - `GET /`
+- `GET /index.html`
+- `GET /assets/*`
+
+The built-in dashboard remains available at:
+- `GET /dashboard`
 
 That dashboard stays intentionally thin. It uses the same local API that future
 automation or a separate frontend would use instead of reading SQLite directly
@@ -43,7 +48,7 @@ In containers, the recommended bind is:
 ## Endpoints
 
 ### Dashboard
-- `GET /`
+- `GET /dashboard`
 
 Serves the built-in operator dashboard for:
 - runtime profile and budget inspection

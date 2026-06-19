@@ -1,7 +1,7 @@
 //! Human-in-the-loop review surface for Ordo.
 //!
 //! When a capability produces content Ordo wants to ship â€” a
-//! draft post, a brief, a campaign plan, an SEO metadata bundle â€” the
+//! runtime change, model configuration, or generated plan, the
 //! operator should be in the loop before it becomes real. This crate
 //! is that loop:
 //!

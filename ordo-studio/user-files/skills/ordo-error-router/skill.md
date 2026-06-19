@@ -1,6 +1,16 @@
 ---
 name: ordo-error-router
 description: "The failure handler for the Ordo build pipeline. Use this skill WHENEVER any step gate returns a Fail. It routes the failure on one axis — can the fix be named and is it bounded? — into either bounded autonomous correction (the Debugger loop, capped at 3, each retry re-gated) or a hard halt that surfaces to the user. It is gated by the global autonomous_correction flag, it never touches the deferred-unverifiable case, and it logs every attempt to the retry ledger. Trigger it on every GateResult::Fail. Do NOT route on compiler-vs-architectural — route on bounded-vs-unbounded. Do NOT let the autonomous loop pass a fix that compiles but violates the architecture. Do NOT route a deferred wiring here — that is not an error."
+category:
+  - build
+  - pipeline
+  - debugging
+  - coding
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo Build — Error Router

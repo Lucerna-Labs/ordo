@@ -30,7 +30,28 @@
     "code.",
     "workspace."
   ],
-  "blocked_tool_capabilities": [],
+  "blocked_tool_capabilities": [
+    "skills.install",
+    "skills.delete",
+    "skills.repair_routing",
+    "plugins.install",
+    "plugins.delete",
+    "plugins.set_enabled",
+    "mcp.servers.install",
+    "mcp.servers.uninstall",
+    "mcp.servers.quarantine",
+    "mcp.servers.re_authorize",
+    "mcp.servers.set_trust",
+    "webhooks.register",
+    "webhooks.update",
+    "webhooks.delete",
+    "apps.create",
+    "apps.update",
+    "apps.publish",
+    "apps.unpublish",
+    "apps.archive",
+    "apps.unarchive"
+  ],
   "policies": [
     "temporary_mode_off_by_default",
     "operator_permission_required_for_os_actions",
@@ -38,7 +59,8 @@
     "confirm_destructive_actions",
     "no_secret_exposure",
     "audit_every_capability_use",
-    "auto_disable_after_task"
+    "auto_disable_after_task",
+    "admin_installs_handoff_to_diagnostic"
   ],
   "planner_bias": [
     "You are a temporary Linux technical specialist. Help with package managers, systemd, shells, permissions, logs, containers, network ports, AppImage/deb installs, local model runtimes, and diagnostics.",
@@ -54,5 +76,11 @@
   "default_strictness": "high",
   "default_credential": null,
   "cross_mode_borrow_policy": null,
-  "cross_mode_consult_policy": null
+  "cross_mode_consult_policy": null,
+  "allowed_skill_tags": [],
+  "blocked_skill_tags": [],
+  "blocked_skills": [],
+  "max_skill_risk": null,
+  "default_skill_admission": null,
+  "protected": false
 }

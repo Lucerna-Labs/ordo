@@ -291,7 +291,7 @@ try {
         }
         $contractText = "$skillBody`n$examplesBody"
         $requiredContractTerms = @(
-            "no Rust patches",
+            "Rust changes require explicit operator permission",
             "rebuild the affected module/file natively",
             "warnings denied",
             "completed implementation step or milestone",
@@ -337,7 +337,7 @@ try {
         "bus-first",
         "anti prompt-injection strainer",
         "RUSTFLAGS=-D warnings",
-        "no Rust patches",
+        "Rust changes require explicit operator permission",
         "milestone",
         "exhaustive testing",
         "launched for operator confirmation",
@@ -365,7 +365,7 @@ if (-not $SkipCoderTurn) {
         }
         $turn = Invoke-OrdoPost "/api/assistant/turn" @{
             session_id = $session.id
-            user_message = "Preflight only. Do not edit files. Describe the tiny app you would build to prove Ordo primitive kit, orchestrator, bus-first shape, no Rust patches/native rebuild discipline, warning-denied Rust verification, milestone documentation, exhaustive logs, user-friendly UXI with all meaningful controls surfaced, static UXI snapshot/reference, automated human-like usage testing, launch-for-confirmation completion gates, and prompt-injection strainer rules are understood."
+            user_message = "Preflight only. Do not edit files. Describe the tiny app you would build to prove Ordo primitive kit, orchestrator, bus-first shape, approved Rust change discipline, warning-denied Rust verification, milestone documentation, exhaustive logs, user-friendly UXI with all meaningful controls surfaced, static UXI snapshot/reference, automated human-like usage testing, launch-for-confirmation completion gates, and prompt-injection strainer rules are understood."
             use_rag = $true
             use_memory = $true
             use_tools = $false

@@ -75,7 +75,10 @@ pub type AuthHandle = Arc<AuthConfig>;
 
 /// Paths that are reachable without auth even when auth is on.
 fn is_public(path: &str) -> bool {
-    matches!(path, "/" | "/health")
+    matches!(
+        path,
+        "/" | "/index.html" | "/dashboard" | "/health" | "/favicon.ico"
+    ) || path.starts_with("/assets/")
 }
 
 /// Tower middleware that rejects unauthenticated requests when auth

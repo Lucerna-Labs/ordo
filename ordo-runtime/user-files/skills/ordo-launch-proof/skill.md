@@ -1,6 +1,16 @@
 ---
 name: ordo-launch-proof
 description: "Step 6 and the final gate of the Ordo build pipeline. Use this skill as the last step before claiming an Ordo build complete. It launches the app, captures a screenshot, and proves one real UiInput round-trip flowed over the app's bus — window plus proven round-trip, not a screenshot alone. It also confirms the deferred-debt list and COUPLE markers are at zero. Trigger it whenever the planner releases step 6, or whenever you are about to tell the user an Ordo app is done. Do NOT claim complete on a screenshot alone — a window proves it drew once, not that the bus is alive. Do NOT claim complete with any deferred debt or COUPLE marker still open."
+category:
+  - build
+  - pipeline
+  - coding
+  - verification
+available_to_modes:
+  - coding
+  - rust_vibe_coder
+risk_level: medium
+requires_tools: true
 ---
 
 # Ordo Build — Launch Proof

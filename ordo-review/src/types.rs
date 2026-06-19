@@ -60,7 +60,7 @@ pub struct ReviewRequest {
     pub id: Uuid,
     pub created_at: DateTime<Utc>,
     pub resolved_at: Option<DateTime<Utc>>,
-    /// Capability that queued this request (e.g. `workflow.generate_copy`).
+    /// Capability that queued this request (e.g. `orchestration.draft_notes`).
     pub origin_capability: String,
     /// Optional plugin name when the producer was an external plugin.
     pub origin_plugin: Option<String>,

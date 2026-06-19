@@ -103,8 +103,8 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
         "missing planning.plan_initiative"
     );
     assert!(
-        names.iter().any(|c| c == "planning.capture_brief"),
-        "missing planning.capture_brief"
+        names.iter().any(|c| c == "orchestration.advance_stage"),
+        "missing orchestration.advance_stage"
     );
 
     // Runtime profile should report something sensible.
@@ -176,25 +176,17 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
         .expect("delete json");
     assert_eq!(delete["removed"].as_bool(), Some(true));
 
-    // Invoke the pure-data planning capability through the bus via the
+    // Invoke a pure-data orchestration capability through the bus via the
     // brain. This proves the full bus + capability-host pipeline works
     // end-to-end, not just through the HTTP surface.
-    let brief = runtime
+    let stage = runtime
         .brain()
-        .invoke_tool(
-            "planning.capture_brief",
-            json!({
-                "title": "Spring colorway",
-                "goal": "launch in March",
-                "audience": "trail runners",
-                "deliverables": ["hero video", "landing page"],
-            }),
-        )
+        .invoke_tool("orchestration.advance_stage", json!({ "stage": "draft" }))
         .await
-        .expect("invoke planning.capture_brief");
-    assert!(
-        brief.get("brief").is_some(),
-        "expected brief in output: {brief}"
+        .expect("invoke orchestration.advance_stage");
+    assert_eq!(
+        stage.get("next_stage").and_then(|value| value.as_str()),
+        Some("planning-review")
     );
 
     runtime.shutdown();

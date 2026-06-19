@@ -1,0 +1,38 @@
+[package]
+name = "ordo-servo-shell"
+version = "0.1.0"
+edition = "2021"
+description = "Servo-backed self-rendering shell target for Ordo Studio."
+
+[workspace]
+
+[dependencies]
+anyhow = { version = "1", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+dpi = { version = "0.1", optional = true }
+embedder_traits = { version = "=0.3.0", package = "servo-embedder-traits", optional = true }
+euclid = { version = "0.22", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+servo = { version = "=0.3.0", optional = true }
+surfman = { version = "0.12.3", features = ["chains", "sm-angle-default"], optional = true }
+tracing = { version = "0.1", optional = true }
+url = { version = "2", optional = true }
+webrender_api = { version = "0.68", optional = true }
+winit = { version = "0.30.13", optional = true }
+
+[features]
+default = []
+servo-engine = [
+    "dep:anyhow",
+    "dep:clap",
+    "dep:dpi",
+    "dep:embedder_traits",
+    "dep:euclid",
+    "dep:image",
+    "dep:servo",
+    "dep:surfman",
+    "dep:tracing",
+    "dep:url",
+    "dep:webrender_api",
+    "dep:winit",
+]

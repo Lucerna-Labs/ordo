@@ -43,11 +43,16 @@ use thiserror::Error;
 
 pub mod anthropic;
 pub mod bus_bridge;
+pub mod model_lifecycle;
 pub mod openai;
 pub mod vault;
 pub mod voice;
 
 pub use bus_bridge::run_bus_bridge;
+pub use model_lifecycle::{
+    local_model_identity, local_model_provider, LocalModelIdentity, LocalModelLifecycleReport,
+    LocalModelProvider,
+};
 
 pub use vault::{CredentialVault, KeyringVault, MemoryVault, NullVault, VaultError};
 
@@ -841,6 +846,34 @@ impl CloudCredentialTask {
         }
         Ok(())
     }
+
+    /// Enforce Ordo's single-active-local-model rule for the requested
+    /// active credential. If the active credential is remote or absent,
+    /// all configured local providers are asked to unload. Offline local
+    /// providers are treated as already empty and reported only in logs.
+    pub async fn enforce_single_local_model(
+        &self,
+        http: &CloudHttp,
+        active_service: Option<&str>,
+        reason: &str,
+    ) -> CloudResult<LocalModelLifecycleReport> {
+        let credentials = self.list().await?;
+        let active = active_service
+            .and_then(|service| credentials.iter().find(|cred| cred.service == service));
+        Ok(model_lifecycle::enforce_single_local_model(http, &credentials, active, reason).await)
+    }
+
+    /// Ask the provider behind a specific credential to unload its local
+    /// model. Used when an upsert changes `extras.model` for the same
+    /// provider row before the new model is made active.
+    pub async fn release_local_model(
+        &self,
+        http: &CloudHttp,
+        credential: &CloudCredential,
+        reason: &str,
+    ) -> CloudResult<LocalModelLifecycleReport> {
+        Ok(model_lifecycle::release_local_model(http, credential, reason).await)
+    }
 }
 
 /// Publish a single event. Errors are logged but never bubbled —
@@ -1089,6 +1122,7 @@ pub(crate) fn apply_auth_only(
                 .header(HeaderName::from_static("x-api-key"), key_value)
                 .header(HeaderName::from_static("anthropic-version"), version_value);
         }
+        "none" => {}
         other => {
             return Err(CloudError::InvalidAuthStyle {
                 service: credential.service.clone(),

@@ -400,20 +400,6 @@ impl RuntimeConfig {
                 ),
                 rag_seed_document(
                     "main",
-                    "rag-map",
-                    PathBuf::from("docs").join("rag-map.md"),
-                    "RAG Collection Map",
-                    &["docs", "rag", "collections"],
-                ),
-                rag_seed_document(
-                    "main",
-                    "domain-map",
-                    PathBuf::from("docs").join("domain-map.md"),
-                    "Domain Map",
-                    &["docs", "domains", "capabilities"],
-                ),
-                rag_seed_document(
-                    "main",
                     "interface-map",
                     PathBuf::from("docs").join("interface-map.md"),
                     "Interface Map",
@@ -424,13 +410,7 @@ impl RuntimeConfig {
                     "ordo-ops",
                     PathBuf::from("docs").join("ordo-ops.md"),
                     "Ordo Operations Roadmap",
-                    &[
-                        "docs",
-                        "planning",
-                        "research",
-                        "content_store",
-                        "orchestration",
-                    ],
+                    &["docs", "planning", "research", "orchestration"],
                 ),
                 rag_seed_document(
                     "planning",
@@ -454,15 +434,6 @@ impl RuntimeConfig {
                     PathBuf::from("docs").join("domains").join("research.md"),
                     "Research Domain",
                     &["docs", "domains", "research"],
-                ),
-                rag_seed_document(
-                    "content_store",
-                    "domain-content-store",
-                    PathBuf::from("docs")
-                        .join("domains")
-                        .join("content_store.md"),
-                    "Content Store Domain",
-                    &["docs", "domains", "content_store"],
                 ),
                 rag_seed_document(
                     "ssh",

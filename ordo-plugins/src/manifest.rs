@@ -32,7 +32,7 @@ pub struct PluginManifest {
     #[serde(default)]
     pub args: Vec<String>,
     /// Lane prefixes the plugin is allowed to contribute to
-    /// (e.g. `["seo.", "workflow.", "cms.", "example."]`). Must not include
+    /// (e.g. `["web.", "files.", "example."]`). Must not include
     /// any reserved prefixes without `core_override`.
     #[serde(default)]
     pub expected_lanes: Vec<String>,
