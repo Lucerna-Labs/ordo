@@ -535,6 +535,15 @@ impl RagStore {
                 break;
             }
 
+            let document_count: i64 = self.db.conn().query_row(
+                "SELECT COUNT(DISTINCT document_id) FROM rag_chunks",
+                [],
+                |row| row.get(0),
+            )?;
+
+            if document_count <= 1 {
+                break;
+            }
             let next_document: Option<String> = self
                 .db
                 .conn()
