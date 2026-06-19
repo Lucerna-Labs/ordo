@@ -111,7 +111,9 @@ ensure_rust() {
   if [[ -f "$(cargo_home)/env" ]]; then
     # shellcheck disable=SC1091
     source "$(cargo_home)/env"
-  elif [[ -d "$(cargo_home)/bin" ]]; then
+  fi
+
+  if ! command -v cargo >/dev/null 2>&1 && [[ -d "$(cargo_home)/bin" ]]; then
     export PATH="$(cargo_home)/bin:$PATH"
   fi
 

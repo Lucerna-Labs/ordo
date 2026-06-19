@@ -106,22 +106,31 @@ jobs:
           clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           env PATH="$clean_path" \
             HOME="$HOME" \
+            CARGO_HOME="$HOME/.cargo" \
+            RUSTUP_HOME="$HOME/.rustup" \
             ORDO_REPO_URL="$GITHUB_WORKSPACE" \
             ORDO_DIR="$tmp_ordo" \
             bash scripts/install-linux-from-github.sh --check
           env PATH="$clean_path" \
             HOME="$HOME" \
+            CARGO_HOME="$HOME/.cargo" \
+            RUSTUP_HOME="$HOME/.rustup" \
             ORDO_SKIP_LINUX_DEPS=1 \
             "$tmp_ordo/Install-Ordo-Linux.sh" --check
 
       - name: Confirm cargo and node were installed
         run: |
-          . "$ORDO_TEST_HOME/.cargo/env"
+          export HOME="$ORDO_TEST_HOME"
+          export CARGO_HOME="$ORDO_TEST_HOME/.cargo"
+          export RUSTUP_HOME="$ORDO_TEST_HOME/.rustup"
+          . "$CARGO_HOME/env"
           cargo --version
           rustc --version
           node --version
           npm --version
           env PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
             HOME="$ORDO_TEST_HOME" \
+            CARGO_HOME="$ORDO_TEST_HOME/.cargo" \
+            RUSTUP_HOME="$ORDO_TEST_HOME/.rustup" \
             ORDO_SKIP_LINUX_DEPS=1 \
             "$ORDO_TEST_DIR/Install-Ordo-Linux.sh" --check

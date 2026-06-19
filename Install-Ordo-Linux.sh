@@ -23,7 +23,8 @@ load_cargo_env() {
   if ! command -v cargo >/dev/null 2>&1 && [[ -f "$cargo_root/env" ]]; then
     # shellcheck disable=SC1091
     source "$cargo_root/env"
-  elif ! command -v cargo >/dev/null 2>&1 && [[ -d "$cargo_root/bin" ]]; then
+  fi
+  if ! command -v cargo >/dev/null 2>&1 && [[ -d "$cargo_root/bin" ]]; then
     export PATH="$cargo_root/bin:$PATH"
   fi
 }
