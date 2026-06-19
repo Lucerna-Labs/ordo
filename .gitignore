@@ -3,6 +3,7 @@
 /user-files/
 /ordo-servo-shell/target/
 /bin/servo-nightly/
+/bin/portable/
 /ordo-studio/node_modules/
 /ordo-studio/dist/
 /ordo-studio/src-tauri/target/

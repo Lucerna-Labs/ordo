@@ -19,7 +19,11 @@ $runtimeErr = Join-Path $ordoRoot "runtime-servo.err.log"
 $servoOut = Join-Path $ordoRoot "servo-shell.out.log"
 $servoErr = Join-Path $ordoRoot "servo-shell.err.log"
 $servoShellDir = Join-Path $ordoRoot "ordo-servo-shell"
-$servoShellExe = Join-Path $servoShellDir "target\debug\ordo-servo-shell.exe"
+$portableBinDir = Join-Path $ordoRoot "bin\portable"
+$portableRuntimeExe = Join-Path $portableBinDir "ordo.exe"
+$portableServoShellExe = Join-Path $portableBinDir "ordo-servo-shell.exe"
+$builtServoShellExe = Join-Path $servoShellDir "target\debug\ordo-servo-shell.exe"
+$servoShellExe = $builtServoShellExe
 $servoShellTargetDir = Split-Path -Parent $servoShellExe
 $servoDir = Join-Path $ordoRoot "bin\servo-nightly\servo"
 $servoZip = Join-Path $ordoRoot "bin\servo-nightly\servo-x86_64-windows-msvc.zip"
@@ -112,12 +116,6 @@ Write-Host "Runtime user files: $runtimeUserFiles"
 Write-Host "Modes: $modesPath"
 Write-Host ""
 
-foreach ($tool in "npm", "cargo") {
-    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-        throw "$tool was not found on PATH"
-    }
-}
-
 if ($Check) {
     Write-Host "Launcher check passed. No processes were started." -ForegroundColor Green
     exit 0
@@ -133,34 +131,61 @@ $env:ORDO_RUNTIME_PROFILE = "standard"
 $env:ORDO_CONTROL_URL = $controlUrl
 $env:ORDO_ENABLE_AVATAR = "1"
 
-if (-not $SkipBuild) {
-    Push-Location $studioDir
-    try {
-        if (-not (Test-Path -LiteralPath "node_modules")) {
-            Write-Host "Installing Ordo Studio frontend dependencies..." -ForegroundColor Yellow
-            & npm ci
-            if ($LASTEXITCODE -ne 0) {
-                throw "npm ci failed"
-            }
-        }
+$studioIndex = Join-Path $studioDir "dist\index.html"
+$studioNodeModules = Join-Path $studioDir "node_modules"
+$hasPortableRuntime = Test-Path -LiteralPath $portableRuntimeExe
+$hasPortableServoShell = Test-Path -LiteralPath $portableServoShellExe
+$needsStudioBuild = -not $SkipBuild -and -not (Test-Path -LiteralPath $studioIndex)
+$needsCargo = -not $hasPortableRuntime -or -not $hasPortableServoShell
 
-        Write-Host "Building Ordo Studio bundle for Servo..." -ForegroundColor Cyan
-        & npm run build
-        if ($LASTEXITCODE -ne 0) {
-            throw "npm run build failed"
+if ($needsStudioBuild -and -not (Get-Command "npm" -ErrorAction SilentlyContinue)) {
+    throw "npm was not found on PATH and the Studio bundle is missing. Build or copy ordo-studio/dist first."
+}
+
+if ($needsCargo -and -not (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
+    throw "cargo was not found on PATH and no portable Ordo runtime/Servo shell binaries were found in bin\portable."
+}
+
+if (-not $SkipBuild) {
+    if ((Test-Path -LiteralPath $studioNodeModules) -or $needsStudioBuild) {
+        Push-Location $studioDir
+        try {
+            if (-not (Test-Path -LiteralPath "node_modules")) {
+                Write-Host "Installing Ordo Studio frontend dependencies..." -ForegroundColor Yellow
+                & npm ci
+                if ($LASTEXITCODE -ne 0) {
+                    throw "npm ci failed"
+                }
+            }
+
+            Write-Host "Building Ordo Studio bundle for Servo..." -ForegroundColor Cyan
+            & npm run build
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm run build failed"
+            }
+        } finally {
+            Pop-Location
         }
-    } finally {
-        Pop-Location
+    } else {
+        Write-Host "Using existing Ordo Studio bundle at $studioIndex." -ForegroundColor Green
     }
 }
 
-Write-Host "Building embedded Ordo Servo shell..." -ForegroundColor Cyan
-& cargo build --manifest-path (Join-Path $servoShellDir "Cargo.toml") --features servo-engine
-if ($LASTEXITCODE -ne 0) {
-    throw "ordo-servo-shell build failed"
-}
-if (-not (Test-Path -LiteralPath $servoShellExe)) {
-    throw "Embedded Servo shell did not build to $servoShellExe"
+if ($hasPortableServoShell) {
+    $servoShellExe = $portableServoShellExe
+    $servoShellTargetDir = Split-Path -Parent $servoShellExe
+    Write-Host "Using portable embedded Servo shell: $servoShellExe" -ForegroundColor Green
+} else {
+    $servoShellExe = $builtServoShellExe
+    $servoShellTargetDir = Split-Path -Parent $servoShellExe
+    Write-Host "Building embedded Ordo Servo shell..." -ForegroundColor Cyan
+    & cargo build --manifest-path (Join-Path $servoShellDir "Cargo.toml") --features servo-engine
+    if ($LASTEXITCODE -ne 0) {
+        throw "ordo-servo-shell build failed"
+    }
+    if (-not (Test-Path -LiteralPath $servoShellExe)) {
+        throw "Embedded Servo shell did not build to $servoShellExe"
+    }
 }
 
 Ensure-ServoAngleDlls
@@ -183,14 +208,26 @@ Get-Process servoshell, ordo-servo-shell -ErrorAction SilentlyContinue | Stop-Pr
 Remove-Item -LiteralPath $runtimeOut, $runtimeErr, $servoOut, $servoErr -Force -ErrorAction SilentlyContinue
 
 Write-Host "Starting Ordo runtime from current workspace..." -ForegroundColor Cyan
-$runtimeProcess = Start-Process `
-    -FilePath "cargo" `
-    -ArgumentList @("run", "--", "serve") `
-    -WorkingDirectory $ordoRoot `
-    -WindowStyle Minimized `
-    -RedirectStandardOutput $runtimeOut `
-    -RedirectStandardError $runtimeErr `
-    -PassThru
+if ($hasPortableRuntime) {
+    Write-Host "Using portable Ordo runtime: $portableRuntimeExe" -ForegroundColor Green
+    $runtimeProcess = Start-Process `
+        -FilePath $portableRuntimeExe `
+        -ArgumentList @("serve") `
+        -WorkingDirectory $ordoRoot `
+        -WindowStyle Minimized `
+        -RedirectStandardOutput $runtimeOut `
+        -RedirectStandardError $runtimeErr `
+        -PassThru
+} else {
+    $runtimeProcess = Start-Process `
+        -FilePath "cargo" `
+        -ArgumentList @("run", "--", "serve") `
+        -WorkingDirectory $ordoRoot `
+        -WindowStyle Minimized `
+        -RedirectStandardOutput $runtimeOut `
+        -RedirectStandardError $runtimeErr `
+        -PassThru
+}
 
 Write-Host "Runtime PID: $($runtimeProcess.Id)"
 Write-Host "Waiting for runtime health at $controlUrl/health..."

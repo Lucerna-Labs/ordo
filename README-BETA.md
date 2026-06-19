@@ -76,6 +76,16 @@ but exclude heavyweight/generated folders:
 - `bin/servo-nightly`
 - crash dumps and transient logs
 
+Runnable lightweight copies may include this small portable binary folder:
+
+- `bin/portable/ordo.exe`
+- `bin/portable/ordo-servo-shell.exe`
+- `bin/portable/libEGL.dll`
+- `bin/portable/libGLESv2.dll`
+
+When those files exist, `Launch-Ordo-Servo.ps1` uses them instead of requiring
+Cargo to rebuild the runtime and Servo shell on first launch.
+
 The current local laptop copy made during beta prep is named `Jesse--Beta`.
 
 ## Validate The Build
