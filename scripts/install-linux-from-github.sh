@@ -63,7 +63,16 @@ if [[ ! -f "./Install-Ordo-Linux.sh" ]]; then
 fi
 
 chmod +x ./Install-Ordo-Linux.sh ./Build-Ordo-Linux-Deb.sh \
-  ./Build-Ordo-Linux-Portable.sh ./Build-Ordo-Linux-AppImage.sh 2>/dev/null || true
+  ./Build-Ordo-Linux-Portable.sh ./Build-Ordo-Linux-AppImage.sh \
+  ./scripts/install-linux-build-deps.sh 2>/dev/null || true
+
+if [[ "${ORDO_SKIP_LINUX_DEPS:-0}" != "1" ]]; then
+  if [[ ! -f "./scripts/install-linux-build-deps.sh" ]]; then
+    echo "scripts/install-linux-build-deps.sh is missing after update." >&2
+    exit 1
+  fi
+  ./scripts/install-linux-build-deps.sh
+fi
 
 if (( CHECK )); then
   ./Install-Ordo-Linux.sh --check

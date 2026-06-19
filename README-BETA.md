@@ -78,14 +78,11 @@ GNOME/Pop!_OS does not reliably launch `.desktop` files from arbitrary source
 folders; it often opens them in a text editor. The user-friendly Linux path is
 the Debian package, which installs Ordo into the app menu.
 
-Install from GitHub source:
+Install from GitHub source. The bootstrap updates an existing `~/ordo` Git
+clone or clones Ordo fresh, then installs missing Rust/Cargo, Node/npm, and
+Linux build prerequisites on Debian-family systems:
 
 ```bash
-sudo apt update
-sudo apt install -y git build-essential pkg-config curl libssl-dev \
-  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
-  libegl1-mesa-dev libgles2-mesa-dev
-
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 

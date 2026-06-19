@@ -18,6 +18,10 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+if [[ "${ORDO_SKIP_LINUX_DEPS:-0}" != "1" && -x "$ROOT/scripts/install-linux-build-deps.sh" ]]; then
+  "$ROOT/scripts/install-linux-build-deps.sh"
+fi
+
 if command -v dpkg >/dev/null 2>&1; then
   if (( CHECK )); then
     "$ROOT/Install-Ordo-Linux-Deb.sh" --check

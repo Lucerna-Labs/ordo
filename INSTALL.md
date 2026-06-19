@@ -37,21 +37,21 @@ git pull
 
 ## Linux
 
-Install Git first if needed:
-
-```bash
-sudo apt update
-sudo apt install -y git build-essential pkg-config curl libssl-dev \
-  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
-  libegl1-mesa-dev libgles2-mesa-dev
-```
-
-Then use the GitHub bootstrap installer. It works whether `~/ordo` is missing
-or already exists as a Git clone:
+Install with the bootstrap command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
+
+The bootstrap installer works whether `~/ordo` is missing or already exists as
+a Git clone. It also installs missing build prerequisites on Debian-family
+systems, including Pop!_OS, Ubuntu, Linux Mint, and Debian:
+
+- Git
+- Rust/Cargo through rustup
+- Node.js 24 and npm through NodeSource when Node is missing or too old
+- C/C++ build tools
+- OpenSSL, X11/XCB/XKB, Wayland, EGL/GLES, and `pkg-config`
 
 If `curl` is not available:
 

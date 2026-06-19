@@ -78,7 +78,8 @@ http://127.0.0.1:4141
 
 On Linux, use the distro-aware installer. On Pop!_OS, Ubuntu, Debian, and
 related distros it builds and installs the `.deb` with `dpkg -i`. On other
-distros it builds the AppImage path:
+distros it builds the AppImage path. The bootstrap also installs missing Rust,
+Cargo, Node, npm, and Linux build prerequisites on Debian-family systems:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
