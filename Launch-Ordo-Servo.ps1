@@ -311,6 +311,7 @@ try {
         -FilePath $servoShellExe `
         -ArgumentList $servoArgs `
         -WorkingDirectory $ordoRoot `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $servoOut `
         -RedirectStandardError $servoErr `
         -PassThru

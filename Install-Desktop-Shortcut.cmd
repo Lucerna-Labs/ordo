@@ -5,11 +5,11 @@
 setlocal
 set "ORDO_DIR=%~dp0"
 if "%ORDO_DIR:~-1%"=="\" set "ORDO_DIR=%ORDO_DIR:~0,-1%"
-set "LAUNCHER=%ORDO_DIR%\Launch-Ordo-Servo.cmd"
+set "LAUNCHER=%ORDO_DIR%\Launch-Ordo-Servo.vbs"
 set "ICON=%ORDO_DIR%\ordo-studio\public\favicon.ico"
 
 if not exist "%LAUNCHER%" (
-  echo ERROR: Launch-Ordo-Servo.cmd not found.
+  echo ERROR: Launch-Ordo-Servo.vbs not found.
   echo Expected: %LAUNCHER%
   echo.
   pause

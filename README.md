@@ -22,12 +22,17 @@ cd ordo
 For Explorer/double-click use:
 
 ```text
-Launch-Ordo-Servo.cmd
+Launch-Ordo-Servo.vbs
 ```
+
+`Launch-Ordo-Servo.cmd` delegates to the same hidden launcher for compatibility.
+Use `Launch-Ordo-Servo.ps1` directly only when you want a visible diagnostic
+console.
 
 The launcher builds `ordo-studio`, starts the Ordo runtime, waits for
 `/health`, serves the built UI from Ordo's own localhost server, and opens the
-embedded Servo app window.
+embedded Servo app window. When the Servo window closes, the launcher stops the
+Ordo runtime so port `4141` is released.
 
 GitHub source ZIP downloads include a compact Windows bootstrap payload at
 `bootstrap/ordo-windows-portable.zip`. On first launch, `Launch-Ordo-Servo.ps1`
@@ -51,7 +56,8 @@ Current shape:
 - `ordo-control`: local HTTP API and static UI asset server.
 - `ordo-studio`: React UXI built to `ordo-studio/dist`.
 - `ordo-servo-shell`: custom Servo embedder with no address bar or tab strip.
-- `Launch-Ordo-Servo.ps1` / `.cmd`: the supported beta launch path.
+- `Launch-Ordo-Servo.vbs` / `.cmd`: the supported no-console beta launch path.
+- `Launch-Ordo-Servo.ps1`: visible diagnostic launcher for troubleshooting.
 - `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make
   GitHub source ZIP downloads runnable.
 

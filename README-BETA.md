@@ -14,7 +14,8 @@ tabs, an address bar, or a separate web-server dependency.
 - Renderer: `ordo-servo-shell`, a custom Servo embedder with a raw app window.
 - Local server: `ordo-control`, serving `/`, `/index.html`, `/assets/*`, and
   `/api/*` from the same localhost origin.
-- Launcher: `Launch-Ordo-Servo.ps1` or `Launch-Ordo-Servo.cmd`.
+- Launcher: `Launch-Ordo-Servo.vbs` or `Launch-Ordo-Servo.cmd`.
+- Diagnostic launcher: `Launch-Ordo-Servo.ps1`.
 - Removed runtime dependency: Tauri. The old `ordo-studio/src-tauri` tree and
   old Studio/Portable launchers have been removed.
 
@@ -34,7 +35,12 @@ The launcher:
 4. Serves the Studio bundle from Ordo's own localhost server.
 5. Opens the embedded Servo shell.
 
-Use `Launch-Ordo-Servo.cmd` when double-clicking from Explorer.
+Use `Launch-Ordo-Servo.vbs` when double-clicking from Explorer. The `.cmd`
+launcher delegates to it for compatibility. Use `Launch-Ordo-Servo.ps1`
+directly only when you want a visible diagnostic console.
+
+When the Servo window closes, the launcher stops the Ordo runtime so port
+`4141` is released.
 
 ## What This Beta Includes
 
