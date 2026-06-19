@@ -99,10 +99,18 @@ jobs:
 
       - name: Bootstrap Ordo install prerequisites
         run: |
-          tmp_home="$(mktemp -d)"
-          ORDO_REPO_URL="$GITHUB_WORKSPACE" \
-            ORDO_DIR="$tmp_home/ordo" \
+          export HOME="$(mktemp -d)"
+          tmp_ordo="$(mktemp -d)/ordo"
+          clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          env PATH="$clean_path" \
+            HOME="$HOME" \
+            ORDO_REPO_URL="$GITHUB_WORKSPACE" \
+            ORDO_DIR="$tmp_ordo" \
             bash scripts/install-linux-from-github.sh --check
+          env PATH="$clean_path" \
+            HOME="$HOME" \
+            ORDO_SKIP_LINUX_DEPS=1 \
+            "$tmp_ordo/Install-Ordo-Linux.sh" --check
 
       - name: Confirm cargo and node were installed
         run: |

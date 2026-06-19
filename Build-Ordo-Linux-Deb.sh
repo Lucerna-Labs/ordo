@@ -36,6 +36,13 @@ DIST="$ROOT/dist"
 STAGE="$DIST/ordo_${VERSION}_${ARCH}"
 PACKAGE="$DIST/ordo_${VERSION}_${ARCH}.deb"
 
+load_cargo_env() {
+  if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+}
+
 need_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
@@ -43,6 +50,7 @@ need_command() {
   fi
 }
 
+load_cargo_env
 need_command cargo
 need_command npm
 need_command dpkg-deb

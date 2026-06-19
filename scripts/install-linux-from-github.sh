@@ -27,6 +27,13 @@ need_command() {
   fi
 }
 
+load_cargo_env() {
+  if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+}
+
 need_command git
 
 if [[ -d "$ORDO_DIR/.git" ]]; then
@@ -72,6 +79,7 @@ if [[ "${ORDO_SKIP_LINUX_DEPS:-0}" != "1" ]]; then
     exit 1
   fi
   ./scripts/install-linux-build-deps.sh
+  load_cargo_env
 fi
 
 if (( CHECK )); then

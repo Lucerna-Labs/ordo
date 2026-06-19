@@ -18,9 +18,19 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+load_cargo_env() {
+  if ! command -v cargo >/dev/null 2>&1 && [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+  fi
+}
+
 if [[ "${ORDO_SKIP_LINUX_DEPS:-0}" != "1" && -x "$ROOT/scripts/install-linux-build-deps.sh" ]]; then
   "$ROOT/scripts/install-linux-build-deps.sh"
+  load_cargo_env
 fi
+
+load_cargo_env
 
 if command -v dpkg >/dev/null 2>&1; then
   if (( CHECK )); then
