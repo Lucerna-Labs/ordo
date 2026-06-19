@@ -49,8 +49,25 @@ GNOME/Pop!_OS does not reliably launch `.desktop` files from arbitrary source
 folders; it often opens them in a text editor. The user-friendly Linux path is
 the Debian package, which installs Ordo into the app menu.
 
-First open a terminal in the Ordo project folder, or `cd` into it. The commands
-must be run from the folder that contains `Build-Ordo-Linux-Deb.sh`.
+Install from GitHub source:
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential pkg-config curl libssl-dev \
+  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev
+
+git clone https://github.com/Lucerna-Labs/ordo.git
+cd ordo
+./Build-Ordo-Linux-Deb.sh
+sudo apt install ./dist/ordo_0.1.0_amd64.deb
+```
+
+After install, open **Ordo** from the Pop!_OS app menu.
+
+If you already have a copy of Ordo, first open a terminal in that project
+folder, or `cd` into it. The commands must be run from the folder that contains
+`Build-Ordo-Linux-Deb.sh`.
 
 Example if Ordo is on your Desktop:
 
@@ -78,18 +95,6 @@ Install the generated package from the same Ordo folder:
 
 ```bash
 sudo apt install ./dist/ordo_0.1.0_amd64.deb
-```
-
-After install, open **Ordo** from the Pop!_OS app menu.
-
-If the Servo shell has not been built on that machine yet, install the native
-build/runtime dependencies first:
-
-```bash
-sudo apt update
-sudo apt install -y build-essential pkg-config curl libssl-dev \
-  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
-  libegl1-mesa-dev libgles2-mesa-dev
 ```
 
 The installed launcher starts the Ordo runtime, waits for

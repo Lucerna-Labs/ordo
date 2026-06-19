@@ -50,12 +50,18 @@ On Pop!_OS / Linux, use the Debian package path. GNOME/Pop!_OS often opens
 app-menu launcher instead:
 
 ```bash
-cd /path/to/ordo
+sudo apt update
+sudo apt install -y git build-essential pkg-config curl libssl-dev \
+  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev
+
+git clone https://github.com/Lucerna-Labs/ordo.git
+cd ordo
 ./Build-Ordo-Linux-Deb.sh
 sudo apt install ./dist/ordo_0.1.0_amd64.deb
 ```
 
-For example, if Ordo is on your Desktop:
+If you already have a copy of Ordo, `cd` into that folder instead:
 
 ```bash
 cd ~/Desktop/ordo
