@@ -159,27 +159,42 @@ impl EmbeddingClient for HashingEmbedder {
     fn embed(&self, request: EmbeddingRequest) -> ModelResult<EmbeddingResponse> {
         let mut vector = vec![0.0f32; self.dimensions];
         let tokens = lexical_tokens(&request.input);
+        let content_tokens: Vec<&String> = tokens
+            .iter()
+            .filter(|token| !is_common_stopword(token))
+            .collect();
 
         for token in &tokens {
-            add_hashed_feature(&mut vector, "tok", token, 1.0);
+            let weight = if is_common_stopword(token) { 0.22 } else { 1.0 };
+            add_hashed_feature(&mut vector, "tok", token, weight);
 
             for variant in lexical_variants(token) {
-                add_hashed_feature(&mut vector, "variant", &variant, 0.45);
+                add_hashed_feature(&mut vector, "variant", &variant, 0.45 * weight);
             }
 
-            for gram in token.as_bytes().windows(3) {
-                add_hashed_bytes_feature(&mut vector, "c3", gram, 0.28);
-            }
-            for gram in token.as_bytes().windows(4) {
-                add_hashed_bytes_feature(&mut vector, "c4", gram, 0.18);
+            if !is_common_stopword(token) {
+                for gram in token.as_bytes().windows(3) {
+                    add_hashed_bytes_feature(&mut vector, "c3", gram, 0.28 * weight);
+                }
+                for gram in token.as_bytes().windows(4) {
+                    add_hashed_bytes_feature(&mut vector, "c4", gram, 0.18 * weight);
+                }
+                for gram in char_grams(token, 5) {
+                    add_hashed_feature(&mut vector, "c5", &gram, 0.11 * weight);
+                }
+
+                let bounded = format!("^{}$", token);
+                for gram in char_grams(&bounded, 3) {
+                    add_hashed_feature(&mut vector, "bc3", &gram, 0.13 * weight);
+                }
             }
         }
 
-        for window in tokens.windows(2) {
+        for window in content_tokens.windows(2) {
             let phrase = format!("{} {}", window[0], window[1]);
             add_hashed_feature(&mut vector, "bi", &phrase, 0.75);
         }
-        for window in tokens.windows(3) {
+        for window in content_tokens.windows(3) {
             let phrase = format!("{} {} {}", window[0], window[1], window[2]);
             add_hashed_feature(&mut vector, "tri", &phrase, 0.35);
         }
@@ -271,7 +286,7 @@ impl EmbeddingClient for LlamaCppEmbedder {
 
 /// Embeds via a running Ollama server's `/api/embed` endpoint (e.g.
 /// `nomic-embed-text`). Unlike `LlamaCppEmbedder`, this does NOT reload a
-/// model per call — Ollama keeps the model warm — and it uses whatever
+/// model per call - Ollama keeps the model warm - and it uses whatever
 /// embedding model the operator already has pulled. Synchronous on
 /// purpose (the trait is sync); the HTTP call uses `ureq` so it is safe to
 /// invoke from a Tokio worker thread.
@@ -442,52 +457,209 @@ fn normalize(vector: &mut [f32]) {
 }
 
 fn lexical_tokens(input: &str) -> Vec<String> {
+    let chars: Vec<char> = input.chars().collect();
     let mut tokens = Vec::new();
     let mut current = String::new();
 
-    for ch in input.chars() {
-        if ch.is_alphanumeric() {
-            for lowered in ch.to_lowercase() {
-                current.push(lowered);
+    for (index, ch) in chars.iter().copied().enumerate() {
+        if !ch.is_alphanumeric() {
+            push_token(&mut tokens, &mut current);
+            continue;
+        }
+
+        if !current.is_empty() {
+            let previous = chars[index.saturating_sub(1)];
+            let next = chars.get(index + 1).copied();
+            if identifier_boundary(previous, ch, next) {
+                push_token(&mut tokens, &mut current);
             }
-        } else if !current.is_empty() {
-            tokens.push(std::mem::take(&mut current));
+        }
+
+        for lowered in ch.to_lowercase() {
+            current.push(lowered);
         }
     }
 
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-
+    push_token(&mut tokens, &mut current);
     tokens
+}
+
+fn push_token(tokens: &mut Vec<String>, current: &mut String) {
+    if !current.is_empty() {
+        tokens.push(std::mem::take(current));
+    }
+}
+
+fn identifier_boundary(previous: char, current: char, next: Option<char>) -> bool {
+    (previous.is_lowercase() && current.is_uppercase())
+        || (previous.is_alphabetic() && current.is_ascii_digit())
+        || (previous.is_ascii_digit() && current.is_alphabetic())
+        || (previous.is_uppercase()
+            && current.is_uppercase()
+            && next.map(|ch| ch.is_lowercase()).unwrap_or(false))
 }
 
 fn lexical_variants(token: &str) -> Vec<String> {
     let mut variants = Vec::new();
-    push_unique_variant(&mut variants, token.strip_suffix("'s"));
+    push_unique_variant(&mut variants, token.strip_suffix("'s").map(str::to_string));
     push_unique_variant(
         &mut variants,
-        token.strip_suffix('s').filter(|_| token.len() > 4),
+        token
+            .strip_suffix("ies")
+            .filter(|_| token.len() > 5)
+            .map(|stem| format!("{stem}y")),
     );
     push_unique_variant(
         &mut variants,
-        token.strip_suffix("ing").filter(|_| token.len() > 6),
+        token
+            .strip_suffix("es")
+            .filter(|_| token.len() > 5)
+            .map(str::to_string),
     );
     push_unique_variant(
         &mut variants,
-        token.strip_suffix("ed").filter(|_| token.len() > 5),
+        token
+            .strip_suffix('s')
+            .filter(|_| token.len() > 4)
+            .map(str::to_string),
+    );
+    if let Some(stem) = token.strip_suffix("ing").filter(|_| token.len() > 6) {
+        push_unique_variant(&mut variants, Some(stem.to_string()));
+        push_unique_variant(&mut variants, undouble_terminal(stem));
+    }
+    if let Some(stem) = token.strip_suffix("ed").filter(|_| token.len() > 5) {
+        push_unique_variant(&mut variants, Some(stem.to_string()));
+        push_unique_variant(&mut variants, undouble_terminal(stem));
+    }
+    push_unique_variant(
+        &mut variants,
+        token
+            .strip_suffix("ly")
+            .filter(|_| token.len() > 5)
+            .map(str::to_string),
+    );
+    push_unique_variant(
+        &mut variants,
+        token
+            .strip_suffix("er")
+            .filter(|_| token.len() > 5)
+            .map(str::to_string),
+    );
+    push_unique_variant(
+        &mut variants,
+        token
+            .strip_suffix("est")
+            .filter(|_| token.len() > 6)
+            .map(str::to_string),
     );
     variants
 }
 
-fn push_unique_variant(variants: &mut Vec<String>, candidate: Option<&str>) {
+fn undouble_terminal(stem: &str) -> Option<String> {
+    let mut chars = stem.chars().collect::<Vec<_>>();
+    if chars.len() < 4 {
+        return None;
+    }
+    let last = *chars.last()?;
+    let previous = chars.get(chars.len().saturating_sub(2)).copied()?;
+    if last == previous && is_latin_consonant(last) {
+        chars.pop();
+        return Some(chars.into_iter().collect());
+    }
+    None
+}
+
+fn is_latin_consonant(ch: char) -> bool {
+    matches!(
+        ch,
+        'b' | 'c'
+            | 'd'
+            | 'f'
+            | 'g'
+            | 'h'
+            | 'j'
+            | 'k'
+            | 'l'
+            | 'm'
+            | 'n'
+            | 'p'
+            | 'q'
+            | 'r'
+            | 's'
+            | 't'
+            | 'v'
+            | 'w'
+            | 'x'
+            | 'y'
+            | 'z'
+    )
+}
+
+fn push_unique_variant(variants: &mut Vec<String>, candidate: Option<String>) {
     let Some(candidate) = candidate else {
         return;
     };
-    if candidate.len() < 3 || variants.iter().any(|value| value == candidate) {
+    if candidate.len() < 3 || variants.iter().any(|value| value == &candidate) {
         return;
     }
-    variants.push(candidate.to_string());
+    variants.push(candidate);
+}
+
+fn char_grams(token: &str, width: usize) -> Vec<String> {
+    let chars: Vec<char> = token.chars().collect();
+    if width == 0 || chars.len() < width {
+        return Vec::new();
+    }
+    chars
+        .windows(width)
+        .map(|window| window.iter().collect::<String>())
+        .collect()
+}
+
+fn is_common_stopword(token: &str) -> bool {
+    matches!(
+        token,
+        "a" | "an"
+            | "and"
+            | "are"
+            | "as"
+            | "at"
+            | "be"
+            | "but"
+            | "by"
+            | "for"
+            | "from"
+            | "how"
+            | "i"
+            | "if"
+            | "in"
+            | "into"
+            | "is"
+            | "it"
+            | "its"
+            | "of"
+            | "on"
+            | "or"
+            | "our"
+            | "that"
+            | "the"
+            | "their"
+            | "then"
+            | "there"
+            | "this"
+            | "to"
+            | "was"
+            | "we"
+            | "what"
+            | "when"
+            | "where"
+            | "which"
+            | "who"
+            | "why"
+            | "with"
+            | "you"
+            | "your"
+    )
 }
 
 fn add_hashed_feature(vector: &mut [f32], namespace: &str, feature: &str, weight: f32) {
@@ -593,6 +765,58 @@ mod tests {
         assert!(
             cosine_similarity(&anchor.vector, &related.vector)
                 > cosine_similarity(&anchor.vector, &distant.vector)
+        );
+    }
+
+    #[test]
+    fn hashing_embedder_handles_code_identifiers_and_short_tokens() {
+        let embedder = HashingEmbedder::default();
+        let anchor = embedder
+            .embed(EmbeddingRequest {
+                input: "UIAgentTeams ApiKey OpenAIModel".to_string(),
+            })
+            .expect("anchor");
+        let related = embedder
+            .embed(EmbeddingRequest {
+                input: "ui agent teams api key open ai model".to_string(),
+            })
+            .expect("related");
+        let distant = embedder
+            .embed(EmbeddingRequest {
+                input: "calendar invoice export".to_string(),
+            })
+            .expect("distant");
+
+        assert!(
+            cosine_similarity(&anchor.vector, &related.vector)
+                > cosine_similarity(&anchor.vector, &distant.vector),
+            "identifier and short-token match should outrank unrelated text"
+        );
+    }
+
+    #[test]
+    fn hashing_embedder_handles_suffix_variants() {
+        let embedder = HashingEmbedder::default();
+        let anchor = embedder
+            .embed(EmbeddingRequest {
+                input: "running configured policies fastest".to_string(),
+            })
+            .expect("anchor");
+        let related = embedder
+            .embed(EmbeddingRequest {
+                input: "run configure policy fast".to_string(),
+            })
+            .expect("related");
+        let distant = embedder
+            .embed(EmbeddingRequest {
+                input: "window browser renderer".to_string(),
+            })
+            .expect("distant");
+
+        assert!(
+            cosine_similarity(&anchor.vector, &related.vector)
+                > cosine_similarity(&anchor.vector, &distant.vector),
+            "suffix variants should outrank unrelated text"
         );
     }
 
