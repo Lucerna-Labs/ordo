@@ -76,24 +76,31 @@ Default local runtime URL:
 http://127.0.0.1:4141
 ```
 
-On Linux, use the distro-aware installer. On Pop!_OS, Ubuntu, Debian, and
-related distros it builds and installs the `.deb` with `dpkg -i`. On other
-distros it builds the AppImage path. The bootstrap also installs missing Rust,
-Cargo, Node, npm, and Linux build prerequisites on Debian-family systems:
+### Linux Install (Pop!_OS / Ubuntu / Debian)
+
+The user-friendly path is the **prebuilt package** — it downloads a prebuilt
+`.deb` and installs it, with no compiler and no long build:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
+```
+
+Then open **Ordo** from the app menu (embedded Servo app window, not an external
+browser). See [INSTALL.md](INSTALL.md) for the by-hand `dpkg -i` steps.
+
+To build from source instead, use the bootstrap installer. **Note:** Ordo's
+desktop shell embeds Servo, so this compiles Servo + SpiderMonkey + WebRender
+(~850 crates) — budget 30–60+ minutes, ~8 GB RAM, and ~15 GB disk. It installs
+every prerequisite (Rust, Node, the full C/C++ + LLVM toolchain, and the font
+stack), then builds and installs the `.deb`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 
 That command updates an existing `~/ordo` Git clone or clones Ordo fresh. If you
-are already inside an updated Ordo project folder, run:
-
-```bash
-./Install-Ordo-Linux.sh
-```
-
-Then open **Ordo** from the app menu. That opens the embedded Servo app window,
-not an external browser.
+are already inside an updated Ordo project folder, run `./Install-Ordo-Linux.sh`.
+On non-Debian distros it builds the AppImage path instead.
 
 For direct AppImage builds:
 

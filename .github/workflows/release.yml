@@ -73,53 +73,54 @@ jobs:
           name: ordo-${{ matrix.name }}
           path: dist/*
 
-  studio:
-    name: studio bundle (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  linux-desktop:
+    name: linux desktop package (servo shell)
+    # Pinned to 22.04 (Pop!_OS's stable base): a .deb linked against the older
+    # glibc/libstdc++ here installs cleanly on both Pop!_OS 22.04 AND 24.04.
+    # Building on ubuntu-latest (24.04) would produce a package that fails to
+    # install on 22.04.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.93.0
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: "ordo-studio/src-tauri -> target"
+          # The Servo shell is a separate workspace (excluded from the root one),
+          # so cache both target dirs or the heavy mozjs/servo build never caches.
+          workspaces: |
+            .
+            ordo-servo-shell
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+      - name: Install Linux build prerequisites
+        # Reuse the SAME script users run, so a green release proves the user
+        # install path. Rust is already on PATH (action above), so the script
+        # only installs the apt system libs + Node here.
+        run: bash scripts/install-linux-build-deps.sh
 
-      - name: Install Linux system deps
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
-            libssl-dev patchelf
+      - name: Build Ordo .deb (Pop!_OS / Ubuntu / Debian)
+        run: ./Build-Ordo-Linux-Deb.sh
 
-      - name: Install npm dependencies
-        working-directory: ordo-studio
-        run: npm ci || npm install
+      - name: Build Ordo AppImage (broad Linux coverage)
+        # Non-fatal: the .deb is the headline artifact; a flaky AppImage tool
+        # download must not sink the release.
+        continue-on-error: true
+        run: ./Build-Ordo-Linux-AppImage.sh
 
-      - name: Build Tauri bundle
-        working-directory: ordo-studio
-        run: npx tauri build
-
-      - name: Upload studio artifact
+      - name: Upload Linux desktop artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: studio-${{ matrix.os }}
+          name: ordo-linux-desktop
           path: |
-            ordo-studio/src-tauri/target/release/bundle/**/*
+            dist/*.deb
+            dist/*.AppImage
+            dist/*.tar.gz
 
   publish:
     name: publish release
-    needs: [cli, studio]
+    needs: [cli, linux-desktop]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:

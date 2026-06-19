@@ -11,6 +11,7 @@ on:
       - "packaging/linux/**"
       - "scripts/install-linux-build-deps.sh"
       - "scripts/install-linux-from-github.sh"
+      - "scripts/install-linux-prebuilt.sh"
       - "INSTALL.md"
       - "README.md"
       - "README-BETA.md"
@@ -45,6 +46,7 @@ jobs:
           bash -n packaging/linux/AppRun
           bash -n scripts/install-linux-build-deps.sh
           bash -n scripts/install-linux-from-github.sh
+          bash -n scripts/install-linux-prebuilt.sh
 
       - name: Check direct installers
         env:

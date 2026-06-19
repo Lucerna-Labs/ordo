@@ -31,18 +31,30 @@ The generated files are written to `dist/`:
 
 ## Build Host Requirements
 
-The build host needs Rust, Node/npm, a C/C++ toolchain, OpenSSL development
-headers, X11/XCB/XKB common libraries, Wayland client headers, EGL/GLES, and
-`pkg-config`.
+The embedded Servo shell pulls the full `servo` crate, which builds Servo +
+SpiderMonkey (`mozjs_sys`) + WebRender + Stylo from source. That needs much more
+than the runtime alone: Rust, Node/npm, a C/C++ toolchain, **CMake**, **Clang +
+libclang**, **LLVM**, **Python 3**, the TPM TSS headers (`ordo-secrets-vault`'s
+Linux sealer), the system font stack (fontconfig/FreeType/HarfBuzz), and the
+X11/XCB/XKB, Wayland, and EGL/GLES dev headers.
 
 On Ubuntu or Pop!_OS:
 
 ```bash
 sudo apt update
-sudo apt install -y git build-essential pkg-config curl libssl-dev \
-  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
-  libegl1-mesa-dev libgles2-mesa-dev
+sudo apt install -y \
+  git curl wget build-essential pkg-config cmake clang libclang-dev llvm-dev \
+  python3 python-is-python3 m4 \
+  libssl-dev libtss2-dev zlib1g-dev \
+  libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+  libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dev \
+  libfontconfig-dev libfreetype-dev libharfbuzz-dev
 ```
+
+`scripts/install-linux-build-deps.sh` installs exactly this set (plus Rust and
+Node) for you, and the release CI runs the same script — so a green release
+build is a real check that the source-install dependency list is complete.
 
 The AppImage builder downloads `linuxdeploy` and `appimagetool` into
 `dist/appimage-tools/` when they are not already installed. Set

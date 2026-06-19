@@ -34,19 +34,46 @@ install_debian_build_deps() {
 
   echo "Installing Ordo Linux build prerequisites..."
   as_root env DEBIAN_FRONTEND=noninteractive apt-get update
+  # The embedded Servo shell pulls the full `servo` crate, which builds Servo +
+  # SpiderMonkey (mozjs_sys) + WebRender + Stylo from source. That needs a much
+  # bigger toolchain than the runtime alone: a C/C++ compiler, cmake, clang +
+  # libclang (bindgen for mozjs_sys/aws-lc-sys), llvm, python3, plus the system
+  # font stack (fontconfig/freetype/harfbuzz) and GL/X11/Wayland dev headers.
+  # These are preinstalled on CI runners, which is why the build "worked" there
+  # but failed on a clean Pop!_OS/Ubuntu machine.
   as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ca-certificates \
     curl \
+    wget \
     git \
+    xz-utils \
+    file \
+    dpkg-dev \
     build-essential \
     pkg-config \
+    cmake \
+    clang \
+    libclang-dev \
+    llvm-dev \
+    python3 \
+    python-is-python3 \
+    m4 \
     libssl-dev \
+    libtss2-dev \
+    zlib1g-dev \
     libx11-dev \
     libxcb1-dev \
+    libxcb-render0-dev \
+    libxcb-shape0-dev \
+    libxcb-xfixes0-dev \
     libxkbcommon-dev \
     libwayland-dev \
     libegl1-mesa-dev \
-    libgles2-mesa-dev
+    libgles2-mesa-dev \
+    libgl1-mesa-dev \
+    libfontconfig-dev \
+    libfreetype-dev \
+    libharfbuzz-dev
 }
 
 node_major_version() {
@@ -126,7 +153,10 @@ ensure_rust() {
 
 validate_commands() {
   local missing=0
-  for command_name in git curl cargo rustc node npm pkg-config; do
+  # cmake/clang/python3 are required by the Servo build (mozjs_sys, aws-lc-sys);
+  # a missing one of these is exactly the silent failure that broke clean-machine
+  # installs, so fail loudly here instead of deep inside a cargo build.
+  for command_name in git curl cargo rustc node npm pkg-config cc c++ cmake clang python3; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
       echo "Missing required command after dependency install: $command_name" >&2
       missing=1

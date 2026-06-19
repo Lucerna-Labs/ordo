@@ -111,7 +111,7 @@ Section: utils
 Priority: optional
 Architecture: $ARCH
 Maintainer: Lucerna Labs
-Depends: curl, libssl3, libx11-6, libxcb1, libxkbcommon0, libwayland-client0, libegl1, libgles2
+Depends: curl, libc6, libgcc-s1, libstdc++6, zlib1g, libfontconfig1, libtss2-esys-3.0.2-0 | libtss2-esys-3.0.2-0t64, libtss2-tctildr0 | libtss2-tctildr0t64, libx11-6, libxcursor1, libxi6, libxrandr2, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgles2
 Description: Ordo local-first AI runtime and Servo operator studio
  Ordo is a local-first AI runtime and operator studio rendered through an
  embedded Servo shell.

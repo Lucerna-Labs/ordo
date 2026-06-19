@@ -78,53 +78,42 @@ GNOME/Pop!_OS does not reliably launch `.desktop` files from arbitrary source
 folders; it often opens them in a text editor. The user-friendly Linux path is
 the Debian package, which installs Ordo into the app menu.
 
-Install from GitHub source. The bootstrap updates an existing `~/ordo` Git
-clone or clones Ordo fresh, then installs missing Rust/Cargo, Node/npm, and
-Linux build prerequisites on Debian-family systems:
+### Recommended: prebuilt package
+
+Download and install the prebuilt Ordo `.deb` — no compiler, no Rust/Node, no
+long build:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
+```
+
+After install, open **Ordo** from the Pop!_OS app menu. The script calls `sudo`
+only for the package install. To do it by hand, grab `ordo_*_amd64.deb` from the
+[latest release](https://github.com/Lucerna-Labs/ordo/releases/latest):
+
+```bash
+sudo dpkg -i ordo_0.1.0_amd64.deb || sudo apt-get install -f -y
+```
+
+Do not use `sudo apt install ./ordo_0.1.0_amd64.deb`; some apt versions reject a
+local `.deb` path with an unsupported-file error. `dpkg -i` then
+`apt-get install -f` avoids that and pulls in runtime libraries.
+
+### Fallback: build from source
+
+Ordo's desktop shell embeds Servo, so a source install compiles Servo +
+SpiderMonkey + WebRender (~850 crates). Expect **30–60+ minutes**, ~**8 GB RAM**,
+and ~**15 GB disk** the first time. The bootstrap clones/updates `~/ordo`,
+installs every prerequisite (Rust, Node, the full C/C++ + LLVM toolchain, and
+the font stack), then builds and installs the `.deb`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 
-After install, open **Ordo** from the Pop!_OS app menu.
-
-The bootstrap command updates an existing `~/ordo` Git clone or clones Ordo
-fresh. It does not delete or overwrite a non-Git folder named `~/ordo`.
-
-If you already have an updated copy of Ordo, first open a terminal in that
-project folder, or `cd` into it. The command must be run from the folder that
-contains `Install-Ordo-Linux.sh`.
-
-Example if Ordo is on your Desktop:
-
-```bash
-cd ~/Desktop/ordo
-./Install-Ordo-Linux.sh
-```
-
-Example if Ordo is in Downloads:
-
-```bash
-cd ~/Downloads/ordo
-./Install-Ordo-Linux.sh
-```
-
-If you do not know where the folder is, search for it:
-
-```bash
-find ~ -maxdepth 4 -name "Install-Ordo-Linux.sh" 2>/dev/null
-```
-
-Then `cd` into the folder printed by that command and run:
-
-```bash
-./Install-Ordo-Linux.sh
-```
-
-The installer builds the `.deb`, installs it with `dpkg -i`, and uses
-`apt-get install -f` only if dependencies need to be repaired. Do not use
-`sudo apt install ./dist/ordo_0.1.0_amd64.deb`; some distro versions reject
-local `.deb` file paths with an unsupported-file error.
+It never deletes or overwrites a non-Git folder named `~/ordo`. If you already
+have an updated clone, `cd` into it and run `./Install-Ordo-Linux.sh` directly
+(search for it with `find ~ -maxdepth 4 -name Install-Ordo-Linux.sh` if unsure).
 
 The installed launcher starts the Ordo runtime, waits for
 `127.0.0.1:4141/health`, opens the embedded Servo app window, and stops the
