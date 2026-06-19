@@ -42,7 +42,20 @@ need_command() {
 }
 
 need_command dpkg
-need_command sudo
+
+as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+    return
+  fi
+
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "Missing sudo. Run this installer as root, or install sudo." >&2
+    exit 1
+  fi
+
+  sudo "$@"
+}
 
 if [[ ! -x "$ROOT/Build-Ordo-Linux-Deb.sh" ]]; then
   echo "Missing or non-executable builder: $ROOT/Build-Ordo-Linux-Deb.sh" >&2
@@ -66,7 +79,7 @@ fi
 echo "Installing Ordo package with dpkg:"
 echo "  $PACKAGE"
 
-if sudo dpkg -i "$PACKAGE"; then
+if as_root dpkg -i "$PACKAGE"; then
   echo "Installed Ordo. Open Ordo from the app menu."
   exit 0
 fi
@@ -78,9 +91,9 @@ if ! command -v apt-get >/dev/null 2>&1; then
 fi
 
 echo "Repairing package dependencies with apt-get..."
-sudo apt-get update
-sudo apt-get install -f -y
+as_root apt-get update
+as_root apt-get install -f -y
 
 echo "Retrying Ordo package install..."
-sudo dpkg -i "$PACKAGE"
+as_root dpkg -i "$PACKAGE"
 echo "Installed Ordo. Open Ordo from the app menu."

@@ -75,7 +75,7 @@ if [[ "${ORDO_SKIP_LINUX_DEPS:-0}" != "1" ]]; then
 fi
 
 if (( CHECK )); then
-  ./Install-Ordo-Linux.sh --check
+  ORDO_SKIP_LINUX_DEPS=1 ./Install-Ordo-Linux.sh --check
 else
-  ./Install-Ordo-Linux.sh
+  ORDO_SKIP_LINUX_DEPS=1 ./Install-Ordo-Linux.sh
 fi
