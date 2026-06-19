@@ -49,13 +49,32 @@ GNOME/Pop!_OS does not reliably launch `.desktop` files from arbitrary source
 folders; it often opens them in a text editor. The user-friendly Linux path is
 the Debian package, which installs Ordo into the app menu.
 
-Build the package on the Linux machine:
+First open a terminal in the Ordo project folder, or `cd` into it. The commands
+must be run from the folder that contains `Build-Ordo-Linux-Deb.sh`.
+
+Example if Ordo is on your Desktop:
 
 ```bash
+cd ~/Desktop/ordo
 ./Build-Ordo-Linux-Deb.sh
 ```
 
-Then install the generated package:
+Example if Ordo is in Downloads:
+
+```bash
+cd ~/Downloads/ordo
+./Build-Ordo-Linux-Deb.sh
+```
+
+If you do not know where the folder is, search for it:
+
+```bash
+find ~ -maxdepth 4 -name "Build-Ordo-Linux-Deb.sh" 2>/dev/null
+```
+
+Then `cd` into the folder printed by that command and build the package.
+
+Install the generated package from the same Ordo folder:
 
 ```bash
 sudo apt install ./dist/ordo_0.1.0_amd64.deb
@@ -81,6 +100,7 @@ another external browser.
 For troubleshooting only, the launcher can also be run from a terminal:
 
 ```bash
+cd /path/to/ordo
 ./Launch-Ordo-Servo.sh
 ```
 

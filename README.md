@@ -50,6 +50,15 @@ On Pop!_OS / Linux, use the Debian package path. GNOME/Pop!_OS often opens
 app-menu launcher instead:
 
 ```bash
+cd /path/to/ordo
+./Build-Ordo-Linux-Deb.sh
+sudo apt install ./dist/ordo_0.1.0_amd64.deb
+```
+
+For example, if Ordo is on your Desktop:
+
+```bash
+cd ~/Desktop/ordo
 ./Build-Ordo-Linux-Deb.sh
 sudo apt install ./dist/ordo_0.1.0_amd64.deb
 ```
