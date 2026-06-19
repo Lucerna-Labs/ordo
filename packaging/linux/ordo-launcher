@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_ROOT="${ORDO_APP_ROOT:-/opt/ordo}"
+CONTROL_URL="${ORDO_CONTROL_URL:-http://127.0.0.1:4141}"
+STUDIO_URL="$CONTROL_URL/"
+STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+USER_FILES="${XDG_DATA_HOME:-$HOME/.local/share}/ordo/user-files"
+MODES_PATH="$USER_FILES/modes"
+LOG_DIR="$STATE_HOME/ordo/logs"
+RUNTIME_OUT="$LOG_DIR/runtime-servo.out.log"
+RUNTIME_ERR="$LOG_DIR/runtime-servo.err.log"
+SERVO_OUT="$LOG_DIR/servo-shell.out.log"
+SERVO_ERR="$LOG_DIR/servo-shell.err.log"
+RUNTIME_BIN="$APP_ROOT/bin/ordo"
+SERVO_BIN="$APP_ROOT/bin/ordo-servo-shell"
+
+mkdir -p "$LOG_DIR" "$MODES_PATH"
+
+notify_problem() {
+  local message="$1"
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Ordo" "$message" || true
+  fi
+  printf '%s\n' "$message" >&2
+}
+
+if [[ ! -x "$RUNTIME_BIN" ]]; then
+  notify_problem "Ordo runtime is missing: $RUNTIME_BIN"
+  exit 1
+fi
+
+if [[ ! -x "$SERVO_BIN" ]]; then
+  notify_problem "Ordo Servo shell is missing: $SERVO_BIN"
+  exit 1
+fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  notify_problem "Ordo needs curl installed for local health checks."
+  exit 1
+fi
+
+if curl -fsS "$CONTROL_URL/health" >/dev/null 2>&1; then
+  notify_problem "Ordo already appears to be running."
+  exit 1
+fi
+
+export ORDO_USER_FILES_PATH="$USER_FILES"
+export ORDO_MODES_PATH="$MODES_PATH"
+export ORDO_RUNTIME_PROFILE="${ORDO_RUNTIME_PROFILE:-standard}"
+export ORDO_CONTROL_URL="$CONTROL_URL"
+export ORDO_ENABLE_AVATAR="${ORDO_ENABLE_AVATAR:-1}"
+
+rm -f "$RUNTIME_OUT" "$RUNTIME_ERR" "$SERVO_OUT" "$SERVO_ERR"
+
+"$RUNTIME_BIN" serve >"$RUNTIME_OUT" 2>"$RUNTIME_ERR" &
+runtime_pid=$!
+
+cleanup() {
+  if kill -0 "$runtime_pid" 2>/dev/null; then
+    kill "$runtime_pid" 2>/dev/null || true
+    wait "$runtime_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+deadline=$((SECONDS + 120))
+until curl -fsS "$CONTROL_URL/health" >/dev/null 2>&1; do
+  if (( SECONDS >= deadline )); then
+    notify_problem "Ordo runtime did not become healthy. See $RUNTIME_ERR"
+    exit 1
+  fi
+  sleep 2
+done
+
+if ! curl -fsS "$STUDIO_URL" | grep -q "<title>Ordo</title>"; then
+  notify_problem "Ordo runtime did not serve the Studio bundle."
+  exit 1
+fi
+
+cd "$APP_ROOT"
+HTTP_PROXY="http://127.0.0.1:9" \
+HTTPS_PROXY="http://127.0.0.1:9" \
+ALL_PROXY="socks5://127.0.0.1:9" \
+http_proxy="http://127.0.0.1:9" \
+https_proxy="http://127.0.0.1:9" \
+all_proxy="socks5://127.0.0.1:9" \
+NO_PROXY="127.0.0.1,localhost,::1,[::1]" \
+no_proxy="127.0.0.1,localhost,::1,[::1]" \
+"$SERVO_BIN" \
+  --target "$STUDIO_URL" \
+  --width "${ORDO_WINDOW_WIDTH:-1560}" \
+  --height "${ORDO_WINDOW_HEIGHT:-980}" \
+  >"$SERVO_OUT" 2>"$SERVO_ERR"

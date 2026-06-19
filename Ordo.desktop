@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Ordo
-Comment=Launch Ordo through the embedded Servo shell
-Exec=sh -c 'APP="$1"; DIR="$(dirname "$APP")"; cd "$DIR"; exec ./Launch-Ordo-Servo.sh' sh %k
-Terminal=false
-Categories=Development;Utility;
-StartupNotify=true

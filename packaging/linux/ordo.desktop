@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ordo
+Comment=Local-first AI runtime and operator studio
+Exec=/opt/ordo/bin/ordo-launcher
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true

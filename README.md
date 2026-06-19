@@ -45,16 +45,17 @@ Default local runtime URL:
 http://127.0.0.1:4141
 ```
 
-On Pop!_OS / Linux, double-click `Ordo.desktop` in the Ordo folder. If Pop!_OS
-asks, choose **Trust and Launch** or **Allow Launching**. That opens the
-embedded Servo app window, not an external browser.
-
-To create a Linux desktop/app shortcut:
+On Pop!_OS / Linux, use the Debian package path. GNOME/Pop!_OS often opens
+`.desktop` files from source folders in a text editor, so Ordo installs a real
+app-menu launcher instead:
 
 ```bash
-chmod +x ./Install-Linux-Desktop-Shortcut.sh
-./Install-Linux-Desktop-Shortcut.sh
+./Build-Ordo-Linux-Deb.sh
+sudo apt install ./dist/ordo_0.1.0_amd64.deb
 ```
+
+Then open **Ordo** from the app menu. That opens the embedded Servo app window,
+not an external browser.
 
 ## Current Desktop Architecture
 
@@ -70,10 +71,9 @@ Current shape:
 - `Launch-Ordo-Servo.vbs` / `.cmd`: the supported no-console beta launch path.
 - `Launch-Ordo-Servo.ps1`: visible diagnostic launcher for troubleshooting.
 - `Launch-Ordo-Servo.sh`: Linux Servo launch path for Pop!_OS/Ubuntu-style
-  systems.
-- `Ordo.desktop`: click launcher for Linux folder copies.
-- `Install-Linux-Desktop-Shortcut.sh`: creates a Linux app/desktop shortcut
-  with `Terminal=false`.
+  systems and package internals.
+- `Build-Ordo-Linux-Deb.sh`: builds the Pop!_OS/Ubuntu `.deb` package with a
+  real app-menu launcher.
 - `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make
   GitHub source ZIP downloads runnable.
 

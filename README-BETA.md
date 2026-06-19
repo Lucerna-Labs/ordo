@@ -45,11 +45,23 @@ When the Servo window closes, the launcher stops the Ordo runtime so port
 ## Run On Pop!_OS / Linux
 
 The Windows `.cmd`, `.vbs`, and `.ps1` launchers do not run Ordo on Linux.
-Use the Linux desktop launcher in the Ordo folder:
+GNOME/Pop!_OS does not reliably launch `.desktop` files from arbitrary source
+folders; it often opens them in a text editor. The user-friendly Linux path is
+the Debian package, which installs Ordo into the app menu.
 
-1. Open the Ordo folder in Files.
-2. Double-click `Ordo.desktop`.
-3. If Pop!_OS asks, choose **Trust and Launch** or **Allow Launching**.
+Build the package on the Linux machine:
+
+```bash
+./Build-Ordo-Linux-Deb.sh
+```
+
+Then install the generated package:
+
+```bash
+sudo apt install ./dist/ordo_0.1.0_amd64.deb
+```
+
+After install, open **Ordo** from the Pop!_OS app menu.
 
 If the Servo shell has not been built on that machine yet, install the native
 build/runtime dependencies first:
@@ -61,10 +73,10 @@ sudo apt install -y build-essential pkg-config curl libssl-dev \
   libegl1-mesa-dev libgles2-mesa-dev
 ```
 
-The Linux launcher builds the Studio bundle when needed, starts the Ordo
-runtime, waits for `127.0.0.1:4141/health`, opens the embedded Servo app window,
-and stops the runtime when the Servo window closes. It does not launch Chrome,
-Firefox, or another external browser.
+The installed launcher starts the Ordo runtime, waits for
+`127.0.0.1:4141/health`, opens the embedded Servo app window, and stops the
+runtime when the Servo window closes. It does not launch Chrome, Firefox, or
+another external browser.
 
 For troubleshooting only, the launcher can also be run from a terminal:
 
