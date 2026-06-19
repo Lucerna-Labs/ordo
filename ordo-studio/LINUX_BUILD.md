@@ -56,6 +56,10 @@ sudo apt install -y \
 Node) for you, and the release CI runs the same script — so a green release
 build is a real check that the source-install dependency list is complete.
 
+Maintainers: see [`docs/linux-build-release-playbook.md`](../docs/linux-build-release-playbook.md)
+for how to reproduce/verify the build and `.deb` install in clean containers,
+diagnose new dependency failures, and cut a prebuilt release.
+
 The AppImage builder downloads `linuxdeploy` and `appimagetool` into
 `dist/appimage-tools/` when they are not already installed. Set
 `ORDO_LINUXDEPLOY` or `ORDO_APPIMAGETOOL` to use local copies instead.
