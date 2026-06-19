@@ -13,13 +13,42 @@ Servo shell; the Rust runtime remains portable source code.
 
 ## Quick Start
 
+### Windows Source Install
+
+Install Git for Windows if needed, then run this from PowerShell:
+
 ```powershell
-git clone https://github.com/Lucerna-Labs/ordo
+cd $env:USERPROFILE\Desktop
+git clone https://github.com/Lucerna-Labs/ordo.git
 cd ordo
+.\Install-Desktop-Shortcut.cmd
+```
+
+Then open **Ordo** from the desktop shortcut. The shortcut uses
+`Launch-Ordo-Servo.vbs`, so Ordo opens in the embedded Servo app window without
+leaving a console window behind.
+
+To launch once from the project folder without installing the shortcut:
+
+```powershell
+wscript.exe .\Launch-Ordo-Servo.vbs
+```
+
+For troubleshooting, use the visible diagnostic launcher:
+
+```powershell
 .\Launch-Ordo-Servo.ps1
 ```
 
-For Explorer/double-click use:
+If you already have a copy of Ordo, open PowerShell in that project folder and
+run:
+
+```powershell
+git pull
+.\Install-Desktop-Shortcut.cmd
+```
+
+For Explorer/double-click use inside the project folder:
 
 ```text
 Launch-Ordo-Servo.vbs

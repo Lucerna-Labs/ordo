@@ -21,10 +21,37 @@ tabs, an address bar, or a separate web-server dependency.
 
 ## Run On Windows
 
+Install from GitHub source:
+
 ```powershell
-git clone https://github.com/Lucerna-Labs/ordo
+cd $env:USERPROFILE\Desktop
+git clone https://github.com/Lucerna-Labs/ordo.git
 cd ordo
+.\Install-Desktop-Shortcut.cmd
+```
+
+Then open **Ordo** from the desktop shortcut. The shortcut opens the embedded
+Servo app window without browser tabs, an address bar, or a leftover console
+window.
+
+To launch once from the project folder without installing the shortcut:
+
+```powershell
+wscript.exe .\Launch-Ordo-Servo.vbs
+```
+
+For troubleshooting, use the visible diagnostic launcher:
+
+```powershell
 .\Launch-Ordo-Servo.ps1
+```
+
+If you already have a copy of Ordo, open PowerShell in that project folder and
+run:
+
+```powershell
+git pull
+.\Install-Desktop-Shortcut.cmd
 ```
 
 The launcher:
