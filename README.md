@@ -13,6 +13,8 @@ Servo shell; the Rust runtime remains portable source code.
 
 ## Quick Start
 
+For the full install guide, see [INSTALL.md](INSTALL.md).
+
 ### Windows Source Install
 
 Install Git for Windows if needed, then run this from PowerShell:
@@ -74,16 +76,11 @@ Default local runtime URL:
 http://127.0.0.1:4141
 ```
 
-On Pop!_OS, Ubuntu, Debian, and related Linux distros, use the Debian package
-path. GNOME/Pop!_OS often opens `.desktop` files from source folders in a text
-editor, so Ordo installs a real app-menu launcher instead:
+On Linux, use the distro-aware installer. On Pop!_OS, Ubuntu, Debian, and
+related distros it builds and installs the `.deb` with `dpkg -i`. On other
+distros it builds the AppImage path:
 
 ```bash
-sudo apt update
-sudo apt install -y git build-essential pkg-config curl libssl-dev \
-  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
-  libegl1-mesa-dev libgles2-mesa-dev
-
 git clone https://github.com/Lucerna-Labs/ordo.git
 cd ordo
 ./Install-Ordo-Linux.sh
@@ -99,15 +96,14 @@ cd ~/Desktop/ordo
 Then open **Ordo** from the app menu. That opens the embedded Servo app window,
 not an external browser.
 
-For other Linux distros, build an AppImage or a portable tarball from the same
-source checkout:
+For direct AppImage builds:
 
 ```bash
 ./Build-Ordo-Linux-AppImage.sh
 ./dist/Ordo-0.1.0-x86_64.AppImage
 ```
 
-If AppImage tooling is not available on that distro, use the portable tarball:
+For the portable tarball fallback:
 
 ```bash
 ./Build-Ordo-Linux-Portable.sh
