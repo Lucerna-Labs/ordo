@@ -228,7 +228,7 @@ if ($hasPortableRuntime) {
         -FilePath $portableRuntimeExe `
         -ArgumentList @("serve") `
         -WorkingDirectory $ordoRoot `
-        -WindowStyle Minimized `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $runtimeOut `
         -RedirectStandardError $runtimeErr `
         -PassThru
@@ -237,7 +237,7 @@ if ($hasPortableRuntime) {
         -FilePath "cargo" `
         -ArgumentList @("run", "--", "serve") `
         -WorkingDirectory $ordoRoot `
-        -WindowStyle Minimized `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $runtimeOut `
         -RedirectStandardError $runtimeErr `
         -PassThru
@@ -327,3 +327,12 @@ try {
 
 Write-Host "Embedded Servo shell PID: $($servoProcess.Id)" -ForegroundColor Green
 Write-Host "Logs: $servoOut / $servoErr"
+
+try {
+    $servoProcess.WaitForExit()
+} finally {
+    if ($runtimeProcess -and -not $runtimeProcess.HasExited) {
+        Write-Host "Servo shell closed; stopping Ordo runtime PID $($runtimeProcess.Id)..." -ForegroundColor Yellow
+        Stop-Process -Id $runtimeProcess.Id -Force -ErrorAction SilentlyContinue
+    }
+}
