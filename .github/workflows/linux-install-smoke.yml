@@ -100,7 +100,9 @@ jobs:
       - name: Bootstrap Ordo install prerequisites
         run: |
           export HOME="$(mktemp -d)"
+          echo "ORDO_TEST_HOME=$HOME" >> "$GITHUB_ENV"
           tmp_ordo="$(mktemp -d)/ordo"
+          echo "ORDO_TEST_DIR=$tmp_ordo" >> "$GITHUB_ENV"
           clean_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
           env PATH="$clean_path" \
             HOME="$HOME" \
@@ -114,8 +116,12 @@ jobs:
 
       - name: Confirm cargo and node were installed
         run: |
-          . "$HOME/.cargo/env"
+          . "$ORDO_TEST_HOME/.cargo/env"
           cargo --version
           rustc --version
           node --version
           npm --version
+          env PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+            HOME="$ORDO_TEST_HOME" \
+            ORDO_SKIP_LINUX_DEPS=1 \
+            "$ORDO_TEST_DIR/Install-Ordo-Linux.sh" --check
