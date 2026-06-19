@@ -102,7 +102,7 @@ impl FactStore {
         Ok(scored
             .into_iter()
             .take(cutoff)
-            .filter(|(score, _)| score.is_finite() && *score > 0.0)
+            .filter(|(score, _)| score.is_finite())
             .map(|(score, fact)| RecalledFact {
                 fact: FactSummary::from(fact),
                 score,
