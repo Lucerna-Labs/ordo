@@ -131,7 +131,7 @@ pub struct HashingEmbedder {
 
 impl Default for HashingEmbedder {
     fn default() -> Self {
-        Self { dimensions: 96 }
+        Self { dimensions: 384 }
     }
 }
 
@@ -158,21 +158,30 @@ impl EmbeddingClient for HashingEmbedder {
 
     fn embed(&self, request: EmbeddingRequest) -> ModelResult<EmbeddingResponse> {
         let mut vector = vec![0.0f32; self.dimensions];
-        for token in request.input.split_whitespace() {
-            let lowered = token.to_ascii_lowercase();
-            if lowered.is_empty() {
-                continue;
+        let tokens = lexical_tokens(&request.input);
+
+        for token in &tokens {
+            add_hashed_feature(&mut vector, "tok", token, 1.0);
+
+            for variant in lexical_variants(token) {
+                add_hashed_feature(&mut vector, "variant", &variant, 0.45);
             }
 
-            let token_hash = stable_hash(&lowered);
-            let index = token_hash as usize % self.dimensions;
-            vector[index] += 1.0;
-
-            for gram in lowered.as_bytes().windows(3) {
-                let gram_hash = stable_hash_bytes(gram);
-                let gram_index = gram_hash as usize % self.dimensions;
-                vector[gram_index] += 0.35;
+            for gram in token.as_bytes().windows(3) {
+                add_hashed_bytes_feature(&mut vector, "c3", gram, 0.28);
             }
+            for gram in token.as_bytes().windows(4) {
+                add_hashed_bytes_feature(&mut vector, "c4", gram, 0.18);
+            }
+        }
+
+        for window in tokens.windows(2) {
+            let phrase = format!("{} {}", window[0], window[1]);
+            add_hashed_feature(&mut vector, "bi", &phrase, 0.75);
+        }
+        for window in tokens.windows(3) {
+            let phrase = format!("{} {} {}", window[0], window[1], window[2]);
+            add_hashed_feature(&mut vector, "tri", &phrase, 0.35);
         }
 
         normalize(&mut vector);
@@ -432,8 +441,73 @@ fn normalize(vector: &mut [f32]) {
     }
 }
 
-fn stable_hash(input: &str) -> u64 {
-    stable_hash_bytes(input.as_bytes())
+fn lexical_tokens(input: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+
+    for ch in input.chars() {
+        if ch.is_alphanumeric() {
+            for lowered in ch.to_lowercase() {
+                current.push(lowered);
+            }
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current));
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
+fn lexical_variants(token: &str) -> Vec<String> {
+    let mut variants = Vec::new();
+    push_unique_variant(&mut variants, token.strip_suffix("'s"));
+    push_unique_variant(
+        &mut variants,
+        token.strip_suffix('s').filter(|_| token.len() > 4),
+    );
+    push_unique_variant(
+        &mut variants,
+        token.strip_suffix("ing").filter(|_| token.len() > 6),
+    );
+    push_unique_variant(
+        &mut variants,
+        token.strip_suffix("ed").filter(|_| token.len() > 5),
+    );
+    variants
+}
+
+fn push_unique_variant(variants: &mut Vec<String>, candidate: Option<&str>) {
+    let Some(candidate) = candidate else {
+        return;
+    };
+    if candidate.len() < 3 || variants.iter().any(|value| value == candidate) {
+        return;
+    }
+    variants.push(candidate.to_string());
+}
+
+fn add_hashed_feature(vector: &mut [f32], namespace: &str, feature: &str, weight: f32) {
+    add_hashed_bytes_feature(vector, namespace, feature.as_bytes(), weight);
+}
+
+fn add_hashed_bytes_feature(vector: &mut [f32], namespace: &str, feature: &[u8], weight: f32) {
+    if vector.is_empty() || feature.is_empty() {
+        return;
+    }
+
+    let mut keyed = Vec::with_capacity(namespace.len() + 1 + feature.len());
+    keyed.extend_from_slice(namespace.as_bytes());
+    keyed.push(0);
+    keyed.extend_from_slice(feature);
+
+    let hash = stable_hash_bytes(&keyed);
+    let index = hash as usize % vector.len();
+    let sign = if hash & (1 << 63) == 0 { 1.0 } else { -1.0 };
+    vector[index] += weight * sign;
 }
 
 fn stable_hash_bytes(input: &[u8]) -> u64 {
@@ -539,7 +613,7 @@ mod tests {
     fn hashing_embedder_reports_backend_name() {
         let embedder = HashingEmbedder::default();
         assert_eq!(embedder.backend_name(), "hashing");
-        assert_eq!(embedder.dimensions(), 96);
+        assert_eq!(embedder.dimensions(), 384);
     }
 
     #[test]

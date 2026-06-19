@@ -64,8 +64,9 @@ When the Servo window closes, the launcher stops the Ordo runtime so port
   channels such as Signal and Telegram. SMS is intentionally not included.
 - Artifact side view so agents can show generated files, PDFs, docs,
   spreadsheets, email views, and other artifacts without replacing the chat.
-- RAG and persistent memory with hashing fallback when no embedding model is
-  configured; embedding models can still be used for better retrieval quality.
+- RAG and persistent memory with a stronger hashing fallback when no embedding
+  model is configured; Ollama or llama.cpp embedding models can still be used
+  for better semantic retrieval quality.
 - MCP security posture with trust states, quarantine, drift checks,
   provenance, redaction, and audit logging.
 - A single standard validation script: `Test-Ordo-Functions.ps1`.

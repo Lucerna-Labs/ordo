@@ -3474,6 +3474,8 @@ pub struct RuntimePolicySnapshot {
     pub embedding_llama_cpp_binary: Option<String>,
     pub embedding_model_path: Option<String>,
     pub embedding_context_size: usize,
+    pub embedding_ollama_url: Option<String>,
+    pub embedding_ollama_model: Option<String>,
 }
 
 #[derive(Clone)]
@@ -3527,6 +3529,8 @@ impl RuntimeInfoProvider {
                 "embedding_model_path": Value::Null,
                 "embedding_dimensions": Value::Null,
                 "embedding_context_size": Value::Null,
+                "embedding_ollama_url": Value::Null,
+                "embedding_ollama_model": Value::Null,
             }));
         };
 
@@ -3572,6 +3576,10 @@ impl RuntimeInfoProvider {
             parse_runtime_budget_argument(arguments, "embedding_dimensions")?;
         let embedding_context_size =
             parse_runtime_budget_argument(arguments, "embedding_context_size")?;
+        let embedding_ollama_url =
+            parse_runtime_optional_string_argument(arguments, "embedding_ollama_url")?;
+        let embedding_ollama_model =
+            parse_runtime_optional_string_argument(arguments, "embedding_ollama_model")?;
 
         let update = RuntimeSettingsUpdate {
             profile,
@@ -3588,6 +3596,8 @@ impl RuntimeInfoProvider {
             embedding_model_path,
             embedding_dimensions,
             embedding_context_size,
+            embedding_ollama_url,
+            embedding_ollama_model,
         };
 
         if update == RuntimeSettingsUpdate::default() {
@@ -3769,6 +3779,8 @@ impl CapabilityProvider for RuntimeInfoProvider {
                             "embedding_llama_cpp_binary": self.snapshot.embedding_llama_cpp_binary,
                             "embedding_model_path": self.snapshot.embedding_model_path,
                             "embedding_context_size": self.snapshot.embedding_context_size,
+                            "embedding_ollama_url": self.snapshot.embedding_ollama_url,
+                            "embedding_ollama_model": self.snapshot.embedding_ollama_model,
                         },
                         "persisted": persisted,
                         "restart_required_for_changes": true,
@@ -4812,6 +4824,8 @@ fn runtime_settings_json(settings: &RuntimeSettings) -> Value {
         "embedding_model_path": settings.embedding_model_path,
         "embedding_dimensions": settings.embedding_dimensions,
         "embedding_context_size": settings.embedding_context_size,
+        "embedding_ollama_url": settings.embedding_ollama_url,
+        "embedding_ollama_model": settings.embedding_ollama_model,
     })
 }
 

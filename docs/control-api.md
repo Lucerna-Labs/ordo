@@ -120,8 +120,8 @@ document titles.
 Runs a lightweight retrieval preview.
 
 RAG must work in hash-fallback mode when no embedding model is present. If an
-embedding model is configured, the API can report that improved retrieval is
-available.
+Ollama or llama.cpp embedding model is configured, the API reports the active
+embedding backend and improved semantic retrieval is available after restart.
 
 ### Pinned Memory
 

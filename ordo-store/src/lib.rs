@@ -843,6 +843,8 @@ pub struct RuntimeSettings {
     pub embedding_model_path: Option<String>,
     pub embedding_dimensions: Option<usize>,
     pub embedding_context_size: Option<usize>,
+    pub embedding_ollama_url: Option<String>,
+    pub embedding_ollama_model: Option<String>,
 }
 
 pub type RuntimeSettingsUpdate = RuntimeSettings;
@@ -905,6 +907,10 @@ impl RuntimeSettingsStore {
             embedding_model_path: parse_optional_nonempty_string(rows.get("embedding_model_path")),
             embedding_dimensions: parse_optional_usize(rows.get("embedding_dimensions")),
             embedding_context_size: parse_optional_usize(rows.get("embedding_context_size")),
+            embedding_ollama_url: parse_optional_nonempty_string(rows.get("embedding_ollama_url")),
+            embedding_ollama_model: parse_optional_nonempty_string(
+                rows.get("embedding_ollama_model"),
+            ),
         })
     }
 
@@ -983,6 +989,12 @@ impl RuntimeSettingsStore {
                 &value.to_string(),
                 &updated_at,
             )?;
+        }
+        if let Some(value) = &update.embedding_ollama_url {
+            upsert_runtime_setting(&tx, "embedding_ollama_url", value, &updated_at)?;
+        }
+        if let Some(value) = &update.embedding_ollama_model {
+            upsert_runtime_setting(&tx, "embedding_ollama_model", value, &updated_at)?;
         }
 
         tx.commit()?;
@@ -1156,6 +1168,8 @@ mod tests {
                 embedding_model_path: Some("C:/models/embed.gguf".to_string()),
                 embedding_dimensions: Some(384),
                 embedding_context_size: Some(512),
+                embedding_ollama_url: Some("http://127.0.0.1:11434".to_string()),
+                embedding_ollama_model: Some("nomic-embed-text".to_string()),
             })
             .expect("updated settings");
 
@@ -1185,6 +1199,14 @@ mod tests {
         );
         assert_eq!(settings.embedding_dimensions, Some(384));
         assert_eq!(settings.embedding_context_size, Some(512));
+        assert_eq!(
+            settings.embedding_ollama_url.as_deref(),
+            Some("http://127.0.0.1:11434")
+        );
+        assert_eq!(
+            settings.embedding_ollama_model.as_deref(),
+            Some("nomic-embed-text")
+        );
         assert_eq!(store.load().expect("loaded settings"), settings);
     }
 

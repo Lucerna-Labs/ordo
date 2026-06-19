@@ -88,8 +88,9 @@ scripts, and Ordo now provides that origin itself.
   Signal and Telegram. SMS is intentionally excluded.
 - Provides a side artifact view for generated files, PDFs, docs, spreadsheets,
   email views, and other agent-produced artifacts without replacing chat.
-- Provides RAG and persistent memory with a hashing fallback when no embedding
-  model is configured. Embedding models remain optional for better retrieval.
+- Provides RAG and persistent memory with a stronger hashing fallback when no
+  embedding model is configured. Ollama or llama.cpp embedding models remain
+  optional for better semantic retrieval.
 - Provides MCP security with trust states, quarantine, drift checks,
   provenance tracking, redaction, and audit logging.
 

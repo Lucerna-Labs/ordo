@@ -1128,6 +1128,8 @@ mod tests {
             embedding_llama_cpp_binary: None,
             embedding_model_path: None,
             embedding_context_size: 512,
+            embedding_ollama_url: None,
+            embedding_ollama_model: None,
         })));
         let host_task = tokio::spawn(async move {
             let _ = host.run().await;
@@ -1183,6 +1185,8 @@ mod tests {
                 embedding_llama_cpp_binary: None,
                 embedding_model_path: None,
                 embedding_context_size: 512,
+                embedding_ollama_url: None,
+                embedding_ollama_model: None,
             },
             settings_path.clone(),
         )));
@@ -1386,6 +1390,8 @@ mod tests {
             embedding_llama_cpp_binary: None,
             embedding_model_path: None,
             embedding_context_size: 512,
+            embedding_ollama_url: None,
+            embedding_ollama_model: None,
         })));
         host.add_provider(Arc::new(ordo_mcp_host::KnowledgeProvider));
         let host_task = tokio::spawn(async move {
@@ -1434,6 +1440,8 @@ mod tests {
             embedding_llama_cpp_binary: None,
             embedding_model_path: None,
             embedding_context_size: 512,
+            embedding_ollama_url: None,
+            embedding_ollama_model: None,
         })));
         host.add_provider(Arc::new(ordo_mcp_host::KnowledgeProvider));
         let host_task = tokio::spawn(async move {

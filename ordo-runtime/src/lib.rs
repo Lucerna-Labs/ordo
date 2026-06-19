@@ -682,6 +682,7 @@ impl PlanningOrdoRuntime {
             build_self_heal_model(&config),
         );
         let settings_task = RuntimeSettingsTask::open(config.database_path.clone())?;
+        let runtime_embedder = build_embedding_client(&config);
         let mut host = McpHost::new(bus.clone());
         host.add_provider(Arc::new(FilesystemProvider::rooted(
             config.user_files_path.clone(),
@@ -716,8 +717,8 @@ impl PlanningOrdoRuntime {
                 self_heal_model_temperature: config.self_heal_model_temperature,
                 llama_cpp_configured: config.self_heal_llama_cpp_binary.is_some()
                     && config.self_heal_model_path.is_some(),
-                embedding_backend: build_embedding_client(&config).backend_name().to_string(),
-                embedding_dimensions: config.embedding_dimensions,
+                embedding_backend: runtime_embedder.backend_name().to_string(),
+                embedding_dimensions: runtime_embedder.dimensions(),
                 embedding_llama_cpp_binary: config
                     .embedding_llama_cpp_binary
                     .as_ref()
@@ -727,6 +728,8 @@ impl PlanningOrdoRuntime {
                     .as_ref()
                     .map(|path| path.display().to_string()),
                 embedding_context_size: config.embedding_context_size,
+                embedding_ollama_url: config.embedding_ollama_url.clone(),
+                embedding_ollama_model: config.embedding_ollama_model.clone(),
             },
             settings_task,
         )));
@@ -1758,6 +1761,16 @@ fn apply_persisted_runtime_settings(mut config: RuntimeConfig) -> Result<Runtime
             config.embedding_context_size = value;
         }
     }
+    if !env_override_present("ORDO_EMBEDDING_OLLAMA_URL") {
+        if let Some(value) = persisted.embedding_ollama_url {
+            config.embedding_ollama_url = Some(value);
+        }
+    }
+    if !env_override_present("ORDO_EMBEDDING_OLLAMA_MODEL") {
+        if let Some(value) = persisted.embedding_ollama_model {
+            config.embedding_ollama_model = Some(value);
+        }
+    }
 
     Ok(config)
 }
@@ -1938,7 +1951,7 @@ fn build_embedding_client(config: &RuntimeConfig) -> Arc<dyn EmbeddingClient> {
         ));
     }
 
-    Arc::new(HashingEmbedder::default())
+    Arc::new(HashingEmbedder::new(config.embedding_dimensions))
 }
 
 fn build_self_heal_model(config: &RuntimeConfig) -> Option<Arc<dyn ModelClient>> {

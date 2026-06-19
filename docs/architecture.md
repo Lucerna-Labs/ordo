@@ -86,8 +86,9 @@ Ordo has three relevant memory lanes:
 - RAG collections for local documents and self-knowledge.
 
 RAG must work without shipping an embedding model. The default fallback is a
-hashing embedder. If an embedding model is configured, Ordo can use it for
-better retrieval quality and should make that improvement visible to the user.
+local hashing embedder with token, phrase, and character n-gram features. If an
+Ollama or llama.cpp embedding model is configured, Ordo can use it for better
+semantic retrieval quality and should make that improvement visible to the user.
 
 Persistent memory must stay operator-manageable. Dreaming and diagnostics can
 propose lessons, but they should not silently rewrite durable truths.

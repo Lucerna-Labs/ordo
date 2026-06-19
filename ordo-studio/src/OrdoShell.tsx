@@ -4832,9 +4832,11 @@ const RagSurface = () => {
   const [profileData, setProfileData] = useState<RuntimeProfile | null>(null);
   const [settings, setSettings] = useState<RuntimeSettingsSnapshot | null>(null);
   const [budgetGb, setBudgetGb] = useState(0);
-  const [embeddingMode, setEmbeddingMode] = useState<"hash" | "model">("hash");
+  const [embeddingMode, setEmbeddingMode] = useState<"hash" | "ollama" | "llama_cpp">("hash");
   const [embeddingBinary, setEmbeddingBinary] = useState("");
   const [embeddingModelPath, setEmbeddingModelPath] = useState("");
+  const [embeddingOllamaUrl, setEmbeddingOllamaUrl] = useState("http://127.0.0.1:11434");
+  const [embeddingOllamaModel, setEmbeddingOllamaModel] = useState("nomic-embed-text");
   const [embeddingDimensions, setEmbeddingDimensions] = useState(384);
   const [embeddingContextSize, setEmbeddingContextSize] = useState(512);
   const [previewGoal, setPreviewGoal] = useState("summarize the current project notes");
@@ -4883,9 +4885,32 @@ const RagSurface = () => {
           : typeof persisted.embedding_context_size === "number"
             ? persisted.embedding_context_size
             : 512;
-      setEmbeddingMode(p.embedding_backend === "hashing" && !modelPath ? "hash" : "model");
+      const ollamaUrl =
+        typeof effective.embedding_ollama_url === "string"
+          ? effective.embedding_ollama_url
+          : typeof persisted.embedding_ollama_url === "string"
+            ? persisted.embedding_ollama_url
+            : "http://127.0.0.1:11434";
+      const ollamaModel =
+        typeof effective.embedding_ollama_model === "string"
+          ? effective.embedding_ollama_model
+          : typeof persisted.embedding_ollama_model === "string"
+            ? persisted.embedding_ollama_model
+            : "nomic-embed-text";
+      const hasOllamaSetting =
+        (typeof effective.embedding_ollama_model === "string" && effective.embedding_ollama_model.trim().length > 0) ||
+        (typeof persisted.embedding_ollama_model === "string" && persisted.embedding_ollama_model.trim().length > 0);
+      setEmbeddingMode(
+        p.embedding_backend === "ollama" || hasOllamaSetting
+          ? "ollama"
+          : p.embedding_backend === "llama.cpp" || Boolean(modelPath)
+            ? "llama_cpp"
+            : "hash",
+      );
       setEmbeddingBinary(binaryPath);
       setEmbeddingModelPath(modelPath);
+      setEmbeddingOllamaUrl(ollamaUrl);
+      setEmbeddingOllamaModel(ollamaModel);
       setEmbeddingDimensions(dims);
       setEmbeddingContextSize(context);
       setError(null);
@@ -4934,13 +4959,33 @@ const RagSurface = () => {
         const res = await updateRuntimeSettings({
           embedding_llama_cpp_binary: "",
           embedding_model_path: "",
-          embedding_dimensions: 96,
+          embedding_ollama_url: "",
+          embedding_ollama_model: "",
+          embedding_dimensions: 384,
           embedding_context_size: 512,
         });
         setToast(
           res.restart_required
             ? "RAG saved to hash fallback. Restart Ordo to activate it."
             : "RAG is using hash fallback.",
+        );
+      } else if (embeddingMode === "ollama") {
+        if (!embeddingOllamaModel.trim()) {
+          setToast("Ollama embedding model is required.");
+          return;
+        }
+        const res = await updateRuntimeSettings({
+          embedding_llama_cpp_binary: "",
+          embedding_model_path: "",
+          embedding_ollama_url: embeddingOllamaUrl.trim() || "http://127.0.0.1:11434",
+          embedding_ollama_model: embeddingOllamaModel.trim(),
+          embedding_dimensions: Math.max(8, Math.floor(embeddingDimensions) || 384),
+          embedding_context_size: Math.max(128, Math.floor(embeddingContextSize) || 512),
+        });
+        setToast(
+          res.restart_required
+            ? "Ollama embedding model saved. Restart Ordo to activate it."
+            : "Ollama embedding model saved.",
         );
       } else {
         if (!embeddingBinary.trim() || !embeddingModelPath.trim()) {
@@ -4950,6 +4995,8 @@ const RagSurface = () => {
         const res = await updateRuntimeSettings({
           embedding_llama_cpp_binary: embeddingBinary.trim(),
           embedding_model_path: embeddingModelPath.trim(),
+          embedding_ollama_url: "",
+          embedding_ollama_model: "",
           embedding_dimensions: Math.max(8, Math.floor(embeddingDimensions) || 384),
           embedding_context_size: Math.max(128, Math.floor(embeddingContextSize) || 512),
         });
@@ -5016,10 +5063,17 @@ const RagSurface = () => {
             </Button>
             <Button
               size="sm"
-              variant={embeddingMode === "model" ? "primary" : "secondary"}
-              onClick={() => setEmbeddingMode("model")}
+              variant={embeddingMode === "ollama" ? "primary" : "secondary"}
+              onClick={() => setEmbeddingMode("ollama")}
             >
-              Embedding model
+              Ollama
+            </Button>
+            <Button
+              size="sm"
+              variant={embeddingMode === "llama_cpp" ? "primary" : "secondary"}
+              onClick={() => setEmbeddingMode("llama_cpp")}
+            >
+              llama.cpp
             </Button>
             <Button
               size="sm"
@@ -5030,7 +5084,26 @@ const RagSurface = () => {
               Save
             </Button>
           </div>
-          {embeddingMode === "model" && (
+          {embeddingMode === "ollama" && (
+            <div className="grid gap-2" style={{ marginTop: 12 }}>
+              <TextInput
+                value={embeddingOllamaUrl}
+                onChange={setEmbeddingOllamaUrl}
+                placeholder="http://127.0.0.1:11434"
+              />
+              <TextInput
+                value={embeddingOllamaModel}
+                onChange={setEmbeddingOllamaModel}
+                placeholder="nomic-embed-text"
+              />
+              <TextInput
+                value={String(embeddingDimensions)}
+                onChange={(value) => setEmbeddingDimensions(Math.max(8, Number(value) || 0))}
+                placeholder="384"
+              />
+            </div>
+          )}
+          {embeddingMode === "llama_cpp" && (
             <div className="grid gap-2" style={{ marginTop: 12 }}>
               <TextInput
                 value={embeddingBinary}

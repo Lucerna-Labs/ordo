@@ -43,8 +43,8 @@ seeded or routed by default.
 - Always keep `main` compact and useful.
 - Add focused collections only when the request needs them.
 - Prefer a few relevant chunks over a large mixed context dump.
-- Use the hashing fallback when no embedding model is configured.
-- Prefer an embedding model when configured and available.
+- Use the stronger local hashing fallback when no embedding model is configured.
+- Prefer an Ollama or llama.cpp embedding model when configured and available.
 - Tell the user when retrieval is operating in hash-fallback mode and an
   embedding model would improve results.
 
