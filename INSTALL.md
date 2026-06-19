@@ -37,16 +37,43 @@ git pull
 
 ## Linux
 
-Install Git first if needed, then clone Ordo:
+Install Git first if needed:
 
 ```bash
-cd ~/Desktop
-git clone https://github.com/Lucerna-Labs/ordo.git
-cd ordo
-./Install-Ordo-Linux.sh
+sudo apt update
+sudo apt install -y git build-essential pkg-config curl libssl-dev \
+  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev
 ```
 
-That is the recommended Linux entry point.
+Then use the GitHub bootstrap installer. It works whether `~/ordo` is missing
+or already exists as a Git clone:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
+```
+
+If `curl` is not available:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
+```
+
+That is the recommended Linux entry point. It updates an existing `~/ordo`
+clone with `git pull --ff-only`, or clones Ordo fresh if the folder is missing.
+It will not delete or overwrite a non-Git folder named `~/ordo`.
+
+To install somewhere else:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | ORDO_DIR="$HOME/Desktop/ordo" bash
+```
+
+If you are already inside an updated Ordo project folder, you can still run:
+
+```bash
+./Install-Ordo-Linux.sh
+```
 
 On Debian-family systems, including Pop!_OS, Ubuntu, Linux Mint, and Debian,
 the installer builds the `.deb` package and installs it with `dpkg -i`. It uses
@@ -102,4 +129,3 @@ EGL/GLES, and `pkg-config` packages.
 - The built Studio UI bundle.
 - A launcher that starts the runtime, opens Servo, and releases port `4141`
   when Ordo closes.
-

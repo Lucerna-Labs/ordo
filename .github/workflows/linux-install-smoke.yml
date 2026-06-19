@@ -1,0 +1,72 @@
+name: Linux Install Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/linux-install-smoke.yml"
+      - ".gitattributes"
+      - "Build-Ordo-Linux-*.sh"
+      - "Install-Ordo-Linux*.sh"
+      - "packaging/linux/**"
+      - "scripts/install-linux-from-github.sh"
+      - "INSTALL.md"
+      - "README.md"
+      - "README-BETA.md"
+      - "ordo-studio/LINUX_BUILD.md"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: linux install scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.93.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check script syntax
+        run: |
+          bash -n Build-Ordo-Linux-Deb.sh
+          bash -n Build-Ordo-Linux-Portable.sh
+          bash -n Build-Ordo-Linux-AppImage.sh
+          bash -n Install-Ordo-Linux-Deb.sh
+          bash -n Install-Ordo-Linux.sh
+          bash -n Launch-Ordo-Servo.sh
+          bash -n Install-Linux-Desktop-Shortcut.sh
+          bash -n packaging/linux/ordo-launcher
+          bash -n packaging/linux/launch-ordo-portable
+          bash -n packaging/linux/install-portable-desktop-shortcut
+          bash -n packaging/linux/AppRun
+          bash -n scripts/install-linux-from-github.sh
+
+      - name: Check direct installers
+        run: |
+          ./Build-Ordo-Linux-Deb.sh --check
+          ./Build-Ordo-Linux-Portable.sh --check
+          ./Build-Ordo-Linux-AppImage.sh --check
+          ./Install-Ordo-Linux-Deb.sh --check
+          ./Install-Ordo-Linux.sh --check
+          ./Launch-Ordo-Servo.sh --check
+
+      - name: Check GitHub bootstrap fresh clone
+        run: |
+          tmp_home="$(mktemp -d)"
+          ORDO_REPO_URL="$GITHUB_WORKSPACE" \
+            ORDO_DIR="$tmp_home/ordo" \
+            bash scripts/install-linux-from-github.sh --check
+          test -f "$tmp_home/ordo/Install-Ordo-Linux.sh"
+
+      - name: Check GitHub bootstrap existing clone update
+        run: |
+          tmp_home="$(mktemp -d)"
+          ORDO_REPO_URL="$GITHUB_WORKSPACE" \
+            ORDO_DIR="$tmp_home/ordo" \
+            bash scripts/install-linux-from-github.sh --check
+          ORDO_REPO_URL="$GITHUB_WORKSPACE" \
+            ORDO_DIR="$tmp_home/ordo" \
+            bash scripts/install-linux-from-github.sh --check

@@ -81,15 +81,13 @@ related distros it builds and installs the `.deb` with `dpkg -i`. On other
 distros it builds the AppImage path:
 
 ```bash
-git clone https://github.com/Lucerna-Labs/ordo.git
-cd ordo
-./Install-Ordo-Linux.sh
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 
-If you already have a copy of Ordo, `cd` into that folder instead:
+That command updates an existing `~/ordo` Git clone or clones Ordo fresh. If you
+are already inside an updated Ordo project folder, run:
 
 ```bash
-cd ~/Desktop/ordo
 ./Install-Ordo-Linux.sh
 ```
 

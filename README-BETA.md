@@ -86,16 +86,17 @@ sudo apt install -y git build-essential pkg-config curl libssl-dev \
   libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
   libegl1-mesa-dev libgles2-mesa-dev
 
-git clone https://github.com/Lucerna-Labs/ordo.git
-cd ordo
-./Install-Ordo-Linux.sh
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 
 After install, open **Ordo** from the Pop!_OS app menu.
 
-If you already have a copy of Ordo, first open a terminal in that project
-folder, or `cd` into it. The commands must be run from the folder that contains
-`Build-Ordo-Linux-Deb.sh`.
+The bootstrap command updates an existing `~/ordo` Git clone or clones Ordo
+fresh. It does not delete or overwrite a non-Git folder named `~/ordo`.
+
+If you already have an updated copy of Ordo, first open a terminal in that
+project folder, or `cd` into it. The command must be run from the folder that
+contains `Install-Ordo-Linux.sh`.
 
 Example if Ordo is on your Desktop:
 
@@ -143,11 +144,15 @@ cd /path/to/ordo
 ## Run On Other Linux Distros
 
 The `.deb` package is for Debian-family systems. For Fedora, Arch, openSUSE,
-and other desktop Linux distros, build the AppImage first:
+and other desktop Linux distros, start with the same bootstrap installer:
 
 ```bash
-git clone https://github.com/Lucerna-Labs/ordo.git
-cd ordo
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
+```
+
+For direct AppImage builds from inside an updated Ordo folder:
+
+```bash
 ./Build-Ordo-Linux-AppImage.sh
 ./dist/Ordo-0.1.0-x86_64.AppImage
 ```
