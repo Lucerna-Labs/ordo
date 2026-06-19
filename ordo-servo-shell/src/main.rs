@@ -357,6 +357,9 @@ mod servo_engine {
                                 ))),
                                 state.cursor_position.get(),
                             );
+                            // Servo applies the scroll asynchronously; nudge a
+                            // redraw so the scrolled frame is actually presented.
+                            state.window.request_redraw();
                         }
                     }
                 }
@@ -437,6 +440,12 @@ mod servo_engine {
         };
         let key = match &event.logical_key {
             winit::keyboard::Key::Character(text) => servo::Key::Character(text.to_string()),
+            // winit models the space bar as a named key, but the W3C `key` value
+            // (and what Servo inserts as text) is a literal " ". Without this,
+            // spaces are silently dropped while typing.
+            winit::keyboard::Key::Named(winit::keyboard::NamedKey::Space) => {
+                servo::Key::Character(" ".to_string())
+            }
             winit::keyboard::Key::Named(named) => format!("{named:?}")
                 .parse::<servo::Key>()
                 .unwrap_or(servo::Key::Named(servo::NamedKey::Unidentified)),
