@@ -68,6 +68,13 @@ runtime, waits for `127.0.0.1:4141/health`, opens the embedded Servo app window,
 and stops the runtime when the Servo window closes. It does not launch Chrome,
 Firefox, or another external browser.
 
+To create a Pop!_OS/GNOME app shortcut that does not open a terminal window:
+
+```bash
+chmod +x ./Install-Linux-Desktop-Shortcut.sh
+./Install-Linux-Desktop-Shortcut.sh
+```
+
 ## What This Beta Includes
 
 - Servo self-rendering app window with no browser chrome.

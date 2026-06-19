@@ -54,6 +54,13 @@ chmod +x ./Launch-Ordo-Servo.sh
 
 That opens the embedded Servo app window, not an external browser.
 
+To create a Linux desktop/app shortcut:
+
+```bash
+chmod +x ./Install-Linux-Desktop-Shortcut.sh
+./Install-Linux-Desktop-Shortcut.sh
+```
+
 ## Current Desktop Architecture
 
 Ordo no longer uses the old Tauri desktop host. The previous `src-tauri`
@@ -69,6 +76,8 @@ Current shape:
 - `Launch-Ordo-Servo.ps1`: visible diagnostic launcher for troubleshooting.
 - `Launch-Ordo-Servo.sh`: Linux Servo launch path for Pop!_OS/Ubuntu-style
   systems.
+- `Install-Linux-Desktop-Shortcut.sh`: creates a Linux app/desktop shortcut
+  with `Terminal=false`.
 - `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make
   GitHub source ZIP downloads runnable.
 
