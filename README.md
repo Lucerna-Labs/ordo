@@ -29,6 +29,11 @@ The launcher builds `ordo-studio`, starts the Ordo runtime, waits for
 `/health`, serves the built UI from Ordo's own localhost server, and opens the
 embedded Servo app window.
 
+GitHub source ZIP downloads include a compact Windows bootstrap payload at
+`bootstrap/ordo-windows-portable.zip`. On first launch, `Launch-Ordo-Servo.ps1`
+extracts it if `bin/portable` or `ordo-studio/dist` is missing, so the source
+ZIP can launch without requiring a full Rust/Servo rebuild.
+
 Default local runtime URL:
 
 ```text
@@ -47,6 +52,8 @@ Current shape:
 - `ordo-studio`: React UXI built to `ordo-studio/dist`.
 - `ordo-servo-shell`: custom Servo embedder with no address bar or tab strip.
 - `Launch-Ordo-Servo.ps1` / `.cmd`: the supported beta launch path.
+- `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make
+  GitHub source ZIP downloads runnable.
 
 Vite is only a development convenience. Servo needs an HTTP origin for module
 scripts, and Ordo now provides that origin itself.

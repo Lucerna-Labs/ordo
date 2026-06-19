@@ -86,6 +86,10 @@ Runnable lightweight copies may include this small portable binary folder:
 When those files exist, `Launch-Ordo-Servo.ps1` uses them instead of requiring
 Cargo to rebuild the runtime and Servo shell on first launch.
 
+GitHub source ZIP downloads also include `bootstrap/ordo-windows-portable.zip`.
+If `bin/portable` or `ordo-studio/dist` is missing, the launcher extracts that
+bootstrap payload automatically before starting Ordo.
+
 The current local laptop copy made during beta prep is named `Jesse--Beta`.
 
 ## Validate The Build

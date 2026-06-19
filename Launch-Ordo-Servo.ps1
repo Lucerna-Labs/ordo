@@ -19,6 +19,7 @@ $runtimeErr = Join-Path $ordoRoot "runtime-servo.err.log"
 $servoOut = Join-Path $ordoRoot "servo-shell.out.log"
 $servoErr = Join-Path $ordoRoot "servo-shell.err.log"
 $servoShellDir = Join-Path $ordoRoot "ordo-servo-shell"
+$bootstrapPortableZip = Join-Path $ordoRoot "bootstrap\ordo-windows-portable.zip"
 $portableBinDir = Join-Path $ordoRoot "bin\portable"
 $portableRuntimeExe = Join-Path $portableBinDir "ordo.exe"
 $portableServoShellExe = Join-Path $portableBinDir "ordo-servo-shell.exe"
@@ -133,6 +134,19 @@ $env:ORDO_ENABLE_AVATAR = "1"
 
 $studioIndex = Join-Path $studioDir "dist\index.html"
 $studioNodeModules = Join-Path $studioDir "node_modules"
+
+if (
+    (Test-Path -LiteralPath $bootstrapPortableZip) -and
+    (
+        -not (Test-Path -LiteralPath $portableRuntimeExe) -or
+        -not (Test-Path -LiteralPath $portableServoShellExe) -or
+        -not (Test-Path -LiteralPath $studioIndex)
+    )
+) {
+    Write-Host "Expanding bundled Ordo portable bootstrap..." -ForegroundColor Cyan
+    Expand-Archive -LiteralPath $bootstrapPortableZip -DestinationPath $ordoRoot -Force
+}
+
 $hasPortableRuntime = Test-Path -LiteralPath $portableRuntimeExe
 $hasPortableServoShell = Test-Path -LiteralPath $portableServoShellExe
 $needsStudioBuild = -not $SkipBuild -and -not (Test-Path -LiteralPath $studioIndex)
