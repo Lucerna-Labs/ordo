@@ -42,6 +42,32 @@ directly only when you want a visible diagnostic console.
 When the Servo window closes, the launcher stops the Ordo runtime so port
 `4141` is released.
 
+## Run On Pop!_OS / Linux
+
+The Windows `.cmd`, `.vbs`, and `.ps1` launchers do not run Ordo on Linux. Use
+the Linux Servo launcher:
+
+```bash
+cd /path/to/ordo
+chmod +x ./Launch-Ordo-Servo.sh
+./Launch-Ordo-Servo.sh
+```
+
+If the Servo shell has not been built on that machine yet, install the native
+build/runtime dependencies first:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential pkg-config curl libssl-dev \
+  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev
+```
+
+The Linux launcher builds the Studio bundle when needed, starts the Ordo
+runtime, waits for `127.0.0.1:4141/health`, opens the embedded Servo app window,
+and stops the runtime when the Servo window closes. It does not launch Chrome,
+Firefox, or another external browser.
+
 ## What This Beta Includes
 
 - Servo self-rendering app window with no browser chrome.

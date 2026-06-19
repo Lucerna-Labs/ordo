@@ -45,6 +45,15 @@ Default local runtime URL:
 http://127.0.0.1:4141
 ```
 
+On Pop!_OS / Linux, use the Servo launcher instead of the Windows launcher:
+
+```bash
+chmod +x ./Launch-Ordo-Servo.sh
+./Launch-Ordo-Servo.sh
+```
+
+That opens the embedded Servo app window, not an external browser.
+
 ## Current Desktop Architecture
 
 Ordo no longer uses the old Tauri desktop host. The previous `src-tauri`
@@ -58,6 +67,8 @@ Current shape:
 - `ordo-servo-shell`: custom Servo embedder with no address bar or tab strip.
 - `Launch-Ordo-Servo.vbs` / `.cmd`: the supported no-console beta launch path.
 - `Launch-Ordo-Servo.ps1`: visible diagnostic launcher for troubleshooting.
+- `Launch-Ordo-Servo.sh`: Linux Servo launch path for Pop!_OS/Ubuntu-style
+  systems.
 - `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make
   GitHub source ZIP downloads runnable.
 
