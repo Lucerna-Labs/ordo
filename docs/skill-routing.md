@@ -23,8 +23,7 @@ over the codebase) showed the concern is valid, and sharper than the framing.
 2. **Markdown `SKILL.md` playbooks** — `user-files/skills/<id>/` (the
    Claude-Code-style procedural skills: `ordo-build-*`, `rust-vibe-coder`,
    `ordo_rust_architecture`, …). Discovered by a dynamic directory scan, but:
-   - surfaced **only to the Studio UI** (`ordo-studio/src-tauri/src/backend.rs`
-     `list_local_capabilities` → `local_skill_descriptors`, line ~497) and
+   - historically surfaced only through the old Studio backend parser and
      lifecycle-managed by `skills.list/install/delete` (MaintenanceProvider,
      `ordo-mcp-host/src/lib.rs`);
    - **not advertised on the runtime bus**, so the seeder/self-knowledge RAG do

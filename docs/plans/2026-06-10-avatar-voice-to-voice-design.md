@@ -56,7 +56,7 @@ tap → record → tap → POST /api/voice/transcribe ─► text
   Appearance/Persona customization UI, barge-in / interrupt.
 
 ## Risks
-- Mic permission inside the WebView2 pop-out — handle denial gracefully with a
+- Mic permission inside the Servo/avatar pop-out — handle denial gracefully with a
   clear message.
 - `getUserMedia` needs a secure context — `http://127.0.0.1:4141` (localhost) is
   treated as secure, so OK.

@@ -1,167 +1,171 @@
 # Ordo User Guide
 
-This guide explains how to use Ordo from the operator point of view.
+This guide explains Ordo from the operator point of view.
 
 ## Start Ordo
 
-Start the runtime:
+On Windows, use the Servo launcher:
 
 ```powershell
-cargo run -p ordo-cli -- serve
+.\Launch-Ordo-Servo.ps1
 ```
 
-Start the desktop UXI:
+Or double-click:
 
-```powershell
-cd ordo-studio
-npm install
-npm run tauri:dev
+```text
+Launch-Ordo-Servo.cmd
 ```
 
-The runtime control API runs locally at:
+The launcher starts the runtime, serves the Studio bundle from the local Ordo
+control API, and opens the embedded Servo shell.
+
+Default local URL:
 
 ```text
 http://127.0.0.1:4141
 ```
 
-## Main Tabs
+## Main Idea
 
-## What Makes Ordo Different
-
-Ordo is designed so the model is useful without being given uncontrolled hands.
+Ordo is designed so the assistant is useful without being given uncontrolled
+access to the computer. It works through modes, skills, policies, review gates,
+logs, and explicit user approval.
 
 Important concepts:
 
-- **Gateway with fallback**: Ordo routes provider/model access through its own
-  local gateway and fallback model/profile logic.
-- **P2P and NAT/cloud connection layer**: Ordo is designed to connect directly
-  to local devices, apps, NVRs, and companion services when possible, then fall
-  back through ICE/STUN/TURN-style traversal or relay paths when needed.
-- **Post-quantum handshakes**: direct device/app connections are planned around
-  post-quantum handshake support, giving Ordo a safer foundation for local and
-  hybrid network communication.
-- **Encrypted secrets**: API keys and app credentials should be stored locally
-  through the secrets/credential system, not typed into prompts.
-- **Agent has no hands**: the assistant cannot directly operate the machine. It
-  requests capability calls, and Ordo applies mode rules, hooks, review gates,
-  and runtime policies.
-- **Planner**: the Planner turns a request into structured work before tools
-  run.
-- **Strainer**: untrusted text and web/tool output can be normalized, stripped,
-  classified, and taint-tracked to reduce prompt-injection risk.
-- **Self-learning tree**: Dreaming, diagnostic findings, corrections, and
-  approved lessons are treated as reviewable branches of memory.
-- **Always-on diagnostic mode**: diagnostic work stays local-only and isolated
-  from general assistant memory.
-- **Cross-mode consultation**: one mode can ask another mode's agent for help
-  without directly reading that mode's private RAG.
-- **Swarm capability**: bounded subagents can participate in a task, but their
-  work remains scoped and logged.
-- **Rust Vibe Coder**: Rust project work gets its own coding mode and skill so
-  architecture tracing, warning cleanup, tests, and public-release hygiene are
-  handled consistently.
+- Provider setup controls which local or cloud models Ordo can use.
+- General mode is the default everyday assistant mode.
+- Agent Teams are for bounded multi-agent work.
+- Tech Specialist handles setup, diagnostics, installs, and maintenance.
+- Automation handles routines, hooks, cron-style schedules, webhooks, local
+  events, and dreaming reviews.
+- Remote Communication handles email and future communication channels.
+- RAG and persistent memory help Ordo remember and retrieve useful local
+  context.
+- The artifact side view lets agents show files and outputs while chat stays
+  visible.
 
-### Assistant
+## Assistant
 
 Use Assistant for normal conversation and task steering.
 
 The assistant surface includes:
 
+- session selector
 - mode selector
 - workspace selector
-- cross-mode consultation selector
 - model selector
-- thinking level selector
+- thinking selector
 - context usage indicator
+- Agent Team working indicator when a team is active
 - chat input
 - file/image/folder upload controls
-- export controls
+- dictation controls
 - stop/interrupt behavior while a task is running
+- artifact side-view support
 
-Ordo's UXI is meant to keep controls visible. If a workflow can be paused,
-tested, edited, deleted, refreshed, inspected, uploaded to, exported from, or
-logged, the operator should be able to find that control in the relevant tab
-without using a hidden CLI path.
+Voice output and avatar-specific controls belong on the Avatar surface. The
+assistant chatbox should only keep dictation and normal chat controls.
 
-### Provider
+## Provider
 
 Use Provider to configure local and cloud models.
 
-Ordo is designed to prefer:
+Supported provider directions include:
 
-- local provider detection
-- OpenAI-compatible APIs
-- environment-backed credentials
-- custom provider templates
+- Ollama local
+- Ollama Cloud/OpenAI-compatible
+- LM Studio local
+- OpenAI-compatible custom endpoints
+- cloud providers configured through Ordo's credential system
 
-Local providers should not require users to paste API keys into Ordo.
+When switching local providers or models, Ordo should unload/eject the previous
+active local model before selecting the next one. This prevents LM Studio and
+Ollama from leaving multiple heavy models loaded at the same time.
 
-For Ollama Cloud models, use the `Ollama Cloud Models` provider only after
-signing in to Ollama locally and pulling/selecting a `*-cloud` model such as
-`gpt-oss:120b-cloud`. This template intentionally talks to the local
-OpenAI-compatible Ollama endpoint at `http://localhost:11434/v1`. Do not use
-`https://ollama.com/api` in that template; that is Ollama's native cloud API
-surface. The separate `Ollama Cloud API` provider talks directly to Ollama's
-OpenAI-compatible cloud endpoint at `https://ollama.com/v1` using your
-`OLLAMA_API_KEY`.
+## Modes
 
-### Modes
+Modes are scoped work environments. Each mode can have its own behavior,
+memory, tools, and skills.
 
-Modes are scoped work environments. Each mode can have its own memory, RAG,
-tool access, storage limits, and behavior.
+General mode should be selected by default when Ordo launches.
 
-Common mode types:
+Common mode directions:
 
 - General
-- Rust Vibe Coder
-- Coding
+- Rust/coding
 - Research
 - Security
-- Diagnostic
-- Dreaming
-- Writing
 - Business
+- Dreaming
+- Tech Specialist
 
-Modes can consult one another, but one mode should not directly read another
-mode's private RAG.
+Modes can consult one another, but one mode should not silently read another
+mode's private memory or RAG.
 
-### Hooks
+## Agent Teams
+
+Agent Teams let Ordo coordinate multiple specialist roles on a bounded task.
+
+Use Agent Teams when a job naturally benefits from multiple roles, such as:
+
+- planner
+- builder
+- reviewer
+- researcher
+- critic
+
+Small local models should use smaller teams and narrower tasks. Larger local
+models and flagship cloud models can handle richer team structures.
+
+Each team role should have its own instructions and relevant skills.
+
+## Skills
+
+Skills are instruction packs.
+
+Ordo supports:
+
+- global skills
+- per-mode skills
+- Tech Specialist maintenance skills
+- Agent Team setup skills
+
+This prevents the active assistant from being overloaded with every possible
+skill at once.
+
+## Automation
+
+Automation owns scheduled and event-driven work.
+
+Automation includes:
+
+- routines
+- hooks
+- cron-style jobs
+- heartbeats
+- webhooks
+- local events
+- dreaming reviews
+- bounded coding automation
+
+Automation should surface clear buttons for the automation type being created
+instead of hiding everything behind a single vague dropdown.
+
+## Hooks
 
 Hooks are lifecycle guardrails. They can run before or after important events
 such as tool use, permission requests, session starts, subagent starts, and
 compaction.
 
-Use hooks for rules like:
+Hooks now belong under Automation, and Tech Specialist should be able to help
+users create, inspect, and troubleshoot hooks.
 
-- deny risky file edits
-- warn before dependency changes
-- inject project-specific guidance
-- enforce review boundaries
+## Dreaming
 
-### Automation
+Dreaming is Ordo's review and self-learning lane.
 
-Automation is where scheduled and event-driven Ordo work is managed.
-
-Supported automation types:
-
-- cron-style schedules
-- heartbeats
-- routines
-- webhooks
-- local events
-- dreaming reviews
-- diagnostic sweeps
-- coding automation
-
-Coding automation is approval-gated. It can inspect a project, propose fixes,
-or prepare work plans. Risky writes, commits, and dependency changes require
-operator approval.
-
-### Dreaming
-
-Dreaming is Ordo's self-learning review mode.
-
-It reviews signals such as:
+It can review:
 
 - failed tasks
 - corrections
@@ -170,104 +174,104 @@ It reviews signals such as:
 - completed work
 - recurring issues
 
-Dreaming proposes lessons, but does not silently change the system.
+Dreaming can propose lessons. It should not silently rewrite durable memory or
+system behavior.
 
-### Diagnostic
+## Tech Specialist
 
-Diagnostic mode is for local-only system inspection.
+Tech Specialist is the user-friendly maintenance mode for Ordo.
 
-It can inspect:
+Ask Tech Specialist for help with:
 
-- runtime profile
-- storage budgets
+- diagnostics
 - logs
+- model/provider setup
 - MCP servers
-- skills
 - plugins
-- automation state
-- provider status
-- memory/RAG health
+- apps
+- skills
+- webhooks
+- automation
+- hooks
+- Agent Teams
+- avatar setup
+- SSH keys
+- API keys
+- local computer read/write tasks, when explicitly allowed
 
-When you ask it to, diagnostic mode can also maintain peripheral components
-through approved tools. That includes installing, deleting, repairing, trusting,
-quarantining, or re-authorizing MCP servers, skills, plugins, provider profiles,
-and related integrations when those maintenance tools are available.
+Tech Specialist should not see secrets directly. Secret entry and storage
+belong to dedicated vault/UI paths.
 
-Diagnostic mode is not allowed to silently rewrite Ordo's core runtime,
-security boundaries, hooks, or UXI. Those remain explicit operator-approved
-engineering work.
+Local computer access is denied by default. When access is needed, Ordo should
+use explicit allow/deny UI instead of treating natural language as permission.
 
-Diagnostic knowledge is isolated from normal assistant work.
+## Remote Communication
 
-### Skills, Plugins, And MCP
+Remote Communication is where users configure communication accounts.
 
-These are separate surfaces:
+Email accounts should have account-level access controls:
 
-- Skills are instruction/workflow packs.
-- Plugins are installable provider packages.
-- MCP servers are external tool servers with trust state.
+- none
+- read
+- write
 
-Keep them separate to avoid tool catalog confusion.
+Ordo may also have its own remote communication identity if the operator wants
+remote instructions or remote status messages. Signal and Telegram are planned
+directions. SMS is intentionally excluded.
 
-Ordo treats MCP servers and plugins as untrusted until they are inspected and
-graduated. The MCP surface uses research-informed defense-in-depth measures:
-signed lockfiles, capability drift checks, trust states, quarantine,
-re-authorization, sandboxed workers, provenance tracking, pre/post-call
-scanning, redacted findings, and audit logs. In normal use, this means a new or
-changed MCP should be reviewed before it is trusted.
+## Avatar
 
-### Review
+Avatar is the place for voice output, avatar behavior, appearance, and
+companion-style customization.
+
+Tech Specialist should be able to help configure the Avatar surface because
+avatar setup can be difficult even for technical users.
+
+## Review
 
 Review is the human approval lane. Sensitive actions can require approval
 before they complete.
 
-### Settings
+Use Review when a workflow needs explicit human confirmation, edits, or denial.
 
-Settings holds general runtime, UI, connection, notification, hook, and local
-configuration controls.
+## Settings
 
-### Logs And Events
+Settings belongs at the bottom of the rail. It should hold less-common setup
+surfaces and manual controls for users who prefer to configure things
+themselves.
 
-Ordo surfaces logs and events so operators can understand what happened during
-a workflow. Logs should show user actions, capability calls, provider choices,
-policy denials, retries, errors, and recovery information where relevant.
+Common settings can include:
 
-### Docs And Dev Docs
+- avatar
+- plugins
+- builds
+- MCP
+- projects
+- Agent Teams
+- extensions
 
-Docs are for operator instructions. Dev Docs are for architecture, build, and
-extension guidance.
+## Logs And Events
 
-## Sessions
+Ordo should log:
 
-Ordo supports multiple sessions. The session selector lets you move between
-new and older conversations.
+- user actions
+- provider choices
+- model lifecycle decisions
+- tool calls
+- capability denials
+- permission decisions
+- retries
+- failures
+- recovery steps
+- automation runs
+- Agent Team activity
 
-Use a new session when switching projects or mode scopes.
+Logs should not include secrets.
 
-## Workspaces
+## Validation
 
-Workspace selection lets Ordo operate against a selected local project instead
-of only its internal runtime memory.
-
-Local workspaces should be sandboxed to the selected project folder.
-
-## Exporting Work
-
-Chat and session exports are intended for markdown summaries, work logs, and
-handoff records.
-
-## Voice
-
-Ordo includes hooks for speech output through compatible providers. Voice
-features require provider support and local configuration.
-
-## Pre-Ship Health Check
-
-Run the operator simulator to make sure Ordo is healthy:
+Use the standard test script when checking an Ordo build:
 
 ```powershell
-cargo run -p ordo-operator-sim -- --origin http://127.0.0.1:4141
+.\Test-Ordo-Functions.ps1 -Suite standard -KeepGoing
 ```
-
-The report will show whether runtime, modes, MCP, automation, sessions, and
-assistant turns are working.

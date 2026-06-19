@@ -10,7 +10,7 @@
 
 - Editorial: insightful, structured, grounded in a clear angle.
 - Product marketing: outcome-driven, crisp, proof-aware.
-- SEO content: useful, scannable, intent-matched, naturally keyword-aware.
+- Reference content: useful, scannable, intent-matched, and concise.
 - CRM/email: timely, personal, friction-light, action-forward.
 - Social: compressed, distinctive, and fast to parse.
 

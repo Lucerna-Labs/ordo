@@ -68,9 +68,8 @@ Every credential picks one of:
   - `GET /api/cloud/credentials`
   - `POST /api/cloud/credentials`
   - `DELETE /api/cloud/credentials`
-- Built-in dashboard at `/` includes a **Cloud Credentials** card.
-- Tauri studio includes a **Cloud** tab backed by the same control-API
-  routes.
+- The Studio/Provider surfaces are backed by the same control-API routes.
+- The embedded Servo shell loads those surfaces from Ordo's local server.
 
 ## Future extensions
 

@@ -115,11 +115,10 @@ seeds fresh installs.)
 | `sandbox-wasm` | Compiles in `WasmtimeSandbox` for `code.run`. |
 | `native-exec` | Compiles in `SubprocessSandbox` for `code.run_native`. |
 
-**The portable launcher** (`Launch-Ordo-Portable.ps1`) builds with
-`--features sandbox-wasm,native-exec` and sets `ORDO_CODE_ALLOW_NATIVE=true`, so
-this checkout has code execution **enabled**. To disable native execution while
-keeping the WASM runner + workspace read/write, set `ORDO_CODE_ALLOW_NATIVE=false`
-in the launcher (or remove `native-exec` from the build).
+The Servo launcher is the supported beta launch path. Native execution remains
+controlled by the `native-exec` feature and `ORDO_CODE_ALLOW_NATIVE`. To disable
+native execution while keeping the WASM runner and workspace read/write, set
+`ORDO_CODE_ALLOW_NATIVE=false` or build without `native-exec`.
 
 ## Known limitations / follow-ups
 

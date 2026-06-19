@@ -3,8 +3,10 @@
 This file records how the inherited Codex Claw runtime was built, what worked,
 what did not work at first, and what made each slice stable.
 
-Ordo starts from that baseline and redirects the product toward
-creative pipelines, workflows, SEO packaging, and CMS operations.
+Ordo starts from that baseline and now redirects the product toward a
+local-first assistant runtime, embedded Servo shell, provider/model lifecycle,
+Agent Teams, Tech Specialist, automation, remote communication, memory, and
+RAG.
 
 ## 2026-04-24 (PM): Concerns 1 + 2 Landing + Mapping Homework
 

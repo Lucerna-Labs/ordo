@@ -123,7 +123,7 @@ Install:
 
 - Rust stable
 - Node.js and npm
-- Tauri prerequisites for your OS
+- Servo shell build prerequisites for your OS
 
 Check Rust:
 
@@ -154,9 +154,12 @@ http://127.0.0.1:4141
 ## Run The Studio
 
 ```powershell
-cd ordo-studio
-npm run tauri:dev
+.\Launch-Ordo-Servo.ps1
 ```
+
+For frontend-only development, build the Studio bundle from `ordo-studio` and
+let the Ordo runtime serve it from the local control API. Vite may still be used
+as a development convenience, but it is not a runtime dependency.
 
 ## Required Checks
 

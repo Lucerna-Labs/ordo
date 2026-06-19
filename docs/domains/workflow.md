@@ -42,6 +42,7 @@ handoffs.
 
 ## Boundaries
 
-- brief creation belongs to `creative.*`
-- SEO checks belong to `seo.*`
-- CMS publishing and entry payloads belong to `cms.*`
+- Workflow is currently a supporting automation/review concept, not a product
+  lane for creative, SEO, or CMS work.
+- New workflow capabilities should support Ordo automation, review, remote
+  communication, artifacts, and operator approvals.

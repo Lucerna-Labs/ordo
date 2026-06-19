@@ -1,205 +1,236 @@
 # Control API
 
-This document describes the local control API that Ordo exposes for a
-future UI and operator tooling.
+The Ordo control API is the local operator surface for the runtime and the
+Studio UXI.
 
-## Purpose
+It is not a heavy central gateway and it is not a second orchestration path. It
+wraps the runtime, bus, provider, memory, review, security, and capability
+systems behind local HTTP endpoints.
 
-The control API is not a heavy central gateway. It is a thin local operator
-surface that talks to the existing bus and capability system.
+## Default Binding
 
-Its job is to give a UI or local automation a stable way to:
-- read runtime profile and storage state
-- update persisted runtime settings
-- inspect capabilities
-- manage pinned memory
-- manage working-memory notes
-- manage build ledgers for the native Ordo build spine
-- inspect remembered self-heal cases
-- promote remembered self-heal fixes into pinned memory
-- forget stale remembered self-heal fixes
-- configure optional local self-heal model settings
+```text
+http://127.0.0.1:4141
+```
 
-It now also serves the built Studio bundle at:
+The bind can be changed with:
+
+```text
+ORDO_CONTROL_API_BIND
+```
+
+Set it to an empty value to disable the API.
+
+## Static Studio Serving
+
+The control API serves the built Studio bundle so Servo can load Ordo over a
+localhost HTTP origin:
+
 - `GET /`
 - `GET /index.html`
 - `GET /assets/*`
 
+This replaces the old Vite-at-runtime workaround. Vite remains useful for
+frontend development, but the production/beta app is served by Ordo itself.
+
 The built-in dashboard remains available at:
+
 - `GET /dashboard`
 
-That dashboard stays intentionally thin. It uses the same local API that future
-automation or a separate frontend would use instead of reading SQLite directly
-or inventing a second control path.
-
-## Default binding
-
-By default, the runtime binds the control API to:
-- `127.0.0.1:4141`
-
-This can be changed with:
-- `ORDO_CONTROL_API_BIND`
-
-Set the variable to an empty string to disable the control API.
-
-In containers, the recommended bind is:
-- `0.0.0.0:4141`
-
-## Endpoints
-
-### Dashboard
-- `GET /dashboard`
-
-Serves the built-in operator dashboard for:
-- runtime profile and budget inspection
-- persisted settings updates
-- capability inventory display
-- live RAG collection inventory display
-- RAG routing preview with inferred or manually forced collections
-- pinned-memory management
-- working-memory note management
-- remembered self-heal case review
-- remembered self-heal fix promotion into pinned memory
-- remembered self-heal fix replay through the live repair lane
-- remembered self-heal fix export into an operator-friendly repair pack
-- self-heal model configuration
-- native build-spine ledger inspection and gate submission
+## Core Runtime Endpoints
 
 ### Health
+
 - `GET /health`
 
-Returns a simple status payload.
+Returns the local runtime health payload.
 
-### Capability inventory
+### Capability Inventory
+
 - `GET /api/capabilities`
 
-Returns the live capability descriptors so a UI can discover what the runtime
-currently supports.
+Returns the live capability descriptors currently exposed by the runtime.
 
-### RAG collections
-- `GET /api/rag/collections`
+### Runtime Profile
 
-Returns the live retrieval collection inventory with:
-- collection name and label
-- collection group
-- document count
-- chunk count
-- a small sample of indexed document titles
-
-If retrieval is disabled in the current profile, the endpoint still responds so
-the dashboard can stay up and explain that the RAG lane is unavailable.
-
-### RAG preview
-- `GET /api/rag/preview?query=...`
-- `GET /api/rag/preview?query=...&collections=main,seo`
-
-Runs a lightweight retrieval preview for operator inspection. If `collections`
-is omitted, the API uses the same inferred collection routing the runtime uses
-for normal goal preparation. If `collections` is supplied, the preview stays
-strictly inside those named retrieval lanes.
-
-### Runtime profile
 - `GET /api/runtime/profile`
 
-Returns the effective runtime profile and activation state for optional lanes.
+Returns the effective runtime profile and activation state.
 
-### Runtime storage
+### Runtime Storage
+
 - `GET /api/runtime/storage`
 
-Returns the effective storage budgets for:
-- RAG
-- working memory
-- pinned memory
-- self-heal history
+Returns storage budgets and memory/RAG storage state.
 
-### Runtime settings
+### Runtime Settings
+
 - `GET /api/runtime/settings`
 - `POST /api/runtime/settings`
 
-Returns or updates persisted runtime settings stored in SQLite. Updates apply on
-the next restart. Explicit environment variables still override persisted values.
+Reads or updates persisted runtime settings. Explicit environment variables
+remain the final override layer.
 
-The persisted settings surface now includes:
-- runtime profile
-- storage budgets
-- optional self-heal `llama.cpp` binary path
-- optional self-heal model path
-- self-heal context size
-- self-heal max tokens
-- self-heal temperature
+## Assistant
 
-### Pinned memory
+The assistant API owns sessions, turns, cancellation, and session-visible
+events.
+
+Representative surfaces:
+
+- create/list assistant sessions
+- submit turns
+- cancel active turns
+- stream assistant progress events
+- recall or manage assistant facts
+- export conversation state through the UXI
+
+Assistant requests must preserve mode scope, skill scope, memory policy, review
+policy, and security gates.
+
+## Providers And Model Lifecycle
+
+Provider endpoints should expose:
+
+- provider templates
+- credential create/update/delete/list
+- local provider detection
+- model discovery
+- active provider/model selection
+- model lifecycle results
+
+When switching local providers or models, Ordo should unload/eject the previous
+active local model where the provider supports it. The lifecycle result should
+be returned to the UI and logged.
+
+## RAG And Memory
+
+### RAG Collections
+
+- `GET /api/rag/collections`
+
+Returns collection name, label, group, document count, chunk count, and sample
+document titles.
+
+### RAG Preview
+
+- `GET /api/rag/preview?query=...`
+- `GET /api/rag/preview?query=...&collections=main,providers`
+
+Runs a lightweight retrieval preview.
+
+RAG must work in hash-fallback mode when no embedding model is present. If an
+embedding model is configured, the API can report that improved retrieval is
+available.
+
+### Pinned Memory
+
 - `GET /api/memory/pinned?limit=10`
 - `POST /api/memory/pinned`
 - `DELETE /api/memory/pinned`
 
-Lists recent pinned memories, pins a new memory, or removes a pinned memory
-from the always-available memory lane.
+Lists, stores, or removes pinned memory.
 
-### Working memory
+### Working Memory
+
 - `GET /api/memory/working?limit=10`
 - `POST /api/memory/working`
 
-Lists or stores normal working-memory notes.
+Lists or stores working memory.
 
-### Build spine
-- `GET /api/builds`
-- `POST /api/builds`
-- `GET /api/builds/:id`
-- `POST /api/builds/:id/gate`
+## Agent Teams
 
-Lists durable build ledgers, starts a new native build ledger, reads one
-ledger, or records an explicit gate result for the current build step.
+Agent Team API/capability support should allow official backend management of:
 
-Builds advance only when the gate result is a real pass for the ledger's
-current step. A model saying that work is complete is not enough. Failed
-results halt the build unless the ledger explicitly allows a bounded
-autonomous retry. Deferred results are only valid for crate coupling debt.
+- team definitions
+- role definitions
+- role instructions
+- role-specific skills
+- model/provider suitability hints
+- activation state
+- activity/status events
 
-### Self-heal history
-- `GET /api/self-heal/cases?limit=10`
-- `DELETE /api/self-heal/cases`
-- `POST /api/self-heal/cases/pin`
-- `POST /api/self-heal/cases/replay`
-- `POST /api/self-heal/cases/export`
+The UXI should not be the only authority for Agent Teams. Tech Specialist needs
+official capability-backed ways to create, inspect, and modify teams for users.
 
-Lists recent remembered self-heal cases, forgets one by fingerprint when an
-operator wants to remove stale repair memory, or promotes a remembered case into
-the pinned always-available memory lane.
+## Tech Specialist
 
-Replay pushes a remembered fingerprint back through the live self-heal lane so
-the runtime can reuse the same repair path it would use for a fresh incident.
+Tech Specialist capabilities should expose safe maintenance operations for:
 
-Export renders a remembered fix as both:
-- structured JSON for tools
-- markdown for operators, pinned memory, or future preloaded repair packs
+- diagnostics
+- logs
+- skills
+- MCP servers
+- plugins
+- apps
+- webhooks
+- automation
+- hooks
+- Agent Teams
+- providers and models
+- avatar setup
+- SSH keys
+- API keys
+- local computer access, after explicit approval
 
-## Design notes
+Secrets must remain behind vault/UI paths and should not be returned through
+diagnostic or Tech Specialist responses.
 
-- The control API is a local convenience surface, not a replacement for the bus.
-- Endpoint handlers call into the existing brain and capability system instead
-  of bypassing orchestration.
-- The RAG operator surface now uses the same live retrieval peer that normal
-  goal preparation uses instead of maintaining a parallel index browser.
-- The built-in dashboard also stays on top of those same endpoints, so UI work
-  exercises the same contracts external automation would use.
-- Build ledgers live under the runtime user-files area and are exposed through
-  the same local control surface as automation, not through ad hoc files.
-- SQLite-backed runtime settings and self-heal history now sit behind dedicated
-  storage workers instead of being opened directly on the async path.
-- Pinned memory remains protected by its own storage budget.
-- Runtime settings remain local-first and live in the same SQLite databank.
-- Self-heal history stays user-manageable through official endpoints instead of
-  requiring direct database edits.
-- Promoting a remembered fix should go through the official memory lane instead
-  of inventing a side cache for important repairs.
-- Replaying or exporting a remembered fix should still go through official
-  capability paths so the operator surface does not become a parallel control
-  plane.
+## Automation
 
-## Why this exists
+Automation endpoints/capabilities should cover:
 
-Users should not need to hand-edit environment variables or guess internal
-store layout just to change storage budgets, review pinned memory, inspect
-remembered repairs, or switch self-heal model settings. The control API gives
-the future UI a real place to attach.
+- routines
+- hooks
+- cron-style jobs
+- heartbeats
+- webhooks
+- local events
+- dreaming reviews
+- bounded coding automation
+
+Automation operations should be logged and approval-gated where needed.
+
+## Remote Communication
+
+Remote Communication owns email and future approved communication channels.
+
+Expected configuration shape:
+
+- multiple user email providers/accounts
+- per-account access level: none, read, or write
+- optional Ordo-owned communication identity
+- future Signal and Telegram support
+
+SMS is intentionally excluded.
+
+## Artifacts And Files
+
+Artifact APIs should let agents present user-visible outputs in the side view
+without replacing chat:
+
+- generated files
+- saved PDFs
+- docs
+- spreadsheets
+- email views
+- local files selected by the user
+
+File access remains permissioned and sandboxed. Local computer read/write is
+denied by default.
+
+## Review And Self-Heal
+
+Review remains the human approval lane.
+
+Self-heal and diagnostics can inspect and suggest repairs, but durable repair
+memory and pinned lessons should remain operator-manageable.
+
+## Design Notes
+
+- The API is local-first and should bind to localhost by default.
+- Endpoint handlers should use official runtime services and capabilities.
+- The API should not read secrets into ordinary JSON responses.
+- The API should not bypass bus, review, memory, provider, or security policy.
+- Logs should explain provider decisions, model lifecycle decisions, tool calls,
+  denials, retries, failures, and recovery actions.

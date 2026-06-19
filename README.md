@@ -1,569 +1,192 @@
 # Ordo
 
-Ordo is a local-first AI runtime and operator studio by Lucerna Labs, a division of Lucerna Media.
+Ordo is a local-first AI runtime and operator studio by Lucerna Labs, a
+division of Lucerna Media.
 
-It is built around a Rust/Tokio message bus, explicit capability boundaries,
-mode-scoped agents, local memory, retrieval, automation, and a desktop UXI for
-operating the system without handing control to a remote platform.
+It combines a Rust/Tokio runtime, a localhost control API, a React UXI, and a
+custom embedded Servo shell. The model does not get uncontrolled hands on the
+computer: it works through scoped capabilities, policies, logs, review gates,
+mode rules, and explicit operator approval.
 
-Ordo is currently beta software, available for **Windows and Linux** (the
-headless runtime is cross-platform; the desktop Studio ships as a Windows
-installer and as a Linux `deb` / `AppImage`).
+Ordo is beta software. The current desktop path is Windows-first through the
+Servo shell; the Rust runtime remains portable source code.
 
-## Screenshots
-
-**The operator Studio** — every surface for running the system locally:
-assistant, modes, providers, memory, automation, MCP, review, and more.
-
-![Ordo Studio — all surfaces](docs/screenshots/studio.png)
-
-**Mode-scoped agents** — each mode carries its own memory scope, RAG domains,
-allowed tools, and persona.
-
-![Ordo modes](docs/screenshots/modes.png)
-
-**Automation** — manual routines, schedules, heartbeats, webhooks, and reviews,
-all operator-gated.
-
-![Ordo automation](docs/screenshots/automation.png)
-
-**The talking avatar** *(experimental)* — an optional voice companion that
-listens, "researches" on her PC, and answers aloud.
-
-![Ordo avatar](docs/screenshots/avatar.png)
-
-**Avatar customization** — give her a persona, scope her skills, and manage her
-appearance.
-
-![Avatar persona](docs/screenshots/avatar-persona.png)
-
-## Install & Run
-
-> **Beta — build from source.** There is no prebuilt download yet (no GitHub
-> Release with attached installers). You clone the repo and run it. Both
-> platforms need **Rust (stable)** and **Node.js 18+**; a first build compiles
-> the workspace, so expect a few minutes the first time.
-
-Ordo is two pieces: the headless **runtime** (serves the local control API on
-`127.0.0.1:4141`) and the **Studio** desktop app. The launcher scripts start
-both for you and wait for the runtime to report healthy before opening Studio.
-
-### Windows
+## Quick Start
 
 ```powershell
 git clone https://github.com/Lucerna-Labs/ordo
 cd ordo
-.\Launch-Ordo-Studio.cmd          # installs deps, starts runtime + Studio
+.\Launch-Ordo-Servo.ps1
 ```
 
-`Launch-Ordo-Studio.cmd` (just double-click it, or run it from a terminal)
-installs the frontend deps, clears stale dev listeners, starts the runtime,
-waits for `/health`, then opens Studio. `Install-Desktop-Shortcut.cmd` adds a
-Start-menu/desktop shortcut. To produce a Windows **MSI** installer instead, see
-the WiX setup in [`ordo-cli/wix/`](ordo-cli/wix).
-
-### Linux
-
-```bash
-# 1. WebKitGTK + TPM build deps — full list in ordo-studio/LINUX_BUILD.md
-#    Ubuntu/Debian: sudo apt install -y build-essential libwebkit2gtk-4.1-dev \
-#      libtss2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev librsvg2-dev \
-#      libayatana-appindicator3-dev patchelf file pkg-config libssl-dev
-#    Fedora: webkit2gtk4.1-devel libsoup3-devel javascriptcoregtk4.1-devel \
-#      tpm2-tss-devel librsvg2-devel libayatana-appindicator-gtk3-devel patchelf
-
-git clone https://github.com/Lucerna-Labs/ordo
-cd ordo
-./Launch-Ordo-Studio.sh           # starts runtime + Studio (waits for /health)
-```
-
-To build an installable package instead of running the dev shell:
-
-```bash
-cd ordo-studio && npm install && npm run tauri:build:linux
-#   → src-tauri/target/release/bundle/appimage/Ordo_0.1.0_amd64.AppImage  (any distro)
-#   → src-tauri/target/release/bundle/deb/Ordo_0.1.0_amd64.deb            (Debian/Ubuntu)
-```
-
-The **AppImage** is portable across distributions (best for Fedora); the `.deb`
-is for Debian/Ubuntu-family systems. Full Linux notes — including the avatar
-microphone permission handler — are in
-[`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md).
-
-> The talking avatar is **experimental** and gated behind `ORDO_ENABLE_AVATAR=1`
-> (the launchers set this for you). Voice-to-voice needs either a **paid cloud
-> API plan** or a **local model** — see the [Avatar](#avatar) section below.
-
-For the full developer workflow (running the runtime and Studio separately,
-checks, and packaging), see [Getting Started](#getting-started).
-
-## What Makes Ordo Different
-
-Ordo is not just a chat UI around a model. Its unique pieces are the runtime
-rules around the model:
-
-- **Custom gateway with fallback**: Ordo routes local models, cloud models,
-  OpenAI-compatible APIs, and custom providers through a local gateway layer
-  with fallback profiles.
-- **P2P and NAT/cloud connection layer**: Ordo is being built to connect
-  directly to other local devices and apps through peer-to-peer paths, NAT
-  traversal, ICE/STUN/TURN-style fallback, and cloud relay only when direct
-  connection is not possible.
-- **Post-quantum handshakes**: device and app connection setup is designed
-  around post-quantum handshake support so Ordo's direct communication layer can
-  evolve beyond ordinary API-key exchange and legacy TLS assumptions.
-- **Direct app/device communication**: Ordo's connection model is designed for
-  local apps, NVRs, devices, and companion services to talk to Ordo directly
-  without forcing every integration through a public SaaS API.
-- **Encrypted secrets store**: provider keys, tokens, and connection secrets
-  belong in the local secrets system, not in prompts or model-visible state.
-- **Agent has no hands**: the model does not directly control the computer.
-  It asks through explicit capabilities, review gates, hooks, and runtime
-  policies.
-- **Research-informed MCP security**: MCP servers and plugins are treated as
-  untrusted capability providers by default, with modern defense-in-depth
-  measures such as signed lockfiles, trust graduation, quarantine,
-  re-authorization on drift, sandboxed workers, provenance tracking,
-  pre/post-call scanning, redaction, and audit logs.
-- **Planner-first execution**: the Planner decomposes work into bounded steps
-  before tools run, instead of letting raw model output freely mutate state.
-- **Prompt-injection strainer**: untrusted text can pass through structural
-  normalization, stripping, classification, and taint tracking before it reaches
-  sensitive workflows.
-- **Self-learning tree**: memory, dreaming, diagnostics, corrections, and
-  approved lessons are organized as reviewable learning branches rather than
-  one uncontrolled memory pile.
-- **Always-on diagnostic mode**: Ordo has a local-only diagnostic mode that can
-  inspect runtime health and integration state while keeping its knowledge
-  isolated from normal assistant work.
-- **Mode containment**: modes have separate memory scopes, RAG domains, tool
-  access, and policies.
-- **Cross-mode consultation**: a mode can consult another mode's agent for
-  expertise without directly reading that mode's private RAG.
-- **Swarm-ready agent model**: Ordo can represent bounded subagents and
-  multi-agent work while keeping each run logged, scoped, and approval-gated.
-- **Operator-first UXI contract**: important controls must be surfaced in the
-  desktop UXI with readable state, logs, recovery actions, and a static snapshot
-  reference, avoiding hidden-only configuration and bland developer screens.
-- **Exhaustive event logging**: app and platform workflows are expected to log
-  user actions, capability calls, provider decisions, policy gates, retries,
-  failures, and recovery paths.
-- **Rust Vibe Coder**: Ordo includes a Rust-first coding mode and skill for
-  architecture tracing, warning-free Cargo checks, approval-gated writes, and
-  public-release hygiene.
-
-## What Ordo Does
-
-- Runs a local AI assistant through a dedicated operator UXI.
-- Supports mode-based workspaces, including general, coding, research,
-  security, diagnostic, dreaming, and other scoped modes.
-- Keeps mode memory and RAG scoped so one mode does not silently contaminate
-  another.
-- Connects to local models through Ollama and LM Studio-style OpenAI-compatible
-  APIs.
-- Supports cloud/provider connections through local environment variables or
-  the local credential vault.
-- Manages MCP servers, plugins, skills, apps, files, webhooks, connections, and
-  review queues from the local control API.
-- Provides scheduled automation, heartbeats, dreaming reviews, and bounded
-  coding automation.
-- Includes an always-local diagnostic mode for inspecting runtime health,
-  integrations, logs, MCP servers, settings, and storage.
-- Lets diagnostic mode install and maintain peripheral components such as MCP
-  servers, skills, plugins, provider profiles, and related integrations on
-  behalf of the user when explicitly requested and when approved maintenance
-  tools are available.
-- Includes an operator simulator that behaves like a user and produces a
-  pre-ship health report.
-- Keeps app controls, runtime state, logs, and recovery actions surfaced in the
-  UXI instead of leaving core features hidden in config files or CLI-only paths.
-- Supports chat session management, export, context usage indicators,
-  compaction signals, interrupt/stop controls, file upload surfaces, and
-  speech output hooks.
-
-## Core Features
-
-### Local Operator Studio
-
-`ordo-studio` is the desktop UXI. It gives operators tabs for:
-
-- Assistant
-- Avatar
-- Provider setup
-- Modes
-- Hooks
-- Automation
-- Dreaming
-- Diagnostic
-- Skills
-- Plugins
-- MCP
-- Review
-- Settings
-- Docs and Dev Docs
-
-The UXI talks to the local Ordo control API instead of bypassing the runtime.
-
-### Avatar
-
-> **Experimental.** The avatar is an early, opt-in feature (gated behind
-> `ORDO_ENABLE_AVATAR=1`) and is the surface most likely to change.
-
-Ordo includes an optional **talking companion avatar** — a second assistant you
-talk to by voice, rendered as an animated character in the Studio's Avatar tab
-or in its own resizable pop-out window.
-
-- **Voice to voice.** Voice-activated (energy-based VAD, starts muted): you
-  speak, she listens, works on your answer, and replies aloud. Speech-to-text
-  and text-to-speech are provider-agnostic — browser, OpenAI-compatible, or
-  MiniMax, local or cloud.
-- **State-driven presence.** She is a set of looping behavior clips switched by
-  what is happening: idle (working at her desk / watching you), listening when
-  you speak, "researching" while she works on your answer, speaking when she
-  replies — plus emotional reactions: pleased when you thank her, annoyed on a
-  failure, rudeness, or a repeated question, and a brief "found it" beat the
-  moment she has an answer. Clips are swappable on disk; the renderer never
-  hard-codes the character.
-- **Its own brain, shared mind.** The avatar can run on its **own model** (a
-  local Ollama/llama.cpp server or a cloud endpoint) concurrently with the main
-  assistant, while sharing the same memory, RAG, skills, and modes — so it works
-  alongside you on a spare monitor without competing with the generalist.
-- **Customizable.** Edit her persona (name, tone, spoken style), scope her
-  skills (tool lanes), and preview her appearance from the Avatar tab. The
-  avatar is its own protected mode, kept out of the chat mode picker.
-
-**Running voice to voice.** The full spoken loop needs three pieces:
-speech-to-text (to hear you), a chat model (to answer), and text-to-speech (to
-reply). Provide them one of two ways:
-
-- **Paid API plan (simplest).** Point Ordo at an OpenAI-compatible provider that
-  offers a Whisper-class transcription model, a chat model, and a TTS voice.
-  Cloud voice-to-voice **requires a paid plan** on that provider — a free tier
-  that exposes only, say, a single TTS model is not enough for the whole loop.
-- **Fully local (no API plan, no per-use cost).** Run it entirely on your own
-  machine: a local Whisper-compatible STT server set as the avatar's STT
-  provider, a local chat model (Ollama / llama.cpp) bound as the avatar's
-  **Brain** in the Avatar tab, and the built-in browser voice for TTS. No keys,
-  no cloud.
-
-### Modes
-
-Modes are scoped operating profiles. A mode can have its own:
-
-- visible memory scopes
-- RAG domains
-- allowed tools
-- blocked tools
-- planner bias
-- persona/instruction layer
-- storage budget controls
-
-Modes can consult other modes through explicit cross-mode consultation without
-directly reading the other mode's private RAG.
-
-### Automation
-
-Ordo has a primitive plus orchestrator automation model.
-
-Supported automation shapes include:
-
-- manual routines
-- cron-style schedules
-- heartbeats
-- local events
-- webhooks
-- dreaming reviews
-- diagnostic sweeps
-- coding automation
-
-Coding automation is deliberately guarded. It carries workspace, mode, goal,
-subagent limit, write policy, commit policy, dependency policy, and risk level.
-Core mutation is denied as an automation action.
-
-### Dreaming
-
-Dreaming is an advisory self-learning mode. It reviews completed work, failures,
-corrections, logs, and recurring patterns, then proposes lessons for operator
-approval. It does not silently rewrite Ordo or promote lessons without a gate.
-
-### Diagnostic Mode
-
-Diagnostic mode is designed for local-only runtime inspection. It can inspect
-runtime profile, settings, storage, MCP inventory, logs, automation state, and
-integration health through approved diagnostic and maintenance tools.
-
-When the user requests it, diagnostic mode can also use approved maintenance
-tools to install, remove, repair, trust, quarantine, or re-authorize peripheral
-components such as MCP servers, skills, plugins, provider profiles, and related
-integrations. It is not a bypass for core runtime, security, hook, or UXI
-mutation.
-
-Diagnostic memory is isolated from general chat and other modes.
-
-### MCP, Plugins, And Skills
-
-Ordo separates these concepts:
-
-- MCP servers are external tool servers with trust state, lockfiles, and tool
-  catalogs.
-- Plugins are installable provider packages.
-- Skills are instruction and workflow packs.
-
-The UXI keeps these surfaces separate so the operator can manage them without
-catalog confusion.
-
-**MCP servers are treated as untrusted capability providers by default**, with a
-research-informed, defense-in-depth security model:
-
-- **Signed lockfiles** pin a server's identity, declared capabilities, and
-  resource limits at install time; the registry signs the lockfile and the
-  runtime refuses tampered or drifted installs.
-- **Trust graduation** — servers start untrusted and earn trust through clean
-  invocations instead of being trusted on install.
-- **Quarantine and re-authorization** — a server can be quarantined, and any
-  drift in its declaration or tool catalog forces re-authorization before it
-  runs again.
-- **Sandboxed workers** — tool calls run in isolated, fuel-metered sandbox
-  workers, not in the runtime process.
-- **Provenance tracking, pre/post-call scanning, and redaction** — inputs and
-  outputs are scanned, tainted data is tracked through the strainer, and secrets
-  are redacted at the boundary.
-- **Audit logs** — every install, invocation, trust change, and policy decision
-  is recorded in the security audit ring.
-
-### Providers And Models
-
-Ordo is local-first but not local-only.
-
-Provider support includes:
-
-- Ollama local
-- Ollama Cloud models through signed-in local Ollama using `*-cloud` model names
-- LM Studio local
-- OpenAI-compatible APIs
-- environment-backed credentials
-- custom provider templates
-- cloud fallback profiles
-
-The default direction is to avoid requiring users to paste keys into Ordo when
-the provider can be reached through local environment configuration.
-
-The `Ollama Cloud Models` template uses local Ollama's OpenAI-compatible
-`http://localhost:11434/v1` surface after the operator signs in to Ollama and
-selects a cloud model. The separate `Ollama Cloud API` provider talks directly
-to Ollama's OpenAI-compatible cloud endpoint at `https://ollama.com/v1` with an
-`OLLAMA_API_KEY`; the native `https://ollama.com/api` surface is a different,
-non-OpenAI shape and is not used for that provider.
-
-### Memory And RAG
-
-Ordo uses local SQLite-backed memory and retrieval:
-
-- working memory
-- pinned memory
-- mode-scoped memory
-- RAG collections
-- storage budgets
-- retrieval previews
-- self-heal history
-
-The retrieval layer has a deterministic hashing embedder by default and optional
-model-backed embeddings.
-
-### Security
-
-Ordo's security model is based on capability boundaries, explicit tools,
-review gates, trust states, and local-first storage.
-
-Security-related components include:
-
-- classifier-gated providers
-- human review queues
-- MCP sandboxing
-- signed MCP lockfiles
-- trust graduation
-- drift detection and re-authorization for changed MCP capabilities
-- quarantine state for suspicious or unverified MCP servers
-- provenance records for MCP tool catalogs and invocations
-- pre-call and post-call scanning around MCP/plugin payloads
-- secrets vault and broker
-- audit trail support
-- redacted findings so security reports do not leak matched secrets
-- taint tracking for untrusted tool output
-
-### Operator Simulator
-
-`ordo-operator-sim` is a pre-ship simulator. It drives the live local API and
-checks the surfaces users depend on:
-
-- health
-- runtime profile
-- storage
-- capabilities
-- modes
-- sessions
-- MCP
-- plugins
-- skills
-- automations
-- security
-- review
-- files
-- apps
-- connections
-- assistant turn
-
-Run it with:
-
-```powershell
-cargo run -p ordo-operator-sim -- --origin http://127.0.0.1:4141
-```
-
-Reports are written to:
+For Explorer/double-click use:
 
 ```text
-target/operator-sim/operator-sim-report.json
-target/operator-sim/operator-sim-report.md
+Launch-Ordo-Servo.cmd
 ```
 
-### Rust Vibe Coder Preflight
+The launcher builds `ordo-studio`, starts the Ordo runtime, waits for
+`/health`, serves the built UI from Ordo's own localhost server, and opens the
+embedded Servo app window.
 
-`scripts/ordo-preflight.ps1` extends the pre-ship check for Rust Vibe Coder.
-It verifies the mode, required skills, persistent memory anchors, and then
-generates a tiny Rust app that must pass `cargo check`, `cargo test`, and
-`cargo clippy` with warnings denied.
-
-Run it against a live Ordo runtime:
-
-```powershell
-.\scripts\ordo-preflight.ps1 -Origin http://127.0.0.1:4141
-```
-
-Use `-SkipCoderTurn` when you want to test the harness and generated lite app
-without spending a model turn. Use `-Strict` for release gating.
-
-## Repository Layout
-
-- `ordo-runtime` - runtime boot and lifecycle wiring
-- `ordo-control` - local HTTP control API
-- `ordo-studio` - Tauri desktop UXI
-- `ordo-assistant` - assistant turn loop, sessions, tool use, memory/RAG use
-- `ordo-modes` - mode manifests and registry
-- `ordo-automation-primitives` - automation data model and validation
-- `ordo-automation` - automation orchestrator
-- `ordo-jobs` - scheduler primitives
-- `ordo-agents` - agent/subagent primitives
-- `ordo-operator-sim` - pre-ship operator simulator
-- `ordo-mcp-*` - MCP host, registry, client, sandbox, worker, provenance
-- `ordo-plugins` - plugin manifest and stdio provider system
-- `ordo-cloud` - OpenAI/Anthropic/OpenAI-compatible cloud boundary, including provider-agnostic voice (STT/TTS)
-- `ordo-avatar`, `ordo-tts` - talking-companion avatar driver (behavior state) and phoneme/TTS support
-- `ordo-connections` - configured external connection records
-- `ordo-memory-*` - hierarchical memory log, router, and projection
-- `ordo-rag` - retrieval indexing and search
-- `ordo-security` - security classifier, policy, and audit ring
-- `ordo-secrets-*` - local secret vault, broker, threshold, and audit crates
-- `ordo-files`, `ordo-apps`, `ordo-webhooks` - user file, app, and webhook primitives
-
-## Getting Started
-
-### Requirements
-
-- Rust stable
-- Node.js and npm
-- Tauri prerequisites for your OS — on Linux, the WebKitGTK build dependencies
-  in [`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md)
-
-The PowerShell snippets below are for Windows; the Bash equivalent is shown where
-it differs. On Linux/macOS use `export RUSTFLAGS='-D warnings'` instead of
-`$env:RUSTFLAGS=...`.
-
-### Run The Runtime
-
-```powershell
-cargo run -p ordo-cli -- serve
-```
-
-Default local control API:
+Default local runtime URL:
 
 ```text
 http://127.0.0.1:4141
 ```
 
-Health endpoint:
+## Current Desktop Architecture
 
-```text
-http://127.0.0.1:4141/health
+Ordo no longer uses the old Tauri desktop host. The previous `src-tauri`
+workspace and stale Studio/Portable launchers were removed.
+
+Current shape:
+
+- `ordo-cli`: headless runtime binary.
+- `ordo-control`: local HTTP API and static UI asset server.
+- `ordo-studio`: React UXI built to `ordo-studio/dist`.
+- `ordo-servo-shell`: custom Servo embedder with no address bar or tab strip.
+- `Launch-Ordo-Servo.ps1` / `.cmd`: the supported beta launch path.
+
+Vite is only a development convenience. Servo needs an HTTP origin for module
+scripts, and Ordo now provides that origin itself.
+
+## What Ordo Does
+
+- Runs a local AI assistant through a dedicated operator UXI.
+- Supports local and cloud model providers through Ordo's provider layer.
+- Protects model switching by unloading/ejecting the previous active local
+  model before selecting a new one.
+- Supports Ollama, LM Studio, Ollama Cloud/OpenAI-compatible endpoints, and
+  custom compatible providers.
+- Keeps secrets out of prompts and model-visible state.
+- Provides mode-scoped behavior, memory, tools, and skills.
+- Starts in General mode by default.
+- Supports global skills and per-mode skills so small models are not flooded
+  with unrelated instructions.
+- Supports Agent Teams for bounded multi-agent collaboration, with visible
+  team-working indicators in the chat composer.
+- Supports Ordo Tech Specialist for diagnostics, installs, MCP/plugin upkeep,
+  provider setup, automation setup, avatar setup, and local computer tasks when
+  explicitly approved.
+- Provides automation for routines, hooks, cron-style schedules, heartbeats,
+  webhooks, local events, dreaming reviews, and bounded coding automation.
+- Provides Remote Communication setup for email and future channels such as
+  Signal and Telegram. SMS is intentionally excluded.
+- Provides a side artifact view for generated files, PDFs, docs, spreadsheets,
+  email views, and other agent-produced artifacts without replacing chat.
+- Provides RAG and persistent memory with a hashing fallback when no embedding
+  model is configured. Embedding models remain optional for better retrieval.
+- Provides MCP security with trust states, quarantine, drift checks,
+  provenance tracking, redaction, and audit logging.
+
+## Operator Surfaces
+
+The left rail is intentionally user-facing:
+
+- Provider
+- Assistant
+- Modes
+- Review
+- Agent Teams
+- Skills
+- Automation
+- Tech Specialist
+- Remote Communication
+- Docs
+- Dev Docs
+- Settings
+
+Common setup surfaces that should not clutter the rail live under Settings.
+Tech Specialist can guide or perform setup through approved tools, but manual
+controls remain available for users who prefer to configure things themselves.
+
+## Important Safety Boundaries
+
+- The general assistant should not install skills, MCPs, plugins, apps,
+  webhooks, SSH keys, or API keys. Those tasks belong to Ordo Tech Specialist
+  with explicit operator approval.
+- Local computer read/write access is denied by default.
+- Permissions should be granted by explicit allow/deny UI, not by interpreting
+  natural language as consent.
+- Secrets must not appear in logs, prompts, screenshots, diagnostic exports, or
+  model-visible memory.
+- MCPs and plugins are untrusted until inspected and graduated.
+- Servo should render Ordo's local UI; it should not become a general internet
+  browser.
+
+## Validate
+
+Run the standard function suite:
+
+```powershell
+.\Test-Ordo-Functions.ps1 -Suite standard -KeepGoing
 ```
 
-The talking-companion avatar driver is gated behind `ORDO_ENABLE_AVATAR=1`
-(the desktop launcher sets this for you).
+The suite checks:
 
-### Run The Studio
+- tool availability
+- `cargo fmt --check`
+- core Rust crate checks
+- runtime smoke test
+- Studio production build
+- Servo shell compile check
+- runtime full harness
+
+The Servo beta was pushed after a clean run:
+
+```text
+10 passed, 0 failed, 0 skipped
+```
+
+## Repository Map
+
+- `ordo-cli`: runtime binary entrypoint.
+- `ordo-runtime`: component boot and supervision.
+- `ordo-control`: local API, static UI serving, and operator endpoints.
+- `ordo-assistant`: assistant sessions, turn loop, memory, skills, and tool use.
+- `ordo-cloud`: cloud/provider calls and model lifecycle handling.
+- `ordo-rag`: local retrieval with hash fallback and optional embeddings.
+- `ordo-memory`: persistent working and pinned memory.
+- `ordo-mcp-host`: capability providers and MCP-facing tool surface.
+- `ordo-security`: scanning, policy, and gated provider execution.
+- `ordo-studio`: React operator UXI.
+- `ordo-servo-shell`: embedded Servo desktop shell.
+- `docs`: architecture, user, security, API, memory, and beta notes.
+
+## Build Notes
+
+Developer Studio build:
 
 ```powershell
 cd ordo-studio
 npm install
-npm run tauri:dev
-```
-
-On Linux/macOS, the launcher scripts start the runtime and the Studio together
-(and wait for `/health`):
-
-```bash
-./Launch-Ordo-Studio.sh      # runtime + Studio dev shell
-./Launch-Ordo-Portable.sh    # build + run just the headless runtime
-```
-
-The Studio builds and runs on Linux via WebKitGTK (see
-[`ordo-studio/LINUX_BUILD.md`](ordo-studio/LINUX_BUILD.md)). The avatar's in-tab
-microphone is granted by a webkit2gtk permission handler in the shell (the
-avatar pop-out, which opens in your browser, also works).
-
-### Run Checks
-
-```powershell
-$env:RUSTFLAGS='-D warnings'
-cargo check --workspace
-cargo test --workspace
-```
-
-Studio build:
-
-```powershell
-cd ordo-studio
 npm run build
 ```
 
-End-to-end harnesses (Python, stdlib only — each self-launches a runtime on
-`127.0.0.1:4142` with a mock provider and tears it down):
+Core Rust check:
 
 ```powershell
-python scripts/ordo_full_test.py     # comprehensive: every subsystem, one PASS/WARN/FAIL verdict
-python scripts/ordo_avatar_test.py   # avatar + provider-agnostic voice
+cargo check -p ordo-cli -p ordo-runtime -p ordo-control -p ordo-assistant
 ```
 
-Operator simulator:
+Servo shell check:
 
 ```powershell
-cargo run -p ordo-operator-sim -- --origin http://127.0.0.1:4141
+cargo check --manifest-path ordo-servo-shell\Cargo.toml --features servo-engine
 ```
 
-## Documentation
+## Lightweight Copies
 
-- [User Guide](docs/user-guide.md)
-- [Developer Guide](docs/developer-guide.md)
-- [Control API](docs/control-api.md)
-- [Architecture](docs/architecture.md)
-- [Security](docs/security.md)
-- [Plugins](docs/plugins.md)
-- [Operator Simulator](docs/operator-simulator.md)
+For laptop copies, keep source files and the built `ordo-studio/dist` bundle,
+but exclude generated or heavyweight folders:
 
-## Status
+- `.git`
+- `target`
+- `node_modules`
+- `ordo-servo-shell/target`
+- `bin/servo-nightly`
+- crash dumps
+- transient logs
 
-Ordo is under active beta development. The repo is useful for review,
-experimentation, and continued development, but APIs and UXI surfaces may still
-change.
-
-Do not commit local runtime databases, user files, secrets, build output, model
-files, or personal skills into the public repository.
+See `README-BETA.md` for current beta notes.
