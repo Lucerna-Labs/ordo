@@ -823,6 +823,16 @@ fn studio_dist_dir() -> Option<PathBuf> {
             if exe_candidate.join(STUDIO_INDEX).is_file() {
                 return Some(exe_candidate);
             }
+
+            // Packaged layout (.deb / AppImage / portable): the binary lives in
+            // <root>/bin while the bundle lives in <root>/ordo-studio/dist, so
+            // also look one directory up from the executable.
+            if let Some(exe_root) = exe_dir.parent() {
+                let exe_root_candidate = exe_root.join(STUDIO_DIST_DIR);
+                if exe_root_candidate.join(STUDIO_INDEX).is_file() {
+                    return Some(exe_root_candidate);
+                }
+            }
         }
     }
 

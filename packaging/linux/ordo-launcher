@@ -79,6 +79,10 @@ export ORDO_MODES_PATH="$MODES_PATH"
 export ORDO_RUNTIME_PROFILE="${ORDO_RUNTIME_PROFILE:-standard}"
 export ORDO_CONTROL_URL="$CONTROL_URL"
 export ORDO_ENABLE_AVATAR="${ORDO_ENABLE_AVATAR:-1}"
+# The runtime starts with the app menu's working directory ($HOME or /), so point
+# it explicitly at the packaged Studio bundle. Without this the runtime serves no
+# UI and the launcher exits — the window never appears.
+export ORDO_STUDIO_DIST="${ORDO_STUDIO_DIST:-$APP_ROOT/ordo-studio/dist}"
 
 rm -f "$RUNTIME_OUT" "$RUNTIME_ERR" "$SERVO_OUT" "$SERVO_ERR"
 
