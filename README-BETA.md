@@ -86,8 +86,7 @@ sudo apt install -y git build-essential pkg-config curl libssl-dev \
 
 git clone https://github.com/Lucerna-Labs/ordo.git
 cd ordo
-./Build-Ordo-Linux-Deb.sh
-sudo apt install ./dist/ordo_0.1.0_amd64.deb
+./Install-Ordo-Linux.sh
 ```
 
 After install, open **Ordo** from the Pop!_OS app menu.
@@ -100,29 +99,32 @@ Example if Ordo is on your Desktop:
 
 ```bash
 cd ~/Desktop/ordo
-./Build-Ordo-Linux-Deb.sh
+./Install-Ordo-Linux.sh
 ```
 
 Example if Ordo is in Downloads:
 
 ```bash
 cd ~/Downloads/ordo
-./Build-Ordo-Linux-Deb.sh
+./Install-Ordo-Linux.sh
 ```
 
 If you do not know where the folder is, search for it:
 
 ```bash
-find ~ -maxdepth 4 -name "Build-Ordo-Linux-Deb.sh" 2>/dev/null
+find ~ -maxdepth 4 -name "Install-Ordo-Linux.sh" 2>/dev/null
 ```
 
-Then `cd` into the folder printed by that command and build the package.
-
-Install the generated package from the same Ordo folder:
+Then `cd` into the folder printed by that command and run:
 
 ```bash
-sudo apt install ./dist/ordo_0.1.0_amd64.deb
+./Install-Ordo-Linux.sh
 ```
+
+The installer builds the `.deb`, installs it with `dpkg -i`, and uses
+`apt-get install -f` only if dependencies need to be repaired. Do not use
+`sudo apt install ./dist/ordo_0.1.0_amd64.deb`; some distro versions reject
+local `.deb` file paths with an unsupported-file error.
 
 The installed launcher starts the Ordo runtime, waits for
 `127.0.0.1:4141/health`, opens the embedded Servo app window, and stops the
@@ -135,6 +137,40 @@ For troubleshooting only, the launcher can also be run from a terminal:
 cd /path/to/ordo
 ./Launch-Ordo-Servo.sh
 ```
+
+## Run On Other Linux Distros
+
+The `.deb` package is for Debian-family systems. For Fedora, Arch, openSUSE,
+and other desktop Linux distros, build the AppImage first:
+
+```bash
+git clone https://github.com/Lucerna-Labs/ordo.git
+cd ordo
+./Build-Ordo-Linux-AppImage.sh
+./dist/Ordo-0.1.0-x86_64.AppImage
+```
+
+The AppImage builder creates the same runtime layout as the Debian package,
+then uses `linuxdeploy` and `appimagetool`. If those tools are not installed,
+the script downloads them into `dist/appimage-tools/`. Set `ORDO_LINUXDEPLOY`
+or `ORDO_APPIMAGETOOL` to point at local copies instead.
+
+If the AppImage toolchain does not work on a distro, build the portable tarball:
+
+```bash
+./Build-Ordo-Linux-Portable.sh
+tar -xzf ./dist/ordo-linux-0.1.0-x86_64.tar.gz -C ./dist
+./dist/ordo-linux-0.1.0-x86_64/launch-ordo.sh
+```
+
+The extracted portable folder also includes:
+
+```bash
+./install-desktop-shortcut.sh
+```
+
+That creates a normal app-menu launcher and desktop shortcut pointing at the
+portable `launch-ordo.sh`.
 
 ## What This Beta Includes
 

@@ -1,3 +1,6 @@
 *.sh text eol=lf
 *.desktop text eol=lf
 packaging/linux/ordo-launcher text eol=lf
+packaging/linux/AppRun text eol=lf
+packaging/linux/launch-ordo-portable text eol=lf
+packaging/linux/install-portable-desktop-shortcut text eol=lf

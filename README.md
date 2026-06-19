@@ -74,9 +74,9 @@ Default local runtime URL:
 http://127.0.0.1:4141
 ```
 
-On Pop!_OS / Linux, use the Debian package path. GNOME/Pop!_OS often opens
-`.desktop` files from source folders in a text editor, so Ordo installs a real
-app-menu launcher instead:
+On Pop!_OS, Ubuntu, Debian, and related Linux distros, use the Debian package
+path. GNOME/Pop!_OS often opens `.desktop` files from source folders in a text
+editor, so Ordo installs a real app-menu launcher instead:
 
 ```bash
 sudo apt update
@@ -86,20 +86,34 @@ sudo apt install -y git build-essential pkg-config curl libssl-dev \
 
 git clone https://github.com/Lucerna-Labs/ordo.git
 cd ordo
-./Build-Ordo-Linux-Deb.sh
-sudo apt install ./dist/ordo_0.1.0_amd64.deb
+./Install-Ordo-Linux.sh
 ```
 
 If you already have a copy of Ordo, `cd` into that folder instead:
 
 ```bash
 cd ~/Desktop/ordo
-./Build-Ordo-Linux-Deb.sh
-sudo apt install ./dist/ordo_0.1.0_amd64.deb
+./Install-Ordo-Linux.sh
 ```
 
 Then open **Ordo** from the app menu. That opens the embedded Servo app window,
 not an external browser.
+
+For other Linux distros, build an AppImage or a portable tarball from the same
+source checkout:
+
+```bash
+./Build-Ordo-Linux-AppImage.sh
+./dist/Ordo-0.1.0-x86_64.AppImage
+```
+
+If AppImage tooling is not available on that distro, use the portable tarball:
+
+```bash
+./Build-Ordo-Linux-Portable.sh
+tar -xzf ./dist/ordo-linux-0.1.0-x86_64.tar.gz -C ./dist
+./dist/ordo-linux-0.1.0-x86_64/launch-ordo.sh
+```
 
 ## Current Desktop Architecture
 
@@ -118,6 +132,14 @@ Current shape:
   systems and package internals.
 - `Build-Ordo-Linux-Deb.sh`: builds the Pop!_OS/Ubuntu `.deb` package with a
   real app-menu launcher.
+- `Install-Ordo-Linux.sh`: distro-aware Linux installer. It uses the Debian
+  package path on Debian-family systems and falls back to AppImage elsewhere.
+- `Install-Ordo-Linux-Deb.sh`: builds and installs the `.deb` with `dpkg -i`;
+  it does not rely on `apt install ./file.deb`.
+- `Build-Ordo-Linux-AppImage.sh`: builds a broad Linux AppImage from the same
+  Servo runtime layout.
+- `Build-Ordo-Linux-Portable.sh`: builds a portable Linux `.tar.gz` package for
+  distros where native packaging is not ready yet.
 - `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make
   GitHub source ZIP downloads runnable.
 

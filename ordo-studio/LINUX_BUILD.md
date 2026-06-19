@@ -1,106 +1,59 @@
-# Ordo Studio Linux Build
+# Ordo Linux Build
 
-This app is a Tauri v2 desktop shell. On Windows it uses WebView2; on Linux the
-same Tauri app uses the native WebKitGTK webview. The UI remains the same
-HTML/CSS/React UXI and the Rust side remains the local command bridge.
+Ordo no longer uses Tauri for the desktop host. Linux builds use the same
+runtime and Studio bundle as Windows, rendered through the embedded Servo shell.
 
-## Targets
+## Outputs
 
-Linux builds produce:
+From the repository root:
 
-- `deb` for Debian/Ubuntu-family systems
-- `AppImage` for portable Linux distribution
-
-The Linux-specific Tauri config lives in:
-
-```text
-src-tauri/tauri.linux.conf.json
+```bash
+./Build-Ordo-Linux-Deb.sh
+./Build-Ordo-Linux-Portable.sh
+./Build-Ordo-Linux-AppImage.sh
 ```
 
-Windows packaging remains separate in:
+For user-facing install from source, prefer:
 
-```text
-src-tauri/tauri.windows.conf.json
+```bash
+./Install-Ordo-Linux.sh
 ```
 
-## Ubuntu/Debian Build Host
+On Debian-family systems that calls `Install-Ordo-Linux-Deb.sh`, which installs
+the generated package with `dpkg -i` instead of relying on `apt install
+./file.deb`.
 
-Install the native build dependencies on the Linux machine or WSL distro that
-will create the Linux package:
+The generated files are written to `dist/`:
+
+- `ordo_0.1.0_amd64.deb` for Debian, Ubuntu, Pop!_OS, and related systems.
+- `ordo-linux-0.1.0-x86_64.tar.gz` for portable Linux testing.
+- `Ordo-0.1.0-x86_64.AppImage` for the broadest desktop Linux path.
+
+## Build Host Requirements
+
+The build host needs Rust, Node/npm, a C/C++ toolchain, OpenSSL development
+headers, X11/XCB/XKB common libraries, Wayland client headers, EGL/GLES, and
+`pkg-config`.
+
+On Ubuntu or Pop!_OS:
 
 ```bash
 sudo apt update
-sudo apt install -y \
-  build-essential \
-  curl \
-  file \
-  libayatana-appindicator3-dev \
-  libjavascriptcoregtk-4.1-dev \
-  librsvg2-dev \
-  libsoup-3.0-dev \
-  libssl-dev \
-  libtss2-dev \
-  libwebkit2gtk-4.1-dev \
-  patchelf \
-  pkg-config
+sudo apt install -y git build-essential pkg-config curl libssl-dev \
+  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev
 ```
 
-`libtss2-dev` provides the TPM 2.0 TSS system library that the secrets vault uses
-on Linux (the `tss-esapi` crate, gated to `cfg(target_os = "linux")` in
-`ordo-secrets-vault`). Without it the workspace fails to build with
-`Package 'tss2-sys' ... not found`.
+The AppImage builder downloads `linuxdeploy` and `appimagetool` into
+`dist/appimage-tools/` when they are not already installed. Set
+`ORDO_LINUXDEPLOY` or `ORDO_APPIMAGETOOL` to use local copies instead.
 
-(The webview deps match the set the release CI installs in
-`.github/workflows/release.yml`.)
+## Runtime Notes
 
-Install the project dependencies:
+The packaged launchers start the local Ordo runtime, wait for
+`127.0.0.1:4141/health`, open the embedded Servo app window, and stop the
+runtime when the Servo window closes.
 
-```bash
-npm ci
-```
-
-Build the Linux desktop package:
-
-```bash
-npm run tauri:build:linux
-```
-
-The packaged files will be written under:
-
-```text
-src-tauri/target/release/bundle/
-```
-
-## Development Run
-
-For live Linux development, from the repo root:
-
-```bash
-./Launch-Ordo-Studio.sh     # runtime + Studio dev shell (waits for /health first)
-./Launch-Ordo-Portable.sh   # build + run just the headless runtime
-```
-
-Or directly, from `ordo-studio/`:
-
-```bash
-npm run tauri:dev
-```
-
-## Platform Notes
-
-- **Avatar microphone.** On Linux the shell renders with webkit2gtk, which (unlike
-  WebView2) denies `getUserMedia` until the host grants it. `main.rs` installs a
-  `cfg(target_os = "linux")` permission handler that auto-allows microphone/camera
-  requests, so the avatar's in-tab "tap to talk" works. The **avatar pop-out**
-  (the Bot button → `xdg-open` → your browser) also works. The WebView2-only
-  `additionalBrowserArgs` in `tauri.conf.json` are ignored on webkit2gtk
-  (harmless).
-
-- Do not hard-code `.exe` paths in the UI or backend. The MCP binary is
-  `ordo-mcp.exe` on Windows and `ordo-mcp` on Linux.
-- Do not rely on WebView2 behavior for layout or rendering. Linux uses
-  WebKitGTK, so the UXI should stay standards-based HTML/CSS.
-- Packaged builds must load the bundled `dist` assets, not a `localhost` Vite
-  URL.
-- Keep platform-specific bundle settings in `tauri.*.conf.json` files instead
-  of branching the app code.
+The Servo shell is pointed only at Ordo's local URL. The launcher also sets
+proxy variables to dead localhost endpoints so the app window is not used as a
+general internet browser.

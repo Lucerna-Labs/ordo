@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ordo
+Comment=Local-first AI runtime and operator studio
+Exec=AppRun
+Icon=ordo
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true

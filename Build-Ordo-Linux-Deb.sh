@@ -2,7 +2,35 @@
 set -Eeuo pipefail
 
 VERSION="${ORDO_PACKAGE_VERSION:-0.1.0}"
-ARCH="${ORDO_PACKAGE_ARCH:-amd64}"
+CHECK=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check)
+      CHECK=1
+      shift
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+detect_deb_arch() {
+  if command -v dpkg >/dev/null 2>&1; then
+    dpkg --print-architecture
+    return
+  fi
+
+  case "$(uname -m)" in
+    x86_64|amd64) printf 'amd64\n' ;;
+    aarch64|arm64) printf 'arm64\n' ;;
+    *) uname -m ;;
+  esac
+}
+
+ARCH="${ORDO_PACKAGE_ARCH:-$(detect_deb_arch)}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST="$ROOT/dist"
 STAGE="$DIST/ordo_${VERSION}_${ARCH}"
@@ -18,6 +46,22 @@ need_command() {
 need_command cargo
 need_command npm
 need_command dpkg-deb
+
+for required_file in \
+  "$ROOT/packaging/linux/ordo-launcher" \
+  "$ROOT/packaging/linux/ordo.desktop"; do
+  if [[ ! -f "$required_file" ]]; then
+    echo "Missing required packaging file: $required_file" >&2
+    exit 1
+  fi
+done
+
+if (( CHECK )); then
+  echo "Debian package check passed."
+  echo "  root: $ROOT"
+  echo "  package: $PACKAGE"
+  exit 0
+fi
 
 rm -rf "$STAGE" "$PACKAGE"
 mkdir -p "$STAGE/DEBIAN"

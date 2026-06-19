@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Ordo">
+  <rect width="256" height="256" rx="56" fill="#090b0f"/>
+  <circle cx="128" cy="128" r="74" fill="none" stroke="#6ee7d8" stroke-width="16"/>
+  <circle cx="128" cy="128" r="30" fill="#f5c84b"/>
+  <path d="M128 22v38M128 196v38M22 128h38M196 128h38" stroke="#f5c84b" stroke-width="14" stroke-linecap="round"/>
+  <path d="M70 70l27 27M159 159l27 27M186 70l-27 27M97 159l-27 27" stroke="#6ee7d8" stroke-width="10" stroke-linecap="round" opacity=".85"/>
+</svg>

@@ -35,12 +35,41 @@ if [[ ! -x "$SERVO_BIN" ]]; then
   exit 1
 fi
 
-if ! command -v curl >/dev/null 2>&1; then
-  notify_problem "Ordo needs curl installed for local health checks."
-  exit 1
-fi
+control_host_port() {
+  local without_scheme="${CONTROL_URL#http://}"
+  without_scheme="${without_scheme%%/*}"
+  printf '%s\n' "$without_scheme"
+}
 
-if curl -fsS "$CONTROL_URL/health" >/dev/null 2>&1; then
+http_get_path() {
+  local path="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS "$CONTROL_URL$path"
+    return
+  fi
+
+  local host_port host port
+  host_port="$(control_host_port)"
+  host="${host_port%%:*}"
+  port="${host_port##*:}"
+  if [[ "$host" == "$port" ]]; then
+    port="80"
+  fi
+
+  exec 3<>"/dev/tcp/$host/$port"
+  printf 'GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n' "$path" "$host_port" >&3
+  cat <&3
+  exec 3<&-
+  exec 3>&-
+}
+
+http_path_ok() {
+  local response
+  response="$(http_get_path "$1" 2>/dev/null)" || return 1
+  [[ "$response" == HTTP/*" 200 "* || "$response" != HTTP/* ]]
+}
+
+if http_path_ok "/health"; then
   notify_problem "Ordo already appears to be running."
   exit 1
 fi
@@ -65,7 +94,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 deadline=$((SECONDS + 120))
-until curl -fsS "$CONTROL_URL/health" >/dev/null 2>&1; do
+until http_path_ok "/health"; do
   if (( SECONDS >= deadline )); then
     notify_problem "Ordo runtime did not become healthy. See $RUNTIME_ERR"
     exit 1
@@ -73,7 +102,7 @@ until curl -fsS "$CONTROL_URL/health" >/dev/null 2>&1; do
   sleep 2
 done
 
-if ! curl -fsS "$STUDIO_URL" | grep -q "<title>Ordo</title>"; then
+if ! http_get_path "/" | grep -q "<title>Ordo</title>"; then
   notify_problem "Ordo runtime did not serve the Studio bundle."
   exit 1
 fi
