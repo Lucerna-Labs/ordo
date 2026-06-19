@@ -45,14 +45,9 @@ Default local runtime URL:
 http://127.0.0.1:4141
 ```
 
-On Pop!_OS / Linux, use the Servo launcher instead of the Windows launcher:
-
-```bash
-chmod +x ./Launch-Ordo-Servo.sh
-./Launch-Ordo-Servo.sh
-```
-
-That opens the embedded Servo app window, not an external browser.
+On Pop!_OS / Linux, double-click `Ordo.desktop` in the Ordo folder. If Pop!_OS
+asks, choose **Trust and Launch** or **Allow Launching**. That opens the
+embedded Servo app window, not an external browser.
 
 To create a Linux desktop/app shortcut:
 
@@ -76,6 +71,7 @@ Current shape:
 - `Launch-Ordo-Servo.ps1`: visible diagnostic launcher for troubleshooting.
 - `Launch-Ordo-Servo.sh`: Linux Servo launch path for Pop!_OS/Ubuntu-style
   systems.
+- `Ordo.desktop`: click launcher for Linux folder copies.
 - `Install-Linux-Desktop-Shortcut.sh`: creates a Linux app/desktop shortcut
   with `Terminal=false`.
 - `bootstrap/ordo-windows-portable.zip`: compact runtime/UI payload used to make

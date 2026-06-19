@@ -44,14 +44,12 @@ When the Servo window closes, the launcher stops the Ordo runtime so port
 
 ## Run On Pop!_OS / Linux
 
-The Windows `.cmd`, `.vbs`, and `.ps1` launchers do not run Ordo on Linux. Use
-the Linux Servo launcher:
+The Windows `.cmd`, `.vbs`, and `.ps1` launchers do not run Ordo on Linux.
+Use the Linux desktop launcher in the Ordo folder:
 
-```bash
-cd /path/to/ordo
-chmod +x ./Launch-Ordo-Servo.sh
-./Launch-Ordo-Servo.sh
-```
+1. Open the Ordo folder in Files.
+2. Double-click `Ordo.desktop`.
+3. If Pop!_OS asks, choose **Trust and Launch** or **Allow Launching**.
 
 If the Servo shell has not been built on that machine yet, install the native
 build/runtime dependencies first:
@@ -68,11 +66,10 @@ runtime, waits for `127.0.0.1:4141/health`, opens the embedded Servo app window,
 and stops the runtime when the Servo window closes. It does not launch Chrome,
 Firefox, or another external browser.
 
-To create a Pop!_OS/GNOME app shortcut that does not open a terminal window:
+For troubleshooting only, the launcher can also be run from a terminal:
 
 ```bash
-chmod +x ./Install-Linux-Desktop-Shortcut.sh
-./Install-Linux-Desktop-Shortcut.sh
+./Launch-Ordo-Servo.sh
 ```
 
 ## What This Beta Includes
