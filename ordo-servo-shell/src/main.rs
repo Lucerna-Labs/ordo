@@ -48,15 +48,15 @@ mod servo_engine {
     use image::RgbaImage;
     use servo::{
         InputEvent, LoadStatus, MouseButton, MouseButtonAction, MouseButtonEvent,
-        MouseLeftViewportEvent, MouseMoveEvent, RenderingContext, Servo, ServoBuilder,
+        MouseLeftViewportEvent, MouseMoveEvent, RenderingContext, Scroll, Servo, ServoBuilder,
         SoftwareRenderingContext, WebView, WebViewBuilder, WebViewDelegate, WebViewPoint,
-        WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
+        WebViewVector, WheelDelta, WheelEvent, WheelMode, WindowRenderingContext,
     };
     use winit::keyboard::Key;
     use winit::event::Modifiers;
     use tracing::warn;
     use url::Url;
-    use webrender_api::units::DevicePoint;
+    use webrender_api::units::{DevicePoint, DeviceVector2D};
     use winit::application::ApplicationHandler;
     use winit::dpi::PhysicalSize as WinitPhysicalSize;
     use winit::event::{
@@ -347,6 +347,16 @@ mod servo_engine {
                                 },
                                 state.cursor_position.get(),
                             )));
+                            // The wheel input event only fires the DOM `wheel`
+                            // event; the viewport is scrolled separately. Without
+                            // this the page never moves on any platform.
+                            webview.notify_scroll_event(
+                                Scroll::Delta(WebViewVector::Device(DeviceVector2D::new(
+                                    -delta_x as f32,
+                                    -delta_y as f32,
+                                ))),
+                                state.cursor_position.get(),
+                            );
                         }
                     }
                 }
@@ -357,9 +367,21 @@ mod servo_engine {
                 }
                 WindowEvent::KeyboardInput { event, .. } => {
                     if let Self::Running(state) = self {
-                    if event.state == ElementState::Pressed && !event.repeat {
                         let mods_state = state.modifiers.get().state();
-                        if mods_state.alt_key() {
+
+                        // Forward every key (down and up, including repeats) to the
+                        // focused page so typing, editing, and navigation keys reach
+                        // the chat composer. Previously only Alt+Arrow and Ctrl+R were
+                        // handled, so the page never received text input at all.
+                        if let Some(webview) = state.webviews.borrow().last() {
+                            webview.notify_input_event(InputEvent::Keyboard(to_keyboard_event(
+                                &event, mods_state,
+                            )));
+                        }
+
+                        // Shell-level shortcuts, in addition to page input.
+                        if event.state == ElementState::Pressed && !event.repeat {
+                            if mods_state.alt_key() {
                                 match event.logical_key {
                                     Key::Named(winit::keyboard::NamedKey::ArrowLeft) => {
                                         if let Some(wv) = state.webviews.borrow().last() {
@@ -367,22 +389,22 @@ mod servo_engine {
                                                 let _ = wv.go_back(1);
                                             }
                                         }
-                                    },
+                                    }
                                     Key::Named(winit::keyboard::NamedKey::ArrowRight) => {
                                         if let Some(wv) = state.webviews.borrow().last() {
                                             if wv.can_go_forward() {
                                                 let _ = wv.go_forward(1);
                                             }
                                         }
-                                    },
-                                    _ => {},
+                                    }
+                                    _ => {}
                                 }
                             }
-                            if mods_state.control_key() {
-                                if event.logical_key == Key::Character("r".into()) {
-                                    if let Some(wv) = state.webviews.borrow().last() {
-                                        wv.reload();
-                                    }
+                            if mods_state.control_key()
+                                && event.logical_key == Key::Character("r".into())
+                            {
+                                if let Some(wv) = state.webviews.borrow().last() {
+                                    wv.reload();
                                 }
                             }
                         }
@@ -399,6 +421,55 @@ mod servo_engine {
                 _ => (),
             }
         }
+    }
+
+    /// Convert a winit keyboard event into a Servo keyboard event. winit and
+    /// `keyboard_types` both follow the W3C UI Events spec, so named keys and
+    /// physical codes round-trip through their W3C string form; printable text
+    /// comes straight from the logical key.
+    fn to_keyboard_event(
+        event: &winit::event::KeyEvent,
+        modifiers: winit::keyboard::ModifiersState,
+    ) -> servo::KeyboardEvent {
+        let state = match event.state {
+            ElementState::Pressed => servo::KeyState::Down,
+            ElementState::Released => servo::KeyState::Up,
+        };
+        let key = match &event.logical_key {
+            winit::keyboard::Key::Character(text) => servo::Key::Character(text.to_string()),
+            winit::keyboard::Key::Named(named) => format!("{named:?}")
+                .parse::<servo::Key>()
+                .unwrap_or(servo::Key::Named(servo::NamedKey::Unidentified)),
+            _ => servo::Key::Named(servo::NamedKey::Unidentified),
+        };
+        let code = match event.physical_key {
+            winit::keyboard::PhysicalKey::Code(code) => format!("{code:?}")
+                .parse::<servo::Code>()
+                .unwrap_or(servo::Code::Unidentified),
+            _ => servo::Code::Unidentified,
+        };
+        let location = match event.location {
+            winit::keyboard::KeyLocation::Standard => servo::Location::Standard,
+            winit::keyboard::KeyLocation::Left => servo::Location::Left,
+            winit::keyboard::KeyLocation::Right => servo::Location::Right,
+            winit::keyboard::KeyLocation::Numpad => servo::Location::Numpad,
+        };
+        let mut mods = servo::Modifiers::empty();
+        if modifiers.shift_key() {
+            mods |= servo::Modifiers::SHIFT;
+        }
+        if modifiers.control_key() {
+            mods |= servo::Modifiers::CONTROL;
+        }
+        if modifiers.alt_key() {
+            mods |= servo::Modifiers::ALT;
+        }
+        if modifiers.super_key() {
+            mods |= servo::Modifiers::META;
+        }
+        servo::KeyboardEvent::new_without_event(
+            state, key, code, location, mods, event.repeat, false,
+        )
     }
 
     fn map_mouse_button(button: WinitMouseButton) -> MouseButton {
