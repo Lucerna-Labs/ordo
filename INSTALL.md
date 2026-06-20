@@ -59,10 +59,24 @@ a local `sudo apt install ./file.deb` path with an unsupported-file error, and
 Then open **Ordo** from your application menu. It launches the embedded Servo
 app window, not an external browser.
 
-> **Building from source is not supported yet on Linux.** It currently fails on
-> some Pop!_OS / clang setups while compiling Servo, so it has been removed from
-> these instructions until it works reliably. Use the prebuilt package above.
-> Non-Debian distros (Fedora, Arch, openSUSE, …) are not packaged yet either.
+### Build from source (advanced / developers)
+
+The prebuilt package above is the recommended path. Build from source only if you
+are developing Ordo or on a distro without a prebuilt `.deb`.
+
+> This compiles Servo + SpiderMonkey + WebRender (~850 crates): budget **30–60+
+> minutes**, ~**8 GB RAM**, and ~**15 GB disk** for the first build.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
+```
+
+This clones Ordo to `~/ordo` (or updates an existing clone), installs every build
+prerequisite, then builds and installs the `.deb`. The build automatically sets
+`BINDGEN_EXTRA_CLANG_ARGS` so Servo's `mozangle` shader bindings compile on
+Pop!_OS 24.04 — where an extra `gcc-14` without its libstdc++ headers otherwise
+makes libclang fail with `'array' file not found`. On non-Debian distros the
+installer builds an AppImage instead.
 
 ## What Gets Installed
 

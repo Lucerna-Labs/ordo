@@ -88,10 +88,17 @@ curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/inst
 Then open **Ordo** from the app menu (embedded Servo app window, not an external
 browser). See [INSTALL.md](INSTALL.md) for the by-hand `dpkg -i` steps.
 
-> Building from source isn't supported on Linux yet — it currently fails while
-> compiling Servo on some Pop!_OS/clang setups, so those commands have been
-> removed until they work reliably. Non-Debian distros aren't packaged yet
-> either. Use the prebuilt package above.
+To build from source instead (developers, or distros without a prebuilt `.deb`),
+the bootstrap installer compiles Servo + SpiderMonkey (~850 crates, 30–60+ min):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
+```
+
+It auto-sets `BINDGEN_EXTRA_CLANG_ARGS` so the Servo shell's `mozangle` bindings
+compile on Pop!_OS 24.04 (an extra `gcc-14` without its libstdc++ headers
+otherwise breaks libclang with `'array' file not found`). See
+[INSTALL.md](INSTALL.md) for details.
 
 ## Current Desktop Architecture
 

@@ -100,12 +100,22 @@ The installed launcher starts the Ordo runtime, waits for
 runtime when the Servo window closes. It does not launch Chrome, Firefox, or
 another external browser.
 
-> **Building from source is not supported yet on Linux, and non-Debian distros
-> (Fedora, Arch, openSUSE, …) are not packaged yet.** The source build currently
-> fails while compiling Servo on some Pop!_OS / clang setups, so the
-> source-build, AppImage, and portable-tarball commands have been removed from
-> these instructions until they work reliably. On Debian-family systems, use the
-> prebuilt package above.
+### Build from source (developers / non-Debian distros)
+
+The prebuilt `.deb` above is the recommended path. To build from source instead,
+the bootstrap installer compiles Servo + SpiderMonkey + WebRender (~850 crates;
+budget 30–60+ min, ~8 GB RAM, ~15 GB disk), installs every prerequisite, then
+builds and installs the `.deb` (or an AppImage on non-Debian distros):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
+```
+
+The build automatically sets `BINDGEN_EXTRA_CLANG_ARGS` so Servo's `mozangle`
+shader bindings compile on Pop!_OS 24.04. (Pop!_OS ships an extra `gcc-14`
+without its libstdc++ headers, which makes libclang pick the wrong toolchain and
+fail with `'array' file not found`; the build points it back at the installed
+headers.)
 
 ## What This Beta Includes
 
