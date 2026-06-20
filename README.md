@@ -78,8 +78,8 @@ http://127.0.0.1:4141
 
 ### Linux Install (Pop!_OS / Ubuntu / Debian)
 
-The user-friendly path is the **prebuilt package** — it downloads a prebuilt
-`.deb` and installs it, with no compiler and no long build:
+One command — it downloads a prebuilt `.deb` and installs it (no compiler, no
+Rust/Node, no long build):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
@@ -88,34 +88,10 @@ curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/inst
 Then open **Ordo** from the app menu (embedded Servo app window, not an external
 browser). See [INSTALL.md](INSTALL.md) for the by-hand `dpkg -i` steps.
 
-To build from source instead, use the bootstrap installer. **Note:** Ordo's
-desktop shell embeds Servo, so this compiles Servo + SpiderMonkey + WebRender
-(~850 crates) — budget 30–60+ minutes, ~8 GB RAM, and ~15 GB disk. It installs
-every prerequisite (Rust, Node, the full C/C++ + LLVM toolchain, and the font
-stack), then builds and installs the `.deb`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
-```
-
-That command updates an existing `~/ordo` Git clone or clones Ordo fresh. If you
-are already inside an updated Ordo project folder, run `./Install-Ordo-Linux.sh`.
-On non-Debian distros it builds the AppImage path instead.
-
-For direct AppImage builds:
-
-```bash
-./Build-Ordo-Linux-AppImage.sh
-./dist/Ordo-0.1.0-x86_64.AppImage
-```
-
-For the portable tarball fallback:
-
-```bash
-./Build-Ordo-Linux-Portable.sh
-tar -xzf ./dist/ordo-linux-0.1.0-x86_64.tar.gz -C ./dist
-./dist/ordo-linux-0.1.0-x86_64/launch-ordo.sh
-```
+> Building from source isn't supported on Linux yet — it currently fails while
+> compiling Servo on some Pop!_OS/clang setups, so those commands have been
+> removed until they work reliably. Non-Debian distros aren't packaged yet
+> either. Use the prebuilt package above.
 
 ## Current Desktop Architecture
 

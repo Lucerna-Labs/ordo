@@ -73,12 +73,8 @@ When the Servo window closes, the launcher stops the Ordo runtime so port
 
 ## Run On Pop!_OS / Linux
 
-The Windows `.cmd`, `.vbs`, and `.ps1` launchers do not run Ordo on Linux.
-GNOME/Pop!_OS does not reliably launch `.desktop` files from arbitrary source
-folders; it often opens them in a text editor. The user-friendly Linux path is
-the Debian package, which installs Ordo into the app menu.
-
-### Recommended: prebuilt package
+The Windows `.cmd`, `.vbs`, and `.ps1` launchers do not run Ordo on Linux. The
+Linux path is the prebuilt Debian package, which installs Ordo into the app menu.
 
 Download and install the prebuilt Ordo `.deb` — no compiler, no Rust/Node, no
 long build:
@@ -92,78 +88,24 @@ only for the package install. To do it by hand, grab `ordo_*_amd64.deb` from the
 [latest release](https://github.com/Lucerna-Labs/ordo/releases/latest):
 
 ```bash
-sudo dpkg -i ordo_0.1.0_amd64.deb || sudo apt-get install -f -y
+sudo dpkg -i ordo_*_amd64.deb || sudo apt-get install -f -y
 ```
 
-Do not use `sudo apt install ./ordo_0.1.0_amd64.deb`; some apt versions reject a
+Do not use `sudo apt install ./ordo_*_amd64.deb`; some apt versions reject a
 local `.deb` path with an unsupported-file error. `dpkg -i` then
 `apt-get install -f` avoids that and pulls in runtime libraries.
-
-### Fallback: build from source
-
-Ordo's desktop shell embeds Servo, so a source install compiles Servo +
-SpiderMonkey + WebRender (~850 crates). Expect **30–60+ minutes**, ~**8 GB RAM**,
-and ~**15 GB disk** the first time. The bootstrap clones/updates `~/ordo`,
-installs every prerequisite (Rust, Node, the full C/C++ + LLVM toolchain, and
-the font stack), then builds and installs the `.deb`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
-```
-
-It never deletes or overwrites a non-Git folder named `~/ordo`. If you already
-have an updated clone, `cd` into it and run `./Install-Ordo-Linux.sh` directly
-(search for it with `find ~ -maxdepth 4 -name Install-Ordo-Linux.sh` if unsure).
 
 The installed launcher starts the Ordo runtime, waits for
 `127.0.0.1:4141/health`, opens the embedded Servo app window, and stops the
 runtime when the Servo window closes. It does not launch Chrome, Firefox, or
 another external browser.
 
-For troubleshooting only, the launcher can also be run from a terminal:
-
-```bash
-cd /path/to/ordo
-./Launch-Ordo-Servo.sh
-```
-
-## Run On Other Linux Distros
-
-The `.deb` package is for Debian-family systems. For Fedora, Arch, openSUSE,
-and other desktop Linux distros, start with the same bootstrap installer:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
-```
-
-For direct AppImage builds from inside an updated Ordo folder:
-
-```bash
-./Build-Ordo-Linux-AppImage.sh
-./dist/Ordo-0.1.0-x86_64.AppImage
-```
-
-The AppImage builder creates the same runtime layout as the Debian package,
-then uses `linuxdeploy` and `appimagetool`. If those tools are not installed,
-the script downloads them into `dist/appimage-tools/`. Set `ORDO_LINUXDEPLOY`
-or `ORDO_APPIMAGETOOL` to point at local copies instead.
-
-If the AppImage toolchain does not work on a distro, build the portable tarball:
-
-```bash
-./Build-Ordo-Linux-Portable.sh
-tar -xzf ./dist/ordo-linux-0.1.0-x86_64.tar.gz -C ./dist
-./dist/ordo-linux-0.1.0-x86_64/launch-ordo.sh
-```
-
-The extracted portable folder also includes:
-
-```bash
-./install-desktop-shortcut.sh
-```
-
-That creates a normal app-menu launcher and desktop shortcut pointing at the
-portable `launch-ordo.sh`.
+> **Building from source is not supported yet on Linux, and non-Debian distros
+> (Fedora, Arch, openSUSE, …) are not packaged yet.** The source build currently
+> fails while compiling Servo on some Pop!_OS / clang setups, so the
+> source-build, AppImage, and portable-tarball commands have been removed from
+> these instructions until they work reliably. On Debian-family systems, use the
+> prebuilt package above.
 
 ## What This Beta Includes
 
