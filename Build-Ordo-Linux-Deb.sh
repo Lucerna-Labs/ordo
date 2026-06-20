@@ -90,6 +90,8 @@ echo "Building Ordo runtime..."
 cargo build --release -p ordo-cli
 
 echo "Building Ordo Servo shell..."
+# shellcheck source=scripts/servo-build-env.sh
+source "$ROOT/scripts/servo-build-env.sh"
 cargo build --manifest-path "$ROOT/ordo-servo-shell/Cargo.toml" --features servo-engine --release
 
 install -m 0755 "$ROOT/target/release/ordo" "$STAGE/opt/ordo/bin/ordo"

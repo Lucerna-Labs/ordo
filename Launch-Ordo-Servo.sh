@@ -135,6 +135,8 @@ fi
 
 if [[ ! -x "$SERVO_SHELL_BIN" ]]; then
   echo "Building embedded Ordo Servo shell for Linux..."
+  # shellcheck source=scripts/servo-build-env.sh
+  source "$ORDO_ROOT/scripts/servo-build-env.sh"
   cargo build --manifest-path "$SERVO_SHELL_DIR/Cargo.toml" --features servo-engine
 fi
 

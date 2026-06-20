@@ -57,33 +57,68 @@ as_root() {
 
 arch="$(dpkg --print-architecture)"   # amd64 / arm64
 
-if [[ "$TAG" == "latest" ]]; then
-  api="https://api.github.com/repos/$REPO/releases/latest"
-else
-  api="https://api.github.com/repos/$REPO/releases/tags/$TAG"
-fi
+# GitHub's unauthenticated API is edge-cached and rate-limited: /releases/latest
+# sometimes returns 404/"Not Found" or an empty body for up to a minute even when
+# a release exists. That false negative is exactly what sends people to the slow
+# source build by mistake. So: retry, and if "latest" still won't resolve, fall
+# back to the /releases list (newest-first, less aggressively cached).
+usable_json() {
+  [[ -n "$1" ]] && ! printf '%s' "$1" | grep -qE '"message" *: *"(Not Found|API rate limit)'
+}
 
-echo "Looking up Ordo release ($TAG) for $arch from $REPO..."
-release_json="$(fetch "$api" 2>/dev/null || true)"
-
-# Empty body = unreachable (no network/DNS) or a wget 404. A JSON "Not Found"
-# message = the release/repo has no published release. Both mean: no prebuilt.
-if [[ -z "$release_json" ]]; then
-  no_prebuilt " (could not reach GitHub — also check your internet connection)"
-fi
-if printf '%s' "$release_json" | grep -q '"message" *: *"Not Found"'; then
-  no_prebuilt ""
-fi
+fetch_json_retry() {
+  local url="$1" body="" attempt
+  for attempt in 1 2 3 4; do
+    body="$(fetch "$url" 2>/dev/null || true)"
+    if usable_json "$body"; then
+      printf '%s' "$body"
+      return 0
+    fi
+    sleep 2
+  done
+  printf '%s' "$body"
+  return 1
+}
 
 asset_urls() {
-  printf '%s\n' "$release_json" \
+  printf '%s\n' "$1" \
     | grep -o '"browser_download_url": *"[^"]*"' \
     | sed 's/.*"browser_download_url": *"//; s/"$//'
 }
 
-# Prefer an arch-matched .deb, fall back to any .deb in the release.
-url="$(asset_urls | grep -E "ordo_.*_${arch}\.deb$" | head -1 || true)"
-[[ -n "$url" ]] || url="$(asset_urls | grep -E '\.deb$' | head -1 || true)"
+# Prefer an arch-matched .deb, else any .deb. On a /releases list (newest-first)
+# the first match is the newest release's package.
+pick_deb() {
+  local urls arch_deb
+  urls="$(asset_urls "$1")"
+  arch_deb="$(printf '%s\n' "$urls" | grep -E "ordo_.*_${arch}\.deb$" | head -1 || true)"
+  if [[ -n "$arch_deb" ]]; then
+    printf '%s' "$arch_deb"
+    return 0
+  fi
+  printf '%s\n' "$urls" | grep -E '\.deb$' | head -1 || true
+}
+
+echo "Looking up Ordo release ($TAG) for $arch from $REPO..."
+url=""
+if [[ "$TAG" == "latest" ]]; then
+  release_json="$(fetch_json_retry "https://api.github.com/repos/$REPO/releases/latest" || true)"
+  url="$(pick_deb "$release_json")"
+  if [[ -z "$url" ]]; then
+    echo "  'latest' was unavailable from the API; checking the full release list..."
+    list_json="$(fetch_json_retry "https://api.github.com/repos/$REPO/releases?per_page=30" || true)"
+    if ! usable_json "$list_json"; then
+      no_prebuilt " (could not reach GitHub — also check your internet connection)"
+    fi
+    url="$(pick_deb "$list_json")"
+  fi
+else
+  release_json="$(fetch_json_retry "https://api.github.com/repos/$REPO/releases/tags/$TAG" || true)"
+  if ! usable_json "$release_json"; then
+    no_prebuilt " for '$TAG' (could not reach GitHub, or no such release tag)"
+  fi
+  url="$(pick_deb "$release_json")"
+fi
 
 [[ -n "$url" ]] || no_prebuilt " in the '$TAG' release"
 
