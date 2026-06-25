@@ -137,9 +137,9 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 - [ ] **P2-2:** Add .gitignore entries if needed
 
 ### P3 — Architecture (monolith splits, high blast radius — NEEDS APPROVAL)
-- [ ] **P3-1:** Split ordo-mcp-host/src/lib.rs (7,726 → submodules)
-- [ ] **P3-2:** Split ordo-control/src/lib.rs (5,197 → submodules)
-- [ ] **P3-3:** Split ordo-assistant/src/service.rs (4,379 → submodules)
+- [x] **P3-1:** Split ordo-mcp-host/src/lib.rs (7,726→1,809 lines into 12 provider modules + helpers) ✅ commit 13b366d
+- [ ] **P3-2:** Split ordo-control/src/lib.rs (5,197 lines) — IN PROGRESS (subagent)
+- [ ] **P3-3:** Split ordo-assistant/src/service.rs (4,379 lines) — PARTIAL: meta_tools extraction only, run_turn() deferred (17 branches, no test coverage)
 
 ---
 
@@ -166,4 +166,33 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 - **quinn-proto RUSTSEC-2026-0185** (HIGH 7.5): Fix requires v0.11.15+, but latest on crates.io is 0.11.11. Monitor and bump when published.
 - **rsa RUSTSEC-2023-0071** (MEDIUM 5.9): No fix available upstream. Monitor.
 - **fxhash RUSTSEC-2025-0057**: Transitive via `selectors` → `scraper`. Can't replace directly.
-- **atomic-polyfill RUSTSEC-2023-0089**: Transitive via `heapless` → `postcard` → `frost-core`. Can't replace directly.
+### atomic-polyfill RUSTSEC-2023-0089**: Transitive via `heapless` → `postcard` → `frost-core`. Can't replace directly.
+
+---
+
+### Commit 13b366d — P3-1: ordo-mcp-host monolith split (2026-06-25)
+**Status:** ✅ Applied. 935/935 tests pass, 0 clippy errors, full workspace compiles.
+
+**lib.rs: 7,726 → 1,809 lines** (76% reduction)
+
+Created 13 new files:
+- `provider_maintenance.rs` (872 lines) — skills/plugins/automation/agent-teams management
+- `provider_filesystem.rs` (214 lines) — file read/write/resolve capabilities
+- `provider_knowledge.rs` (87 lines) — knowledge synthesis from RAG hits
+- `provider_ordo_ops.rs` (636 lines) — planning/orchestration capabilities
+- `provider_interface_ops.rs` (369 lines) — SSH/API/REST interface capabilities
+- `provider_cloud_ops.rs` (703 lines) — cloud credential + API call capabilities
+- `provider_runtime.rs` (348 lines) — runtime info + settings management
+- `provider_self_heal.rs` (566 lines) — self-heal case management
+- `provider_memory.rs` (393 lines) — memory recall/manage capabilities
+- `provider_llm.rs` (546 lines) — LLM-backed orchestration draft notes
+- `provider_review.rs` (265 lines) — review request/approve/deny capabilities
+- `provider_assistant.rs` (484 lines) — assistant turn/session/fact capabilities
+- `helpers.rs` (475 lines) — 32 shared utility functions (arg parsing, knowledge synth, path normalize)
+
+**lib.rs now contains:** core types (CapabilityMatch, ProviderRun, trait), McpHost struct + run loop, constants, and all test modules.
+
+**Key decisions:**
+- Used `pub use` re-exports so downstream crates (ordo-runtime, ordo-control) are unaffected
+- Created `helpers.rs` for 32 cross-module utility functions (JSON arg parsing, knowledge synthesis, path normalization, cloud lifecycle logging)
+- Made `cloud_credentials_upsert` pub(crate) for test access
