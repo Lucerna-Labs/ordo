@@ -123,20 +123,20 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 ## Phase 4: Prioritized Refactor List
 
 ### P0 — Correctness & Security
-- [ ] **P0-1:** Fix strainer clippy error (test logic — min/max constant)
-- [ ] **P0-2:** Upgrade quinn-proto to ≥0.11.15 (HIGH severity RUSTSEC-2026-0185)
-- [ ] **P0-3:** Replace fxhash with rustc-hash (RUSTSEC-2025-0057)
+- [x] **P0-1:** Fix strainer clippy error (test logic — min/max constant) ✅ commit ee40187
+- [x] **P0-2:** quinn-proto — BLOCKED (0.11.15 not published to crates.io, latest is 0.11.11)
+- [x] **P0-3:** fxhash + atomic-polyfill — both transitive deps (selectors→scraper, heapless→postcard→frost). Can't replace without upstream changes.
 
 ### P1 — Code Smells
-- [ ] **P1-1:** Remove 6 silencer hacks + their dead imports
-- [ ] **P1-2:** Fix clippy warnings (sort_by_key ×3, if-let ×2, loop counter)
-- [ ] **P1-3:** Clean up 29 #[allow] suppressions (evaluate dead_code ones)
+- [x] **P1-1:** Remove 6 silencer hacks + their dead imports ✅ commit ee40187
+- [x] **P1-2:** Fix all clippy warnings (sort_by_key ×3, if-let ×2, loop counter) ✅ commit ee40187
+- [ ] **P1-3:** Clean up remaining #[allow] suppressions (dead_code on struct fields, too_many_arguments ×5)
 
 ### P2 — Hygiene
-- [ ] **P2-1:** Check atomic-polyfill (transitive — can we remove?)
-- [ ] **P2-2:** Scan for stray build debris
+- [ ] **P2-1:** Scan for stray build debris / log files
+- [ ] **P2-2:** Add .gitignore entries if needed
 
-### P3 — Architecture (monolith splits, high blast radius)
+### P3 — Architecture (monolith splits, high blast radius — NEEDS APPROVAL)
 - [ ] **P3-1:** Split ordo-mcp-host/src/lib.rs (7,726 → submodules)
 - [ ] **P3-2:** Split ordo-control/src/lib.rs (5,197 → submodules)
 - [ ] **P3-3:** Split ordo-assistant/src/service.rs (4,379 → submodules)
@@ -144,3 +144,26 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 ---
 
 ## Phase 5: Execution Log
+
+### Commit ee40187 — P0-1 + P1-1 + P1-2 (2026-06-25)
+**Status:** ✅ Applied. 0 clippy warnings, 0 errors, 935/935 tests pass.
+
+**Files changed (13 files, +193/-89):**
+- `ordo-strainer/src/search.rs` — Fixed test clippy error: `min().max()` → `.clamp()`
+- `ordo-assistant/src/extractor.rs` — Removed `_body_preview()` silencer + `Value` import
+- `ordo-cli/src/apps_cmd.rs` — Removed `_unused_marker()` silencer + `PathBuf` import
+- `ordo-cli/src/plugins_cmd.rs` — Removed `_unused_loaded_manifest()` silencer + `LoadedManifest` import
+- `ordo-mcp-client/src/lib.rs` — Removed `_keep_types_reachable()` + `_ensure_signer()` silencers + 5 dead imports (HashSet, AttenuationConstraints, CapabilityHandle, DpopProof, Mutex)
+- `ordo-mcp-provenance/src/lib.rs` — Removed `_silence()` silencer in test module
+- `ordo-build-planner/src/peer.rs` — `sort_by` → `sort_by_key` with `Reverse`
+- `ordo-build-planner/src/store.rs` — `sort_by` → `sort_by_key` with `Reverse`
+- `ordo-memory-projection/src/service.rs` — `sort_by` → `sort_by_key` with `Reverse`
+- `ordo-email/src/bus_bridge.rs` — Single-arm `match` → `if let`
+- `ordo-strainer/src/url_safety.rs` — Single-arm `match` → `if let`
+- `ordo-apps/src/store.rs` — Manual loop counter → `.enumerate()`, removed `mut`
+
+### Security Audit Notes (no action taken)
+- **quinn-proto RUSTSEC-2026-0185** (HIGH 7.5): Fix requires v0.11.15+, but latest on crates.io is 0.11.11. Monitor and bump when published.
+- **rsa RUSTSEC-2023-0071** (MEDIUM 5.9): No fix available upstream. Monitor.
+- **fxhash RUSTSEC-2025-0057**: Transitive via `selectors` → `scraper`. Can't replace directly.
+- **atomic-polyfill RUSTSEC-2023-0089**: Transitive via `heapless` → `postcard` → `frost-core`. Can't replace directly.
