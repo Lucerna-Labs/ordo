@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use ordo_cloud::{CloudCredentialTask, CloudHttp};
 use parking_lot::Mutex;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
@@ -249,14 +249,6 @@ fn first_json_object(input: &str) -> Option<&str> {
         }
     }
     None
-}
-
-/// Serialize `Value` for the passed-in body. Used nowhere external;
-/// kept to satisfy `Value` import lint when the extractor is behind
-/// a feature flag in the future.
-#[allow(dead_code)]
-fn _body_preview(body: &Value) -> String {
-    serde_json::to_string_pretty(body).unwrap_or_default()
 }
 
 /// Resolve a usable credential from the store, preferring the operator's

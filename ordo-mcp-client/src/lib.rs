@@ -24,7 +24,6 @@
 //! - DPoP nonces are single-use; a replay attempt returns
 //!   `ClientError::DpopReplay`.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use ed25519_dalek::SigningKey;
@@ -34,11 +33,10 @@ use ordo_mcp_registry::{AnomalySeverity, McpRegistryService, RegistryError};
 use ordo_mcp_sandbox::{McpSandboxService, SandboxError};
 use ordo_mcp_worker::WorkerPool;
 use ordo_protocol::{
-    mcp_topics, AttenuationConstraints, BusEnvelope, CapabilityHandle, DpopProof, Envelope,
+    mcp_topics, BusEnvelope, Envelope,
     McpExtractionError, NodeId, OrdoMessage, PrivilegeTier, ProvenanceCheckRequest,
     ServerTrustState, ToolRiskLevel, ToolSchema,
 };
-use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -368,18 +366,6 @@ pub fn validate_privilege_tier_for_mcp(tier: PrivilegeTier) -> Result<(), Client
 /// accessible for downstream debugging.
 pub fn new_handle_id() -> String {
     ulid::Ulid::new().to_string()
-}
-
-// Silence dead-code warnings while keeping helper types in scope.
-#[allow(dead_code)]
-fn _keep_types_reachable() {
-    let _ = std::any::type_name::<CapabilityHandle>();
-    let _ = std::any::type_name::<AttenuationConstraints>();
-    let _ = std::any::type_name::<HashSet<()>>();
-    let _ = std::any::type_name::<Mutex<()>>();
-    let _ = std::any::type_name::<DpopProof>();
-    let _: fn(&[u8]) = |_| {};
-    fn _ensure_signer(_k: &SigningKey) {}
 }
 
 #[cfg(test)]

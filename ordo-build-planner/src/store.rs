@@ -55,7 +55,7 @@ impl BuildLedgerStore {
             let bytes = std::fs::read(path)?;
             ledgers.push(serde_json::from_slice(&bytes)?);
         }
-        ledgers.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        ledgers.sort_by_key(|l| std::cmp::Reverse(l.updated_at));
         Ok(ledgers)
     }
 

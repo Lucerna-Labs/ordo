@@ -1,7 +1,5 @@
 //! `ordo apps` subcommands â€” thin HTTP wrappers over `/api/apps`.
 
-use std::path::PathBuf;
-
 use serde_json::{json, Value};
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
@@ -216,7 +214,3 @@ fn urlencoding(s: &str) -> String {
         })
         .collect()
 }
-
-// quiet a couple unused warnings on `PathBuf` import for this simple shim
-#[allow(dead_code)]
-fn _unused_marker(_p: PathBuf) {}

@@ -188,7 +188,7 @@ impl MemoryProjectionService {
         // --- 5. Recent log window --------------------------------
         // Most recent first; truncate at budget.
         let mut recent = inputs.recent_events.clone();
-        recent.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
+        recent.sort_by_key(|e| std::cmp::Reverse(e.timestamp_ms));
         for event in &recent {
             let body = render_event(event);
             let cost = Budget::tokens_for(&body);

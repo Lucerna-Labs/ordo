@@ -597,10 +597,4 @@ mod tests {
         assert!(ancestors_of_c.contains(&a.id));
         assert!(ancestors_of_c.contains(&b.id));
     }
-
-    // Suppress unused-import warnings for types pulled in above.
-    #[allow(dead_code)]
-    fn _silence() {
-        let _ = Utc::now();
-    }
 }

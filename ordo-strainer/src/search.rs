@@ -286,14 +286,15 @@ mod tests {
 
     #[test]
     fn max_results_clamps_to_cap() {
-        // Verify the math without hitting the network.
-        let computed = std::cmp::min(50, MAX_RESULTS_CAP).max(1);
+        // Verify the clamp logic matches the production code (search.rs:136).
+        let computed = 50_usize.clamp(1, MAX_RESULTS_CAP);
         assert_eq!(computed, MAX_RESULTS_CAP);
     }
 
     #[test]
     fn max_results_minimum_is_one() {
-        let computed = std::cmp::min(0, MAX_RESULTS_CAP).max(1);
+        // A zero or sub-one request should floor at 1, not 0.
+        let computed = 0_usize.clamp(1, MAX_RESULTS_CAP);
         assert_eq!(computed, 1);
     }
 

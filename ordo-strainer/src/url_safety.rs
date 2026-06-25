@@ -374,18 +374,15 @@ mod tests {
         // Cyrillic-TLD .рф). NOT a mix; legitimate IDN.
         let url_str = "https://пример.рф/";
         let result = validate_url(url_str);
-        match result {
-            Ok(u) => {
-                assert!(
-                    !u.mixed_script_host,
-                    "all-Cyrillic host should not flag as mixed"
-                );
-            }
-            // Some url-crate configs reject IDN; the test still
-            // serves its purpose by verifying we DON'T panic and
-            // (if we accept) we don't false-flag.
-            Err(_) => {}
+        if let Ok(u) = result {
+            assert!(
+                !u.mixed_script_host,
+                "all-Cyrillic host should not flag as mixed"
+            );
         }
+        // Some url-crate configs reject IDN; the test still
+        // serves its purpose by verifying we DON'T panic and
+        // (if we accept) we don't false-flag.
     }
 
     #[test]

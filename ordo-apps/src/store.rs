@@ -231,7 +231,7 @@ impl AppsStore {
             }
         }
 
-        let mut next_seq: u64 = tx
+        let next_seq: u64 = tx
             .query_row(
                 "SELECT COALESCE(MAX(seq), -1) + 1 FROM app_events WHERE app_id = ?1",
                 params![app_id.to_string()],
@@ -246,7 +246,7 @@ impl AppsStore {
         let mut published_at = current.published_at;
         let mut archived_at = current.archived_at;
 
-        for mutation in mutations {
+        for (offset, mutation) in mutations.into_iter().enumerate() {
             let event_kind = match &mutation {
                 Mutation::Rename(new_name) => {
                     let from = name.clone();
@@ -297,12 +297,11 @@ impl AppsStore {
                 &tx,
                 app_id,
                 &current.workspace_id,
-                next_seq,
+                next_seq + offset as u64,
                 actor,
                 now,
                 &event_kind,
             )?;
-            next_seq += 1;
         }
 
         let metadata_json =

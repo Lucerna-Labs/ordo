@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ordo_plugins::{discover_plugins, LoadedManifest, PluginManifest};
+use ordo_plugins::{discover_plugins, PluginManifest};
 use ordo_runtime::RuntimeConfig;
 use serde_json::{json, Value};
 
@@ -250,6 +250,3 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> Result<(), DynError> {
     }
     Ok(())
 }
-
-#[allow(dead_code)]
-fn _unused_loaded_manifest(_: LoadedManifest) {}
