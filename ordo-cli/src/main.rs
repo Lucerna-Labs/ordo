@@ -2,6 +2,7 @@ mod apps_cmd;
 mod chat_cmd;
 mod cloud_cmd;
 mod ext_cmd;
+mod lifecycle;
 mod mcp_cmd;
 mod plugins_cmd;
 mod runtime_cmd;
@@ -89,55 +90,120 @@ fn print_top_help() {
 }
 
 async fn run_serve() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Determine workspace root (where Cargo.toml lives)
+    let workspace_root = std::env::current_dir()?;
+
+    // Initialize boot state for the progress page
+    let boot_state = lifecycle::new_boot_state();
+    ordo_control::set_boot_state(boot_state.clone());
+
+    // ── Phase 1: Ensure Studio UI is built ──────────────────────
+    if !lifecycle::studio_is_built(&workspace_root) {
+        if let Err(e) = lifecycle::build_studio(&workspace_root, boot_state.clone()).await {
+            eprintln!("[ordo] {e}");
+            eprintln!("[ordo] Studio build failed. Install Node.js 20+ and try again.");
+            std::process::exit(1);
+        }
+    } else {
+        let mut bs = boot_state.lock().await;
+        bs.steps.insert("build_studio".into(), "done".into());
+    }
+
+    // ── Phase 2: Ensure Servo shell is built ────────────────────
+    if let Err(e) = lifecycle::ensure_servo_shell(&workspace_root, boot_state.clone()).await {
+        eprintln!("[ordo] {e}");
+        eprintln!("[ordo] Servo shell build failed. Make sure Rust is installed.");
+        std::process::exit(1);
+    }
+
+    // Ensure ANGLE DLLs on Windows
+    if let Err(e) = lifecycle::ensure_angle_dlls(&workspace_root) {
+        eprintln!("[ordo] Warning: {e}");
+    }
+
+    // ── Phase 3: Boot the runtime ───────────────────────────────
+    {
+        let mut bs = boot_state.lock().await;
+        bs.steps.insert("start_runtime".into(), "active".into());
+        bs.status_text = "Starting Ordo runtime…".into();
+    }
+
     println!("--- Ordo: serving runtime (Ctrl+C or close window to stop) ---");
     let runtime = PlanningOrdoRuntime::boot(RuntimeConfig::local_default()).await?;
+
+    {
+        let mut bs = boot_state.lock().await;
+        bs.steps.insert("start_runtime".into(), "done".into());
+        bs.steps.insert("build_runtime".into(), "done".into());
+    }
+
     println!(
         "[runtime] profile={} components={:?}",
         runtime.config().profile.as_str(),
         runtime.component_names()
     );
-    println!(
-        "[runtime] database={} user_files={}",
-        runtime.config().database_path.display(),
-        runtime.config().user_files_path.display()
-    );
     if let Some(bind_addr) = &runtime.config().control_api_bind {
         println!("[runtime] control API:  http://{bind_addr}");
-        println!("[runtime] studio:       http://{bind_addr}/");
-        println!("[runtime] dashboard:    http://{bind_addr}/dashboard");
-        println!("[runtime] health check: http://{bind_addr}/health");
-        println!("[runtime] capabilities: http://{bind_addr}/api/capabilities");
-        println!("[runtime] credentials:  http://{bind_addr}/api/cloud/credentials");
-    } else {
-        println!("[runtime] control API disabled");
     }
-    println!("[runtime] ready. waiting for shutdown signal (Ctrl+C / close window)...");
 
-    // Wait for ANY signal that means "we are going away" — not just Ctrl+C.
-    // Before this, `serve` only awaited `tokio::signal::ctrl_c()`, which on
-    // Windows catches CTRL_C / CTRL_BREAK but NOT the console-close, logoff,
-    // or system-shutdown events. Closing the (minimized) launcher console
-    // therefore hard-killed the runtime with exit code -1 (0xFFFFFFFF), with
-    // no graceful component shutdown and an uncheckpointed WAL. We now catch
-    // every shutdown signal class and run the same clean path.
-    let signal = wait_for_shutdown_signal().await;
-    println!("\n[runtime] received {signal}; shutting down components...");
+    // ── Phase 4: Spawn Servo shell as child ─────────────────────
+    let control_url = runtime
+        .config()
+        .control_api_bind
+        .as_ref()
+        .map(|addr| format!("http://{addr}"))
+        .unwrap_or_else(|| "http://127.0.0.1:4141".to_string());
 
-    // Capture the DB path before `shutdown` consumes the runtime, then fold
-    // the write-ahead log back into the main database file once the runtime's
-    // own connections have been torn down. WAL mode already keeps committed
-    // data safe across a kill (it is replayed on the next open), so this is
-    // about a clean, deterministic shutdown and a small on-disk footprint
-    // rather than rescuing data.
+    let mut servo_child = match lifecycle::ServoChild::spawn(
+        &workspace_root,
+        &control_url,
+        1560,
+        980,
+        boot_state.clone(),
+    )
+    .await
+    {
+        Ok(child) => child,
+        Err(e) => {
+            eprintln!("[ordo] Could not open Ordo window: {e}");
+            eprintln!("[ordo] Runtime is running at {control_url}. Open it in a browser.");
+            // Fall back to waiting for Ctrl+C
+            let signal = wait_for_shutdown_signal().await;
+            println!("\n[runtime] received {signal}; shutting down...");
+            let database_path = runtime.config().database_path.clone();
+            runtime.shutdown();
+            let _ = checkpoint_wal_with_retry(&database_path).await;
+            println!("[runtime] shutdown complete");
+            return Ok(());
+        }
+    };
+
+    // ── Phase 5: Wait for Servo to close, then clean up ─────────
+    // When the Servo window closes, we kill the runtime — no orphaned processes.
+    println!("[ordo] Ordo window is open. Close it to stop the runtime.");
+
+    // Race: Servo exit vs shutdown signal
+    let servo_exit = tokio::select! {
+        result = servo_child.wait() => {
+            println!("[ordo] Ordo window closed (exit code {}).", result.unwrap_or(-1));
+            true
+        }
+        _ = wait_for_shutdown_signal() => {
+            println!("\n[ordo] Shutdown signal received.");
+            servo_child.kill();
+            false
+        }
+    };
+
+    let _ = servo_exit; // suppress unused warning
+
+    println!("[runtime] shutting down components...");
     let database_path = runtime.config().database_path.clone();
     runtime.shutdown();
+
     match checkpoint_wal_with_retry(&database_path).await {
         Ok(stats) if stats.busy == 0 => println!("[runtime] WAL checkpoint complete ({stats})"),
-        Ok(stats) => {
-            // Still contended after the retry budget. Not data loss — WAL mode
-            // replays the log on the next open — just a non-shrunk -wal file.
-            println!("[runtime] WAL still busy, will fold on next open ({stats})");
-        }
+        Ok(stats) => println!("[runtime] WAL still busy, will fold on next open ({stats})"),
         Err(err) => eprintln!("[runtime] WAL checkpoint skipped: {err}"),
     }
     println!("[runtime] shutdown complete");

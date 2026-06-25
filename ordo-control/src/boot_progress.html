@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ordo — Preparing…</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #c9d1d9;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; overflow: hidden;
+  }
+  .container { max-width: 540px; width: 90%; text-align: center; }
+  .logo {
+    font-size: 48px; font-weight: 700;
+    background: linear-gradient(135deg, #58a6ff, #bc8cff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 8px; letter-spacing: -1px;
+  }
+  .subtitle { color: #8b949e; font-size: 15px; margin-bottom: 40px; }
+  .steps {
+    text-align: left; display: inline-block; min-width: 380px;
+  }
+  .step {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; opacity: 0.35; transition: opacity 0.3s;
+    font-size: 14px;
+  }
+  .step.active { opacity: 1; }
+  .step.done { opacity: 0.7; }
+  .step .icon {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+    border: 2px solid #333;
+  }
+  .step.active .icon {
+    border-color: #58a6ff;
+    animation: spin 1s linear infinite;
+    border-top-color: transparent;
+  }
+  .step.done .icon {
+    border-color: #3fb950; background: #3fb950; color: #0d1117;
+  }
+  .step.error .icon { border-color: #f85149; background: #f85149; color: #0d1117; }
+  .step.error { opacity: 1; color: #f85149; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-detail {
+    margin-top: 16px; padding: 12px; border-radius: 8px;
+    background: #1a0d0d; border: 1px solid #f8514933;
+    font-size: 12px; color: #f85149; display: none;
+    text-align: left; white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .progress-bar {
+    width: 100%; max-width: 380px; height: 3px;
+    background: #21262d; border-radius: 2px; margin: 30px auto 0;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #58a6ff, #bc8cff);
+    transition: width 0.5s ease;
+  }
+  .status-text { color: #8b949e; font-size: 12px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo">Ordo</div>
+  <div class="subtitle" id="subtitle">Preparing your workspace…</div>
+  <div class="steps" id="steps">
+    <div class="step" data-step="build_studio">
+      <div class="icon"></div><span>Building Studio interface</span>
+    </div>
+    <div class="step" data-step="build_runtime">
+      <div class="icon"></div><span>Compiling Ordo runtime</span>
+    </div>
+    <div class="step" data-step="build_servo">
+      <div class="icon"></div><span>Building embedded shell</span>
+    </div>
+    <div class="step" data-step="start_runtime">
+      <div class="icon"></div><span>Starting runtime</span>
+    </div>
+    <div class="step" data-step="open_window">
+      <div class="icon"></div><span>Opening Ordo window</span>
+    </div>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+  <div class="status-text" id="status"></div>
+  <div class="error-detail" id="error-detail"></div>
+</div>
+<script>
+const stepOrder = ["build_studio","build_runtime","build_servo","start_runtime","open_window"];
+let pollTimer = null;
+
+function setStep(name, state) {
+  const el = document.querySelector('[data-step="' + name + '"]');
+  if (!el) return;
+  el.classList.remove("active","done","error");
+  el.classList.add(state);
+  const icon = el.querySelector(".icon");
+  if (state === "done") icon.textContent = "✓";
+  else if (state === "error") icon.textContent = "✗";
+  else icon.textContent = "";
+
+  // Update progress bar
+  const idx = stepOrder.indexOf(name);
+  let pct = 0;
+  for (let i = 0; i < stepOrder.length; i++) {
+    const s = document.querySelector('[data-step="' + stepOrder[i] + '"]');
+    if (s.classList.contains("done")) pct += (100 / stepOrder.length);
+    else if (s.classList.contains("active")) pct += (50 / stepOrder.length);
+  }
+  document.getElementById("progress").style.width = pct + "%";
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch("/api/boot/status");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    for (const step of stepOrder) {
+      const st = data.steps[step];
+      if (!st) continue;
+      if (st === "active") setStep(step, "active");
+      else if (st === "done") setStep(step, "done");
+      else if (st === "error") setStep(step, "error");
+    }
+
+    if (data.subtitle) document.getElementById("subtitle").textContent = data.subtitle;
+    if (data.status_text) document.getElementById("status").textContent = data.status_text;
+
+    if (data.error) {
+      document.getElementById("error-detail").style.display = "block";
+      document.getElementById("error-detail").textContent = data.error;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    if (data.all_done) {
+      document.getElementById("subtitle").textContent = "Almost there…";
+      document.getElementById("status").textContent = "Opening Ordo window…";
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+  } catch(e) {
+    // Runtime might still be starting — keep polling
+  }
+}
+
+// Start polling immediately, then every second
+pollStatus();
+pollTimer = setInterval(pollStatus, 1000);
+</script>
+</body>
+</html>

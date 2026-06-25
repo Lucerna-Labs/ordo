@@ -2842,6 +2842,7 @@ name = "ordo-cli"
 version = "0.1.0"
 dependencies = [
  "ordo-cloud",
+ "ordo-control",
  "ordo-plugins",
  "ordo-runtime",
  "ordo-store",

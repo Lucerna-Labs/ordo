@@ -50,40 +50,49 @@ won't pull in.
 
 ---
 
-### Option B: Windows from source
+**Option B: Windows from source**
 
 ```powershell
 cd $env:USERPROFILE\Desktop
 git clone https://github.com/Lucerna-Labs/ordo.git
 cd ordo
+cargo run -- serve
+```
+
+Or create a desktop shortcut first, then launch from it:
+
+```powershell
 .\Install-Desktop-Shortcut.cmd
 ```
 
-The shortcut runs `Launch-Ordo-Servo.vbs`, which launches Ordo in the
-embedded Servo window without a console.
+The shortcut runs `Launch-Ordo-Servo.vbs`, which calls `cargo run -- serve`
+behind the scenes — Ordo manages the entire lifecycle: builds the Studio UI,
+starts the runtime, opens the embedded Servo window, and shuts everything
+down cleanly when you close the window.
 
 **What happens on first launch:**
 
-1. Builds the Studio UI (`npm install && npm run build`)
-2. Builds the Servo shell (`cargo build`)
-3. Starts the Ordo runtime (`cargo run -- serve`)
-4. Waits for the runtime health check at `http://127.0.0.1:4141/health`
-5. Opens the Servo window pointing at the runtime
+1. Ordo shows a progress page (at `http://127.0.0.1:4141/boot`) with
+   real-time build status for each step
+2. Builds the Studio UI (`npm install && npm run build`)
+3. Builds the Servo shell (`cargo build`)
+4. Starts the Ordo runtime
+5. Opens the Servo window — closing it cleanly stops the runtime
 
 This takes **5–15 minutes** the first time (compiling Rust). Subsequent
 launches are fast — binaries are cached.
-
-**To launch without installing the shortcut:**
-
-```powershell
-wscript.exe .\Launch-Ordo-Servo.vbs
-```
 
 **To update an existing install:**
 
 ```powershell
 git pull
-.\Install-Desktop-Shortcut.cmd
+cargo run -- serve
+```
+
+**For troubleshooting with a visible console:**
+
+```powershell
+.\Launch-Ordo-Servo.ps1
 ```
 
 ---

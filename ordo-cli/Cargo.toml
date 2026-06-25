@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 ordo-runtime = { path = "../ordo-runtime" }
+ordo-control = { path = "../ordo-control" }
 ordo-cloud = { path = "../ordo-cloud" }
 ordo-plugins = { path = "../ordo-plugins" }
 ordo-store = { path = "../ordo-store" }
