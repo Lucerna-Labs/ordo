@@ -1,5 +1,10 @@
 # Ordo
 
+> **Beta software — actively developed.** Ordo works but is still being refined.
+> Features may change, things may break. If you hit a problem, please
+> [open an issue](https://github.com/Lucerna-Labs/ordo/issues) — it helps me fix
+> things faster. See [What to report](#feedback) below.
+
 Ordo is a local-first AI runtime and operator studio by Lucerna Labs, a
 division of Lucerna Media.
 
@@ -7,9 +12,6 @@ It combines a Rust/Tokio runtime, a localhost control API, a React UXI, and a
 custom embedded Servo shell. The model does not get uncontrolled hands on the
 computer: it works through scoped capabilities, policies, logs, review gates,
 mode rules, and explicit operator approval.
-
-Ordo is beta software. The current desktop path is Windows-first through the
-Servo shell; the Rust runtime remains portable source code.
 
 ## Quick Start
 
@@ -195,6 +197,27 @@ The Servo beta was pushed after a clean run:
 ```text
 10 passed, 0 failed, 0 skipped
 ```
+
+## Feedback
+
+Ordo is in active beta. If something breaks or doesn't work the way you'd expect,
+please report it — I can't fix what I don't know about.
+
+**[→ Open an issue](https://github.com/Lucerna-Labs/ordo/issues)**
+
+**What to report:**
+- Crashes, errors, or unexpected behavior
+- Install/launch problems (what OS, what install method)
+- Missing or confusing UI
+- Feature ideas
+
+When reporting a bug, include:
+1. What you did (steps to reproduce)
+2. What happened vs. what you expected
+3. Your OS and install method (`.deb`, source build, etc.)
+4. Any error messages or log output (check `runtime-servo.err.log`)
+
+**The more detail, the faster I can fix it.**
 
 ## Repository Map
 
