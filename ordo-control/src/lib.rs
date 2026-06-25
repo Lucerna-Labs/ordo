@@ -18,6 +18,7 @@ mod routes_mcp;
 mod routes_connections;
 mod routes_update;
 mod routes_boot;
+mod routes_extensions;
 
 // Re-export boot state types for use by ordo-cli
 pub use routes_boot::{BootState, BootStateData, set_boot_state};
@@ -38,6 +39,7 @@ pub(crate) use routes_mcp::*;
 pub(crate) use routes_connections::*;
 pub(crate) use routes_update::*;
 pub(crate) use routes_boot::*;
+pub(crate) use routes_extensions::*;
 
 pub use auth::AuthConfig;
 pub use metrics::{MetricsHandle, RateLimiterHandle};
@@ -111,6 +113,9 @@ struct ControlApiState {
     /// the runtime; HTTP routes return 503 in that case rather than
     /// panicking, keeping the router buildable for unit tests.
     connections: Option<Arc<ordo_connections::ConnectionService>>,
+    /// MCP extension registry — URL-based MCP server connections.
+    /// Separate from the WASM sandbox registry.
+    extension_registry: Option<Arc<routes_extensions::ExtensionRegistry>>,
     automation: Arc<Mutex<AutomationOrchestrator>>,
     automation_path: Option<PathBuf>,
     build_planner: Arc<AsyncMutex<ordo_build_planner::BuildPlannerPeer>>,
@@ -462,6 +467,11 @@ pub fn build_router_with_plugins(
         mcp_sandbox,
         mcp_client,
         connections,
+        extension_registry: Some(Arc::new(routes_extensions::ExtensionRegistry::new(
+            &std::path::PathBuf::from(
+                std::env::var("ORDO_USER_FILES_PATH").unwrap_or_else(|_| ".".to_string())
+            ),
+        ))),
         automation: Arc::new(Mutex::new(automation)),
         automation_path,
         build_planner: Arc::new(AsyncMutex::new(build_planner)),
@@ -741,6 +751,9 @@ pub fn build_router_with_plugins(
         .route("/api/update/apply", post(apply_update))
         .route("/boot", get(boot_progress_page))
         .route("/api/boot/status", get(boot_status))
+        .route("/api/extensions", get(list_extensions))
+        .route("/api/extensions/connect", post(connect_extension))
+        .route("/api/extensions/:alias", axum::routing::delete(disconnect_extension))
         .fallback(get(studio_asset_fallback))
         .with_state(state)
 }

@@ -101,6 +101,7 @@ wiremock = "0.6"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
 regex = "1"
 parking_lot = "0.12"
+url = "2"
 # OpenTelemetry â€” opt-in via the `otel` feature on ordo-runtime.
 # Version-matched as of the 0.27/0.28 series. See
 # docs/architecture-contract.md â€” OTel is additive, not load-bearing.

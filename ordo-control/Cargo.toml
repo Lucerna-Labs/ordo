@@ -39,9 +39,11 @@ futures.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 ordo-cloud = { path = "../ordo-cloud" }
 ordo-heal = { path = "../ordo-heal" }
 ordo-rag = { path = "../ordo-rag" }
 uuid.workspace = true
+url.workspace = true
