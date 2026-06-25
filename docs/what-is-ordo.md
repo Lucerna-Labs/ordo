@@ -1,9 +1,9 @@
 # What Is Ordo?
 
-Ordo is a local-first AI runtime and operator studio. It gives a user a local
-assistant that can work through approved capabilities, persistent memory,
-retrieval, automation, model providers, and agent teams without handing
-unbounded control to a remote platform.
+Ordo is a local-first AI agent orchestration platform. It gives a user a local
+assistant that orchestrates tools, capabilities, MCP servers, agent teams,
+persistent memory, retrieval, and automation — without handing unbounded
+control to a remote platform.
 
 ## Who It Is For
 

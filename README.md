@@ -3,15 +3,20 @@
 > **Beta software — actively developed.** Ordo works but is still being refined.
 > Features may change, things may break. If you hit a problem, please
 > [open an issue](https://github.com/Lucerna-Labs/ordo/issues) — it helps me fix
-> things faster. See [What to report](#feedback) below.
+> things faster. See [Feedback](#feedback) below.
 
-Ordo is a local-first AI runtime and operator studio by Lucerna Labs, a
+Ordo is a local-first AI agent orchestration platform by Lucerna Labs, a
 division of Lucerna Media.
 
-It combines a Rust/Tokio runtime, a localhost control API, a React UXI, and a
-custom embedded Servo shell. The model does not get uncontrolled hands on the
-computer: it works through scoped capabilities, policies, logs, review gates,
-mode rules, and explicit operator approval.
+It gives you a personal AI assistant that orchestrates tools, capabilities, MCP
+servers, agent teams, memory, retrieval, and automation — all on your machine.
+The model never gets uncontrolled access to your computer: it works through
+scoped capabilities, policies, review gates, mode rules, and explicit operator
+approval. No data leaves your system unless you choose a cloud model provider.
+
+Think of it as your own private AI operations center: local models, cloud
+models, persistent memory, scheduled automations, and a multi-agent workflow
+engine — all behind a single operator interface you control.
 
 ## Quick Start
 

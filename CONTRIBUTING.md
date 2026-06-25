@@ -42,7 +42,7 @@ The workspace is Rust 2021 edition, pinned to Rust 1.93.0 via
 
 The codebase is ~100k lines across 62 Rust crates:
 
-- **ordo-runtime**: boots and supervises all components
+- **ordo-runtime**: boots and supervises all components of the orchestration platform
 - **ordo-control**: local HTTP API + static UI serving (14 route modules)
 - **ordo-assistant**: assistant sessions, turn loop, memory, tools
 - **ordo-mcp-host**: 12 capability providers (filesystem, cloud, LLM, etc.)

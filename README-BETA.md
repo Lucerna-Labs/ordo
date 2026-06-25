@@ -4,10 +4,10 @@ Lucerna Labs, a division of Lucerna Media.
 
 For install steps, see [INSTALL.md](INSTALL.md).
 
-Ordo is now a local-first AI runtime with a self-rendered Servo desktop shell.
-The Rust runtime serves the Studio bundle and the control API from
-`127.0.0.1:4141`; the embedded Servo shell opens that local URL without browser
-tabs, an address bar, or a separate web-server dependency.
+Ordo is now a local-first AI agent orchestration platform with a self-rendered
+Servo desktop shell. The Rust core serves the Studio bundle and the control
+API from `127.0.0.1:4141`; the embedded Servo shell opens that local URL
+without browser tabs, an address bar, or a separate web-server dependency.
 
 ## Current Beta Shape
 
