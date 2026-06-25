@@ -24,6 +24,7 @@ pub mod prompt;
 pub mod recall;
 pub mod seeder;
 pub mod service;
+mod meta_tools;
 pub mod store;
 pub mod summarizer;
 pub mod tools;
