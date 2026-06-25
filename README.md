@@ -13,11 +13,11 @@ Servo shell; the Rust runtime remains portable source code.
 
 ## Quick Start
 
-For the full install guide, see [INSTALL.md](INSTALL.md).
+For the full install guide with troubleshooting, see [INSTALL.md](INSTALL.md).
 
-### Windows Source Install
+### Windows
 
-Install Git for Windows if needed, then run this from PowerShell:
+**Prerequisites:** [Git](https://git-scm.com), [Node.js 20+](https://nodejs.org), [Rust 1.93+](https://rustup.rs).
 
 ```powershell
 cd $env:USERPROFILE\Desktop
@@ -26,79 +26,55 @@ cd ordo
 .\Install-Desktop-Shortcut.cmd
 ```
 
-Then open **Ordo** from the desktop shortcut. The shortcut uses
-`Launch-Ordo-Servo.vbs`, so Ordo opens in the embedded Servo app window without
-leaving a console window behind.
+Then open **Ordo** from the desktop shortcut.
 
-To launch once from the project folder without installing the shortcut:
+The first launch builds the Studio UI and Servo shell (5–15 minutes).
+Subsequent launches are fast.
 
-```powershell
-wscript.exe .\Launch-Ordo-Servo.vbs
-```
-
-For troubleshooting, use the visible diagnostic launcher:
-
-```powershell
-.\Launch-Ordo-Servo.ps1
-```
-
-If you already have a copy of Ordo, open PowerShell in that project folder and
-run:
+To update an existing clone:
 
 ```powershell
 git pull
 .\Install-Desktop-Shortcut.cmd
 ```
 
-For Explorer/double-click use inside the project folder:
+To launch once without installing the shortcut:
 
-```text
-Launch-Ordo-Servo.vbs
+```powershell
+wscript.exe .\Launch-Ordo-Servo.vbs
 ```
 
-`Launch-Ordo-Servo.cmd` delegates to the same hidden launcher for compatibility.
-Use `Launch-Ordo-Servo.ps1` directly only when you want a visible diagnostic
-console.
+For troubleshooting with a visible console:
 
-The launcher builds `ordo-studio`, starts the Ordo runtime, waits for
-`/health`, serves the built UI from Ordo's own localhost server, and opens the
-embedded Servo app window. When the Servo window closes, the launcher stops the
-Ordo runtime so port `4141` is released.
-
-GitHub source ZIP downloads include a compact Windows bootstrap payload at
-`bootstrap/ordo-windows-portable.zip`. On first launch, `Launch-Ordo-Servo.ps1`
-extracts it if `bin/portable` or `ordo-studio/dist` is missing, so the source
-ZIP can launch without requiring a full Rust/Servo rebuild.
+```powershell
+.\Launch-Ordo-Servo.ps1
+```
 
 Default local runtime URL:
 
-```text
+```
 http://127.0.0.1:4141
 ```
 
-### Linux Install (Pop!_OS / Ubuntu / Debian)
+### Linux (Pop!_OS / Ubuntu / Debian)
 
-One command — it downloads a prebuilt `.deb` and installs it (no compiler, no
-Rust/Node, no long build):
+**Option 1 — Prebuilt `.deb`** (recommended, no compiler needed):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
 ```
 
-Then open **Ordo** from the app menu (embedded Servo app window, not an external
-browser). See [INSTALL.md](INSTALL.md) for the by-hand `dpkg -i` steps.
+Then open **Ordo** from the app menu.
 
-To build from source instead (developers, or distros without a prebuilt `.deb`),
-the bootstrap installer compiles Servo + SpiderMonkey (~850 crates, 30–60+ min):
+**Option 2 — Build from source** (developers; compiles Servo + SpiderMonkey, 30–60+ min):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 
-It auto-sets `BINDGEN_EXTRA_CLANG_ARGS` so the Servo shell's `mozangle` bindings
-compile on Pop!_OS 24.04 (an extra `gcc-14` without its libstdc++ headers
-otherwise breaks libclang with `'array' file not found`). See
-[INSTALL.md](INSTALL.md) for details.
+The installer clones to `~/ordo`, installs all build prerequisites
+(Rust, Node, C/C++ toolchain, GL/X11/Wayland headers), builds, and
+installs the `.deb` or AppImage.
 
 ## Current Desktop Architecture
 

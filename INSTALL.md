@@ -1,11 +1,56 @@
 # Ordo Install Guide
 
-Ordo launches as a local runtime plus the embedded Servo desktop shell. It does
-not need Chrome, Firefox, Vite, or Tauri for normal use.
+Ordo runs as a local Rust runtime plus an embedded Servo desktop shell. You do
+**not** need Chrome, Firefox, or Tauri.
 
-## Windows
+---
 
-Install Git for Windows if needed, then open PowerShell:
+## Prerequisites
+
+### Windows
+
+| Requirement | Why | How to check |
+|---|---|---|
+| **Git** | Clone the repo | `git --version` |
+| **Node.js 20+** and **npm** | Build the Studio UI | `node --version` |
+| **Rust 1.93+** | Build the runtime + Servo shell | `rustc --version` |
+
+Install Rust from <https://rustup.rs> if you don't have it.
+
+Install Node.js from <https://nodejs.org> (the LTS version is fine).
+
+### Linux (Pop!_OS / Ubuntu / Debian)
+
+No prerequisites for the prebuilt install (it downloads a `.deb`). For
+source builds, the installer script installs everything automatically.
+
+---
+
+## Install
+
+### Option A: Linux prebuilt `.deb` (fastest, no compiler)
+
+No Rust, no Node, no 30-minute Servo build — just downloads and installs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
+```
+
+Then open **Ordo** from your application menu.
+
+To install a specific release by hand:
+
+```bash
+# Download from https://github.com/Lucerna-Labs/ordo/releases/latest
+sudo dpkg -i ordo_*_amd64.deb || sudo apt-get install -f -y
+```
+
+The `apt-get install -f` resolves runtime dependencies that `dpkg` alone
+won't pull in.
+
+---
+
+### Option B: Windows from source
 
 ```powershell
 cd $env:USERPROFILE\Desktop
@@ -14,74 +59,117 @@ cd ordo
 .\Install-Desktop-Shortcut.cmd
 ```
 
-Then open **Ordo** from the desktop shortcut.
+The shortcut runs `Launch-Ordo-Servo.vbs`, which launches Ordo in the
+embedded Servo window without a console.
 
-To launch once from the project folder without installing the shortcut:
+**What happens on first launch:**
+
+1. Builds the Studio UI (`npm install && npm run build`)
+2. Builds the Servo shell (`cargo build`)
+3. Starts the Ordo runtime (`cargo run -- serve`)
+4. Waits for the runtime health check at `http://127.0.0.1:4141/health`
+5. Opens the Servo window pointing at the runtime
+
+This takes **5–15 minutes** the first time (compiling Rust). Subsequent
+launches are fast — binaries are cached.
+
+**To launch without installing the shortcut:**
 
 ```powershell
 wscript.exe .\Launch-Ordo-Servo.vbs
 ```
 
-For troubleshooting with a visible console:
-
-```powershell
-.\Launch-Ordo-Servo.ps1
-```
-
-To update an existing Windows clone:
+**To update an existing install:**
 
 ```powershell
 git pull
 .\Install-Desktop-Shortcut.cmd
 ```
 
-## Linux (Pop!_OS / Ubuntu / Debian)
+---
 
-One command. It downloads a prebuilt Ordo `.deb` from GitHub Releases and
-installs it — no compiler, no Rust/Node, no long build:
+### Option C: Linux from source (developers)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
-```
-
-The script calls `sudo` only for the final package install. To do it by hand,
-download `ordo_*_amd64.deb` from the
-[latest release](https://github.com/Lucerna-Labs/ordo/releases/latest) and run:
-
-```bash
-sudo dpkg -i ordo_*_amd64.deb || sudo apt-get install -f -y
-```
-
-`dpkg -i` plus `apt-get install -f` is used on purpose: some apt versions reject
-a local `sudo apt install ./file.deb` path with an unsupported-file error, and
-`-f` pulls in the runtime libraries.
-
-Then open **Ordo** from your application menu. It launches the embedded Servo
-app window, not an external browser.
-
-### Build from source (advanced / developers)
-
-The prebuilt package above is the recommended path. Build from source only if you
-are developing Ordo or on a distro without a prebuilt `.deb`.
-
-> This compiles Servo + SpiderMonkey + WebRender (~850 crates): budget **30–60+
-> minutes**, ~**8 GB RAM**, and ~**15 GB disk** for the first build.
+> **Budget:** 30–60+ minutes, ~8 GB RAM, ~15 GB disk (compiles Servo +
+> SpiderMonkey + WebRender — ~850 crates).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
 ```
 
-This clones Ordo to `~/ordo` (or updates an existing clone), installs every build
-prerequisite, then builds and installs the `.deb`. The build automatically sets
-`BINDGEN_EXTRA_CLANG_ARGS` so Servo's `mozangle` shader bindings compile on
-Pop!_OS 24.04 — where an extra `gcc-14` without its libstdc++ headers otherwise
-makes libclang fail with `'array' file not found`. On non-Debian distros the
-installer builds an AppImage instead.
+This clones to `~/ordo`, installs all build prerequisites (Rust, Node,
+C/C++ toolchain, GL/X11/Wayland headers), builds, and installs the `.deb`.
 
-## What Gets Installed
+On non-Debian distros it builds an AppImage instead.
 
-- The Ordo runtime binary.
-- The embedded Servo shell.
-- The built Studio UI bundle.
-- A launcher that starts the runtime, opens Servo, and releases port `4141`
-  when Ordo closes.
+---
+
+## Launch
+
+After install, Ordo runs at:
+
+```
+http://127.0.0.1:4141
+```
+
+- **Windows:** Open the **Ordo** desktop shortcut.
+- **Linux:** Open **Ordo** from your application menu.
+
+The embedded Servo window is the intended way to use Ordo — not an
+external browser.
+
+---
+
+## Troubleshooting
+
+### "npm was not found on PATH"
+Install Node.js 20+ from <https://nodejs.org>.
+
+### "cargo was not found on PATH"
+Install Rust from <https://rustup.rs>, then reopen your terminal.
+
+### Runtime health check failed
+The runtime didn't start within 120 seconds. Check the logs:
+
+```powershell
+# Windows
+Get-Content runtime-servo.err.log -Tail 50
+```
+
+Common causes: port 4141 already in use, missing dependencies, or the
+Studio build failed silently.
+
+### Port 4141 already in use
+The launcher kills stale listeners automatically, but if something else
+is using the port:
+
+```bash
+# Linux
+sudo lsof -i :4141
+sudo kill <PID>
+
+# Windows (PowerShell)
+Get-NetTCPConnection -LocalPort 4141 | Select OwningProcess
+Stop-Process -Id <PID>
+```
+
+### Servo shell build failed (Linux)
+Ensure you have the full build prerequisites. The source installer handles
+this automatically, but if you're building manually:
+
+```bash
+sudo apt-get install -y build-essential cmake clang libclang-dev llvm-dev \
+  python3 m4 libssl-dev libtss2-dev zlib1g-dev \
+  libx11-dev libxcb1-dev libxkbcommon-dev libwayland-dev \
+  libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dev \
+  libfontconfig-dev libfreetype-dev libharfbuzz-dev
+```
+
+### Servo ANGLE DLLs missing (Windows)
+The launcher downloads Servo nightly automatically for the ANGLE runtime
+DLLs (`libEGL.dll`, `libGLESv2.dll`). If that fails, check your internet
+connection or run the diagnostic launcher for details:
+
+```powershell
+.\Launch-Ordo-Servo.ps1
+```
