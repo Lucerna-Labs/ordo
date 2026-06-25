@@ -138,8 +138,9 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 
 ### P3 — Architecture (monolith splits, high blast radius — NEEDS APPROVAL)
 - [x] **P3-1:** Split ordo-mcp-host/src/lib.rs (7,726→1,809 lines into 12 provider modules + helpers) ✅ commit 13b366d
-- [ ] **P3-2:** Split ordo-control/src/lib.rs (5,197 lines) — IN PROGRESS (subagent)
-- [ ] **P3-3:** Split ordo-assistant/src/service.rs (4,379 lines) — PARTIAL: meta_tools extraction only, run_turn() deferred (17 branches, no test coverage)
+- [x] **P3-2:** Split ordo-control/src/lib.rs (5,197→1,836 lines into 14 route modules) ✅ commit 4da9c7a
+- [x] **P3-3:** Extract meta_tools from ordo-assistant/service.rs (4,380→3,660 lines) ✅ commit b417518
+  - **DEFERRED:** run_turn() (965 lines, 17 branches) — needs dedicated test coverage before extraction
 
 ---
 
