@@ -1119,7 +1119,44 @@ impl PlanningOrdoRuntime {
             let mgmt_gated = security.gate(mgmt_provider, "mcp-management".to_string());
             host.add_provider(Arc::new(mgmt_gated));
 
-            let mut maintenance = MaintenanceProvider::new(
+                        // ── URL-based MCP extensions ──────────────────────────
+                        // Load user-configured external MCP servers from
+                        // <user_files>/mcp-extensions.json (written by the
+                        // /api/extensions/connect API) and wire them as a
+                        // capability provider so the assistant sees their tools
+                        // as `ext.<alias>.<tool_name>`.
+                        let extensions_path = config.user_files_path.join("mcp-extensions.json");
+                        if extensions_path.exists() {
+                            if let Ok(json_text) = std::fs::read_to_string(&extensions_path) {
+                                if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&json_text) {
+                                    let mut configs = Vec::new();
+                                    for entry in &entries {
+                                        let alias = entry["alias"].as_str().unwrap_or("").to_string();
+                                        let url = entry["url"].as_str().unwrap_or("").to_string();
+                                        if alias.is_empty() || url.is_empty() {
+                                            continue;
+                                        }
+                                        configs.push(ordo_mcp_host::ExternalMcpServerConfig {
+                                            alias,
+                                            url,
+                                            auth_token: entry["auth_token"].as_str().map(String::from),
+                                            timeout_secs: entry["timeout_secs"].as_u64().unwrap_or(60),
+                                        });
+                                    }
+                                    if !configs.is_empty() {
+                                        let ext_provider =
+                                            ordo_mcp_host::ExternalMcpProvider::connect(configs).await;
+                                        let ext_gated = security.gate(
+                                            Arc::new(ext_provider) as Arc<dyn ordo_mcp_host::CapabilityProvider>,
+                                            "mcp-extensions".to_string(),
+                                        );
+                                        host.add_provider(Arc::new(ext_gated));
+                                    }
+                                }
+                            }
+                        }
+
+                        let mut maintenance = MaintenanceProvider::new(
                 config.user_files_path.clone(),
                 config.plugins_path.clone(),
             );
