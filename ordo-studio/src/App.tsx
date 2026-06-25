@@ -7,7 +7,13 @@
 // any of those pieces are ever needed again.
 
 import OrdoShell from "./OrdoShell";
+import UpdateBanner from "./UpdateBanner";
 
 export default function App() {
-  return <OrdoShell />;
+  return (
+    <>
+      <OrdoShell />
+      <UpdateBanner />
+    </>
+  );
 }

@@ -16,6 +16,7 @@ mod routes_review;
 mod routes_plugins;
 mod routes_mcp;
 mod routes_connections;
+mod routes_update;
 
 pub(crate) use routes_studio::*;
 pub(crate) use routes_automation::*;
@@ -31,6 +32,7 @@ pub(crate) use routes_review::*;
 pub(crate) use routes_plugins::*;
 pub(crate) use routes_mcp::*;
 pub(crate) use routes_connections::*;
+pub(crate) use routes_update::*;
 
 pub use auth::AuthConfig;
 pub use metrics::{MetricsHandle, RateLimiterHandle};
@@ -730,6 +732,8 @@ pub fn build_router_with_plugins(
         .route("/api/connections/:id/test", post(test_connection_route))
         .route("/proxy/ollama/*path", get(proxy_ollama_route))
         .route("/proxy/lmstudio/*path", get(proxy_lmstudio_route))
+        .route("/api/update/check", get(check_for_update))
+        .route("/api/update/apply", post(apply_update))
         .fallback(get(studio_asset_fallback))
         .with_state(state)
 }
