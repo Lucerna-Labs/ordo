@@ -119,18 +119,19 @@ fn find_servo_shell(root: &Path) -> Option<PathBuf> {
         return Some(portable);
     }
 
-    // 2. Built from source
-    let built = root.join("ordo-servo-shell").join("target").join("debug")
-        .join(format!("ordo-servo-shell{ext}"));
-    if built.is_file() {
-        return Some(built);
-    }
-
-    // 3. Release build
+    // 2. Optimized release build (preferred — a debug Servo build renders far
+    //    too slowly to be usable, so a release binary always wins).
     let release = root.join("ordo-servo-shell").join("target").join("release")
         .join(format!("ordo-servo-shell{ext}"));
     if release.is_file() {
         return Some(release);
+    }
+
+    // 3. Debug build (last-resort fallback only; Servo is glacial unoptimized).
+    let built = root.join("ordo-servo-shell").join("target").join("debug")
+        .join(format!("ordo-servo-shell{ext}"));
+    if built.is_file() {
+        return Some(built);
     }
 
     None
@@ -204,8 +205,15 @@ pub async fn ensure_servo_shell(
     root: &Path,
     boot_state: BootState,
 ) -> Result<(), String> {
-    // Skip if already built
-    if find_servo_shell(root).is_some() {
+    // Skip only if a *fast* (portable or release) shell already exists. A stale
+    // debug build must NOT short-circuit the release build, or the runtime keeps
+    // launching the slow unoptimized Servo shell.
+    let ext = if cfg!(windows) { ".exe" } else { "" };
+    let portable = root.join("bin").join("portable")
+        .join(format!("ordo-servo-shell{ext}"));
+    let release = root.join("ordo-servo-shell").join("target").join("release")
+        .join(format!("ordo-servo-shell{ext}"));
+    if portable.is_file() || release.is_file() {
         let mut bs = boot_state.lock().await;
         bs.steps.insert("build_servo".into(), "done".into());
         return Ok(());
@@ -214,12 +222,13 @@ pub async fn ensure_servo_shell(
     {
         let mut bs = boot_state.lock().await;
         bs.steps.insert("build_servo".into(), "active".into());
-        bs.status_text = "Compiling embedded Servo shell (~5-10 min first time)…".into();
+        bs.status_text = "Compiling embedded Servo shell in release mode (~10-20 min first time)…".into();
     }
 
     let servo_dir = root.join("ordo-servo-shell");
     let output = Command::new("cargo")
         .arg("build")
+        .arg("--release")
         .arg("--manifest-path")
         .arg(servo_dir.join("Cargo.toml"))
         .arg("--features")
