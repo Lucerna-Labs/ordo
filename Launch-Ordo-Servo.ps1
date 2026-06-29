@@ -23,7 +23,7 @@ $bootstrapPortableZip = Join-Path $ordoRoot "bootstrap\ordo-windows-portable.zip
 $portableBinDir = Join-Path $ordoRoot "bin\portable"
 $portableRuntimeExe = Join-Path $portableBinDir "ordo.exe"
 $portableServoShellExe = Join-Path $portableBinDir "ordo-servo-shell.exe"
-$builtServoShellExe = Join-Path $servoShellDir "target\debug\ordo-servo-shell.exe"
+$builtServoShellExe = Join-Path $servoShellDir "target\release\ordo-servo-shell.exe"
 $servoShellExe = $builtServoShellExe
 $servoShellTargetDir = Split-Path -Parent $servoShellExe
 $servoDir = Join-Path $ordoRoot "bin\servo-nightly\servo"
@@ -110,6 +110,23 @@ function Ensure-ServoAngleDlls {
     }
 }
 
+function Set-ServoHighPerformanceGpu {
+    param([string]$ExePath)
+
+    # Pin the embedded Servo renderer to the high-performance (discrete) GPU so
+    # ANGLE's D3D11 device binds to the dedicated card instead of an integrated
+    # adapter or the WARP software rasterizer. Keyed by exe path, so it applies
+    # to every launch path (this launcher AND the runtime's own `ordo serve`).
+    try {
+        $key = "HKCU:\Software\Microsoft\DirectX\UserGpuPreferences"
+        if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
+        New-ItemProperty -Path $key -Name $ExePath -Value "GpuPreference=2;" -PropertyType String -Force | Out-Null
+        Write-Host "GPU preference: High performance set for $ExePath" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not set high-performance GPU preference: $($_.Exception.Message)"
+    }
+}
+
 Write-Host ""
 Write-Host "Ordo Servo launcher" -ForegroundColor Cyan
 Write-Host "Workspace: $ordoRoot"
@@ -192,8 +209,8 @@ if ($hasPortableServoShell) {
 } else {
     $servoShellExe = $builtServoShellExe
     $servoShellTargetDir = Split-Path -Parent $servoShellExe
-    Write-Host "Building embedded Ordo Servo shell..." -ForegroundColor Cyan
-    & cargo build --manifest-path (Join-Path $servoShellDir "Cargo.toml") --features servo-engine
+    Write-Host "Building embedded Ordo Servo shell (release)..." -ForegroundColor Cyan
+    & cargo build --release --manifest-path (Join-Path $servoShellDir "Cargo.toml") --features servo-engine
     if ($LASTEXITCODE -ne 0) {
         throw "ordo-servo-shell build failed"
     }
@@ -203,6 +220,7 @@ if ($hasPortableServoShell) {
 }
 
 Ensure-ServoAngleDlls
+Set-ServoHighPerformanceGpu -ExePath $servoShellExe
 Enable-ServoLocalRendererNetworkGuard -ServoShellPath $servoShellExe
 
 Write-Host "Clearing stale Ordo listeners on ports 4141, 1420, and 4150..." -ForegroundColor Yellow
