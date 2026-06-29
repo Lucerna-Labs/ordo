@@ -441,6 +441,111 @@ export const NumberInput = ({
   />
 );
 
+// Servo-safe dropdown. The embedded Servo renderer cannot open a native
+// <select> popup, so every native dropdown across Studio silently failed. This
+// is a pure button + absolutely-positioned <div> list driven by click events,
+// which Servo renders and dispatches correctly. Drop-in for native <select>.
+export function Dropdown<T extends string>({
+  value,
+  onChange,
+  options,
+  disabled = false,
+  buttonStyle,
+  menuStyle,
+  optionStyle,
+  renderValue,
+  placeholder,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+  disabled?: boolean;
+  buttonStyle?: CSSProperties;
+  menuStyle?: CSSProperties;
+  optionStyle?: CSSProperties;
+  renderValue?: (selected: { value: T; label: string } | undefined) => ReactNode;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => { if (!disabled) setOpen((o) => !o); }}
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "space-between", gap: 6, ...buttonStyle }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {renderValue ? renderValue(selected) : selected ? selected.label : placeholder ?? ""}
+        </span>
+        <ChevronDown size={13} color={C.textMuted} style={{ flex: "0 0 auto", opacity: disabled ? 0.4 : 0.8 }} />
+      </button>
+      {open && !disabled && (
+        <div
+          role="listbox"
+          style={{
+            position: "absolute",
+            top: "calc(100% + 4px)",
+            left: 0,
+            minWidth: "100%",
+            zIndex: 5000,
+            background: C.cardBg,
+            border: "1px solid rgba(255,255,255,0.14)",
+            borderRadius: 8,
+            maxHeight: 260,
+            overflowY: "auto",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+            padding: 4,
+            ...menuStyle,
+          }}
+        >
+          {options.length === 0 ? (
+            <div style={{ padding: "8px 10px", opacity: 0.55, fontSize: 12 }}>No options</div>
+          ) : (
+            options.map((o) => {
+              const active = o.value === value;
+              return (
+                <div
+                  key={o.value}
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => { onChange(o.value); setOpen(false); }}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    fontSize: 13,
+                    color: COLORS.parchment,
+                    background: active ? "rgba(244,201,93,0.16)" : "transparent",
+                    ...optionStyle,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(244,201,93,0.12)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = active ? "rgba(244,201,93,0.16)" : "transparent"; }}
+                >
+                  {o.label}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const Select = <T extends string>({
   value,
   onChange,
@@ -450,37 +555,12 @@ export const Select = <T extends string>({
   onChange: (v: T) => void;
   options: { value: T; label: string }[];
 }) => (
-  <div style={{ position: "relative" }}>
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value as T)}
-      style={{
-        ...baseInputStyle,
-        appearance: "none",
-        WebkitAppearance: "none",
-        MozAppearance: "none",
-        paddingRight: 32,
-        cursor: "pointer",
-      }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value} style={{ background: C.cardBg }}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-    <ChevronDown
-      size={14}
-      color={C.textMuted}
-      style={{
-        position: "absolute",
-        right: 10,
-        top: "50%",
-        transform: "translateY(-50%)",
-        pointerEvents: "none",
-      }}
-    />
-  </div>
+  <Dropdown
+    value={value}
+    onChange={onChange}
+    options={options}
+    buttonStyle={{ ...baseInputStyle, appearance: "none", cursor: "pointer", textAlign: "left", width: "100%" }}
+  />
 );
 
 export const Checkbox = ({
