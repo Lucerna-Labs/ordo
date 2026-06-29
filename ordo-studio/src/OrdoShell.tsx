@@ -29,6 +29,7 @@ import {
   ConfiguredRow,
   CopyableField,
   Dot,
+  Dropdown,
   Field,
   Modal,
   NumberInput,
@@ -1784,15 +1785,19 @@ const ContextUsageIndicator = ({
         <Mono size={8} upper track="0.12em" color="rgba(255,255,255,0.42)">
           model
         </Mono>
-        <select
+        <Dropdown
           value={modelChoice.selected}
           disabled={!modelChoice.service || modelSaving || modelChoice.options.length === 0}
-          onChange={(event) => onModelChange(event.currentTarget.value)}
-          onClick={(event) => event.stopPropagation()}
-          style={{
+          onChange={(v) => onModelChange(v)}
+          placeholder="no model"
+          options={
+            modelChoice.options.length > 0
+              ? modelChoice.options.map((model) => ({ value: model, label: model }))
+              : [{ value: "", label: "no model" }]
+          }
+          buttonStyle={{
             minWidth: 0,
             flex: 1,
-            appearance: "none",
             background: "transparent",
             border: "none",
             color: PARCHMENT,
@@ -1807,17 +1812,7 @@ const ContextUsageIndicator = ({
             opacity:
               !modelChoice.service || modelChoice.options.length === 0 ? 0.55 : 1,
           }}
-        >
-          {modelChoice.options.length > 0 ? (
-            modelChoice.options.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))
-          ) : (
-            <option value="">no model</option>
-          )}
-        </select>
+        />
       </label>
       <label
         className="flex items-center gap-2"
@@ -1833,14 +1828,15 @@ const ContextUsageIndicator = ({
         <Mono size={8} upper track="0.12em" color="rgba(255,255,255,0.42)">
           thinking
         </Mono>
-        <select
+        <Dropdown
           value={thinkingEffort}
-          onChange={(event) =>
-            onThinkingEffortChange(event.currentTarget.value as ThinkingEffort)
-          }
-          onClick={(event) => event.stopPropagation()}
-          style={{
-            appearance: "none",
+          onChange={(v) => onThinkingEffortChange(v as ThinkingEffort)}
+          options={[
+            { value: "off", label: "off" },
+            { value: "medium", label: "medium" },
+            { value: "high", label: "high" },
+          ]}
+          buttonStyle={{
             background: "transparent",
             border: "none",
             color: PARCHMENT,
@@ -1849,13 +1845,8 @@ const ContextUsageIndicator = ({
             fontWeight: 700,
             outline: "none",
             cursor: "pointer",
-            paddingRight: 2,
           }}
-        >
-          <option value="off">off</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-        </select>
+        />
       </label>
       <Mono size={8} upper track="0.12em" color="rgba(255,255,255,0.38)" style={{ flex: "0 0 auto" }}>
         auto compact
@@ -2168,12 +2159,18 @@ const AssistantSurface = ({
       <Mono size={9} upper track="0.25em" color={UI.textMuted}>
         session
       </Mono>
-      <select
-        value={activeSessionId ?? ""}
-        onChange={(e) => onSessionChange(e.target.value)}
+      <Dropdown
+        value={activeSessionId ?? "__new__"}
+        onChange={(v) => onSessionChange(v)}
         disabled={newChatBusy || sessionsBusy}
-        title="Switch between new and older chat sessions"
-        style={{
+        options={[
+          { value: "__new__", label: newChatBusy ? "Starting new session..." : "New session..." },
+          ...(activeSessionId && !sessions.some((session) => session.id === activeSessionId)
+            ? [{ value: activeSessionId, label: `Current session - ${activeSessionId.slice(0, 8)}` }]
+            : []),
+          ...sessions.map((session) => ({ value: session.id, label: sessionOptionLabel(session, pickerOptions) })),
+        ]}
+        buttonStyle={{
           fontFamily: MONO,
           fontSize: 11,
           background: "rgba(255,255,255,0.04)",
@@ -2185,24 +2182,15 @@ const AssistantSurface = ({
           minWidth: 230,
           maxWidth: 300,
         }}
-      >
-        <option value="__new__">{newChatBusy ? "Starting new session..." : "New session..."}</option>
-        {activeSessionId && !sessions.some((session) => session.id === activeSessionId) && (
-          <option value={activeSessionId}>Current session - {activeSessionId.slice(0, 8)}</option>
-        )}
-        {sessions.map((session) => (
-          <option key={session.id} value={session.id}>
-            {sessionOptionLabel(session, pickerOptions)}
-          </option>
-        ))}
-      </select>
+      />
       <Mono size={9} upper track="0.25em" color={UI.textMuted}>
         mode
       </Mono>
-      <select
+      <Dropdown
         value={activeMode}
-        onChange={(e) => onModeChange(e.target.value)}
-        style={{
+        onChange={(v) => onModeChange(v)}
+        options={pickerOptions.map((m) => ({ value: m.id, label: m.label }))}
+        buttonStyle={{
           fontFamily: MONO,
           fontSize: 11,
           background: "rgba(255,255,255,0.04)",
@@ -2213,13 +2201,7 @@ const AssistantSurface = ({
           cursor: "pointer",
           minWidth: 160,
         }}
-      >
-        {pickerOptions.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
+      />
       <Mono size={9} upper track="0.18em" color={UI.textMuted}>
         workspace
       </Mono>
@@ -2249,11 +2231,15 @@ const AssistantSurface = ({
           <Mono size={9} upper track="0.18em" color={UI.textMuted}>
             consult
           </Mono>
-          <select
+          <Dropdown
             value={collaboratorRequest}
-            onChange={(e) => onCollaboratorRequestChange(e.target.value)}
-            title="Request another mode for the next turn"
-            style={{
+            onChange={(v) => onCollaboratorRequestChange(v)}
+            placeholder="No requested collaborator"
+            options={[
+              { value: "", label: "No requested collaborator" },
+              ...collaboratorOptions.map((m) => ({ value: m.id, label: m.label })),
+            ]}
+            buttonStyle={{
               fontFamily: MONO,
               fontSize: 11,
               background: "rgba(255,255,255,0.04)",
@@ -2264,14 +2250,7 @@ const AssistantSurface = ({
               cursor: "pointer",
               minWidth: 190,
             }}
-          >
-            <option value="">No requested collaborator</option>
-            {collaboratorOptions.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          />
           {collaboratorRequest && (
             <button
               type="button"
@@ -19123,12 +19102,12 @@ export default function OrdoShell() {
                       speak
                     </Mono>
                   </label>
-                  <select
+                  <Dropdown
                     value={ttsModel}
-                    onChange={(event) => setTtsModel(event.target.value)}
+                    onChange={(v) => setTtsModel(v)}
                     disabled={!ttsEnabled || ttsBusy}
-                    title="Speech model"
-                    style={{
+                    options={TTS_MODEL_OPTIONS.map((model) => ({ value: model, label: model }))}
+                    buttonStyle={{
                       fontFamily: MONO,
                       fontSize: 10,
                       background: "rgba(255,255,255,0.04)",
@@ -19139,17 +19118,13 @@ export default function OrdoShell() {
                       opacity: ttsEnabled ? 1 : 0.45,
                       maxWidth: 150,
                     }}
-                  >
-                    {TTS_MODEL_OPTIONS.map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                  <select
+                  />
+                  <Dropdown
                     value={ttsVoice}
-                    onChange={(event) => setTtsVoice(event.target.value)}
+                    onChange={(v) => setTtsVoice(v)}
                     disabled={!ttsEnabled || ttsBusy}
-                    title="Speech voice"
-                    style={{
+                    options={TTS_VOICE_OPTIONS.map((voice) => ({ value: voice, label: voice }))}
+                    buttonStyle={{
                       fontFamily: MONO,
                       fontSize: 10,
                       background: "rgba(255,255,255,0.04)",
@@ -19160,11 +19135,7 @@ export default function OrdoShell() {
                       opacity: ttsEnabled ? 1 : 0.45,
                       maxWidth: 98,
                     }}
-                  >
-                    {TTS_VOICE_OPTIONS.map((voice) => (
-                      <option key={voice} value={voice}>{voice}</option>
-                    ))}
-                  </select>
+                  />
                   <button
                     type="button"
                     onClick={speakLatestAssistantMessage}
