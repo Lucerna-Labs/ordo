@@ -456,7 +456,11 @@ fn normalize(vector: &mut [f32]) {
     }
 }
 
-fn lexical_tokens(input: &str) -> Vec<String> {
+/// Identifier-aware tokenizer: lowercases, splits on non-alphanumerics
+/// AND on camelCase / letter-digit boundaries, so `UIAgentTeams` yields
+/// `ui`, `agent`, `teams`. Shared by the hashing embedder and the
+/// generative-free retrieval index in `ordo-rag`.
+pub fn lexical_tokens(input: &str) -> Vec<String> {
     let chars: Vec<char> = input.chars().collect();
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -499,7 +503,10 @@ fn identifier_boundary(previous: char, current: char, next: Option<char>) -> boo
             && next.map(|ch| ch.is_lowercase()).unwrap_or(false))
 }
 
-fn lexical_variants(token: &str) -> Vec<String> {
+/// Light rule-based stemming: plural / tense / degree suffix strips
+/// ("policies" -> "policy", "running" -> "run"). Applied symmetrically
+/// at index and query time so surface-form mismatches still meet.
+pub fn lexical_variants(token: &str) -> Vec<String> {
     let mut variants = Vec::new();
     push_unique_variant(&mut variants, token.strip_suffix("'s").map(str::to_string));
     push_unique_variant(
@@ -616,7 +623,8 @@ fn char_grams(token: &str, width: usize) -> Vec<String> {
         .collect()
 }
 
-fn is_common_stopword(token: &str) -> bool {
+/// English function words that carry no retrieval signal on their own.
+pub fn is_common_stopword(token: &str) -> bool {
     matches!(
         token,
         "a" | "an"

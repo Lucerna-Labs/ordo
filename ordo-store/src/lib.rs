@@ -784,6 +784,82 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
             ON assistant_facts (scope);
         ",
     ),
+    M::up(
+        "
+        -- Generative-free retrieval index (Fable-Rag refactor).
+        --
+        -- Replaces the dense hash-collision embedding as the DEFAULT
+        -- retrieval path with exact sparse statistics: BM25 posting
+        -- lists, per-term document/corpus frequencies, and a term
+        -- co-occurrence matrix that powers PPMI query expansion.
+        -- Every value is a plain count, so incremental add/remove is
+        -- exact integer arithmetic, and the whole index can be rebuilt
+        -- from rag_chunks.text at any time.
+        CREATE TABLE IF NOT EXISTS rag_postings (
+            term TEXT NOT NULL,
+            chunk_key TEXT NOT NULL,
+            tf REAL NOT NULL,
+            PRIMARY KEY (term, chunk_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rag_postings_chunk
+            ON rag_postings (chunk_key);
+
+        CREATE TABLE IF NOT EXISTS rag_terms (
+            term TEXT PRIMARY KEY,
+            df INTEGER NOT NULL DEFAULT 0,
+            cf INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS rag_chunk_stats (
+            chunk_key TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            collection_name TEXT NOT NULL,
+            token_count INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rag_chunk_stats_document
+            ON rag_chunk_stats (document_id);
+
+        CREATE TABLE IF NOT EXISTS rag_cooc (
+            term_a TEXT NOT NULL,
+            term_b TEXT NOT NULL,
+            cooc_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (term_a, term_b)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rag_cooc_term_b
+            ON rag_cooc (term_b);
+
+        CREATE TABLE IF NOT EXISTS rag_corpus_stats (
+            stat_key TEXT PRIMARY KEY,
+            stat_value INTEGER NOT NULL DEFAULT 0
+        );
+        ",
+    ),
+    M::up(
+        "
+        -- Self-learning retrieval tree (Fable-Rag refactor, layer 2).
+        -- Usage feedback becomes plain counts at two levels of the
+        -- tree: chunk reinforcement at the leaves, term->collection
+        -- routing affinity at the branches. The semantic layer learns
+        -- through the existing rag_cooc / rag_terms tables, so it
+        -- needs no table of its own.
+        CREATE TABLE IF NOT EXISTS rag_chunk_feedback (
+            chunk_key TEXT PRIMARY KEY,
+            useful REAL NOT NULL DEFAULT 0,
+            useless REAL NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS rag_routing_stats (
+            term TEXT NOT NULL,
+            collection_name TEXT NOT NULL,
+            affinity REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (term, collection_name)
+        );
+        ",
+    ),
 ];
 
 const MIGRATIONS: Migrations<'_> = Migrations::from_slice(MIGRATIONS_SLICE);

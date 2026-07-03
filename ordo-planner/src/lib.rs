@@ -317,6 +317,7 @@ mod tests {
                             .to_string(),
                     tags: vec!["docs".to_string()],
                     collection: "main".to_string(),
+                    content_hash: String::new(),
                 }],
             )
             .expect("knowledge plan");
@@ -378,6 +379,7 @@ mod tests {
                     .to_string(),
             tags: vec!["operations".to_string()],
             collection: "main".to_string(),
+            content_hash: String::new(),
         }];
         let plan = planner
             .plan(r#"read file "runtime-runbook.md""#, &context)
