@@ -319,6 +319,8 @@ fn message_kind(message: &OrdoMessage) -> String {
         OrdoMessage::RagCollectionsListed { .. } => "rag_collections_listed",
         OrdoMessage::RagQueryRequested { .. } => "rag_query_requested",
         OrdoMessage::RagQueryCompleted { .. } => "rag_query_completed",
+        OrdoMessage::RagFeedbackSubmitted { .. } => "rag_feedback_submitted",
+        OrdoMessage::RagFeedbackRecorded { .. } => "rag_feedback_recorded",
         OrdoMessage::ToolCallRequested { .. } => "tool_call_requested",
         OrdoMessage::ToolCallCompleted { .. } => "tool_call_completed",
         OrdoMessage::ToolCallFailed { .. } => "tool_call_failed",

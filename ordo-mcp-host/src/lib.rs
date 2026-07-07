@@ -1354,6 +1354,7 @@ mod planning_llm_tests {
                             score: 0.91,
                             snippet: fixture_snippet.to_string(),
                             tags: vec!["operator profile".into()],
+                            content_hash: String::new(),
                         }],
                     },
                 );

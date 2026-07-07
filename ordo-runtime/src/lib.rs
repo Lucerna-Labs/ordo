@@ -1842,14 +1842,18 @@ fn seed_rag_documents(
 }
 
 fn open_rag_store(config: &RuntimeConfig) -> Result<RagStore, DynError> {
-    let embedder = build_embedding_client(config);
-    let mut rag_store = RagStore::open_with_embedder(
-        config.database_path.clone(),
-        embedder,
-        RagStorageBudget {
-            max_bytes: config.rag_budget_bytes,
-        },
-    )?;
+    let budget = RagStorageBudget {
+        max_bytes: config.rag_budget_bytes,
+    };
+    // Default is the generative-free lexical-statistical engine; a
+    // configured llama.cpp/Ollama model adds the optional embedding
+    // retrieval channel on top.
+    let mut rag_store = match build_generative_embedding_client(config) {
+        Some(embedder) => {
+            RagStore::open_with_embedder(config.database_path.clone(), embedder, budget)?
+        }
+        None => RagStore::open_with_budget(config.database_path.clone(), budget)?,
+    };
     if rag_store.is_empty() {
         let imported = rag_store.import_legacy_jsonl(&config.legacy_rag_index_path)?;
         if imported > 0 {
@@ -1867,6 +1871,7 @@ async fn run_lazy_rag_peer(bus: Arc<dyn Bus>, config: RuntimeConfig) -> Result<(
     let mut ingest_sub = bus.subscribe(topics::RAG_INGEST_REQUEST).await?;
     let mut collections_sub = bus.subscribe(topics::RAG_COLLECTIONS_REQUEST).await?;
     let mut query_sub = bus.subscribe(topics::RAG_QUERY_REQUEST).await?;
+    let mut feedback_sub = bus.subscribe(topics::RAG_FEEDBACK_REQUEST).await?;
     let mut rag: Option<RagPeer> = None;
 
     loop {
@@ -1891,6 +1896,13 @@ async fn run_lazy_rag_peer(bus: Arc<dyn Bus>, config: RuntimeConfig) -> Result<(
                 };
                 let rag_peer = ensure_lazy_rag_peer(&bus, &config, &mut rag).await?;
                 rag_peer.handle_query_envelope(envelope).await?;
+            }
+            feedback = feedback_sub.next() => {
+                let Some(envelope) = feedback else {
+                    break;
+                };
+                let rag_peer = ensure_lazy_rag_peer(&bus, &config, &mut rag).await?;
+                rag_peer.handle_feedback_envelope(envelope).await?;
             }
         }
     }
@@ -1956,7 +1968,13 @@ fn bootstrap_pinned_memories(path: &PathBuf, store: &mut MemoryStore) -> Result<
     Ok(bootstrapped)
 }
 
-fn build_embedding_client(config: &RuntimeConfig) -> Arc<dyn EmbeddingClient> {
+/// A GENERATIVE embedding client (llama.cpp or Ollama) when the
+/// operator configured one and it is usable; `None` otherwise. The RAG
+/// lane treats `None` as "run the generative-free lexical-statistical
+/// engine alone" — the hashing embedder is no longer its fallback.
+fn build_generative_embedding_client(
+    config: &RuntimeConfig,
+) -> Option<Arc<dyn EmbeddingClient>> {
     if let (Some(binary_path), Some(model_path)) = (
         config.embedding_llama_cpp_binary.clone(),
         config.embedding_model_path.clone(),
@@ -1968,10 +1986,10 @@ fn build_embedding_client(config: &RuntimeConfig) -> Arc<dyn EmbeddingClient> {
             extra_args: Vec::new(),
         };
         if embedding_config.is_usable() {
-            return Arc::new(LlamaCppEmbedder::new(
+            return Some(Arc::new(LlamaCppEmbedder::new(
                 embedding_config,
                 config.embedding_dimensions,
-            ));
+            )));
         }
     }
 
@@ -1982,13 +2000,23 @@ fn build_embedding_client(config: &RuntimeConfig) -> Arc<dyn EmbeddingClient> {
             .embedding_ollama_url
             .clone()
             .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
-        return Arc::new(OllamaEmbedder::new(
+        return Some(Arc::new(OllamaEmbedder::new(
             OllamaEmbeddingConfig { base_url, model },
             config.embedding_dimensions,
-        ));
+        )));
     }
 
-    Arc::new(HashingEmbedder::new(config.embedding_dimensions))
+    None
+}
+
+/// Embedder for lanes that REQUIRE a vector per record (assistant
+/// facts/knowledge store their embeddings as NOT NULL blobs): a
+/// configured generative model when available, hashing fallback
+/// otherwise. The RAG lane does NOT use this — see
+/// `build_generative_embedding_client`.
+fn build_embedding_client(config: &RuntimeConfig) -> Arc<dyn EmbeddingClient> {
+    build_generative_embedding_client(config)
+        .unwrap_or_else(|| Arc::new(HashingEmbedder::new(config.embedding_dimensions)))
 }
 
 fn build_self_heal_model(config: &RuntimeConfig) -> Option<Arc<dyn ModelClient>> {

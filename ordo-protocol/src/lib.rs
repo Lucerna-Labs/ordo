@@ -63,6 +63,8 @@ pub mod topics {
     pub const RAG_COLLECTIONS_RESPONSE: &str = "ordo.rag.collections.response";
     pub const RAG_QUERY_REQUEST: &str = "ordo.rag.query.request";
     pub const RAG_QUERY_RESPONSE: &str = "ordo.rag.query.response";
+    pub const RAG_FEEDBACK_REQUEST: &str = "ordo.rag.feedback.request";
+    pub const RAG_FEEDBACK_RESPONSE: &str = "ordo.rag.feedback.response";
     pub const TOOL_REQUEST: &str = "ordo.tool.request";
     pub const TOOL_RESPONSE: &str = "ordo.tool.response";
     pub const MEMORY_STORE_REQUEST: &str = "ordo.memory.store.request";
@@ -377,6 +379,39 @@ pub enum OrdoMessage {
     RagQueryCompleted {
         query: String,
         hits: Vec<RagHit>,
+    },
+    /// Usage feedback on a previously returned hit — the write half of
+    /// the self-learning retrieval tree. `useful: true` reinforces the
+    /// chunk, teaches the query terms' routing toward the hit's
+    /// collection, and bridges query terms to the chunk's terms in the
+    /// co-occurrence matrix; `useful: false` only counts against the
+    /// chunk.
+    RagFeedbackSubmitted {
+        query: String,
+        document_id: String,
+        chunk_index: usize,
+        #[serde(default = "default_rag_collection_name")]
+        collection: String,
+        /// Copy `RagHit::content_hash` here. It pins the feedback to
+        /// the exact text the caller saw: if the document was
+        /// re-ingested in between, the store detects the mismatch and
+        /// refuses to learn from stale feedback. Empty = best-effort
+        /// (no verification).
+        #[serde(default)]
+        content_hash: String,
+        useful: bool,
+    },
+    /// `recorded` is false when the feedback could not be pinned to
+    /// the chunk the caller saw: the chunk no longer exists (evicted
+    /// or re-chunked away), the ids don't resolve, or `content_hash`
+    /// no longer matches the stored text.
+    RagFeedbackRecorded {
+        document_id: String,
+        chunk_index: usize,
+        #[serde(default = "default_rag_collection_name")]
+        collection: String,
+        useful: bool,
+        recorded: bool,
     },
 
     // Tool Invocation
@@ -781,6 +816,11 @@ pub struct RagHit {
     pub tags: Vec<String>,
     #[serde(default = "default_rag_collection_name")]
     pub collection: String,
+    /// Fingerprint of the chunk text this hit was served from. Echo it
+    /// on `RagFeedbackSubmitted` so the self-learning tree never
+    /// learns from feedback about text that has since been replaced.
+    #[serde(default)]
+    pub content_hash: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]

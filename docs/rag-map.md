@@ -43,10 +43,22 @@ seeded or routed by default.
 - Always keep `main` compact and useful.
 - Add focused collections only when the request needs them.
 - Prefer a few relevant chunks over a large mixed context dump.
-- Use the stronger local hashing fallback when no embedding model is configured.
-- Prefer an Ollama or llama.cpp embedding model when configured and available.
-- Tell the user when retrieval is operating in hash-fallback mode and an
-  embedding model would improve results.
+- The default retrieval engine is generative-free and needs no model:
+  BM25 over an inverted index, PPMI co-occurrence query expansion for
+  corpus semantics, and bigram fuzzy matching for typos and identifier
+  variants. It is exact, deterministic, and first-class — not a
+  fallback.
+- An Ollama or llama.cpp embedding model, when configured, adds an
+  optional re-ranking channel on top; if the model is unavailable,
+  retrieval degrades to the default engine instead of failing.
+- Retrieval self-learns from usage, still with no model: feedback on a
+  hit (`ordo.rag.feedback.request`) reinforces the chunk, teaches the
+  query's terms to route toward the hit's collection, and bridges the
+  query's vocabulary to the chunk's in the co-occurrence matrix — so
+  wording the corpus never used still finds the right chunks after one
+  confirmation. Learning is bounded (clamped bonuses, fading
+  affinities, capped bridges) and never conjures a hit with no
+  retrieval evidence of its own.
 
 ## Why This Exists
 
