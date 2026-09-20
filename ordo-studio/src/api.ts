@@ -369,20 +369,9 @@ export const setCloudCredentialDefault = async (service: string | null) => {
   );
 };
 
-export interface LocalApiKeyInstallResult {
-  env_var: string;
-  platform: string;
-  installed_for: string;
-  local_env_path: string;
-  current_process_ready: boolean;
-  restart_recommended: boolean;
-}
-
-export const installLocalApiKeyEnv = (env_var: string, api_key: string) =>
-  api.post<LocalApiKeyInstallResult>("/api/tools/cloud.credentials.install_local_api_key_env", {
-    env_var,
-    api_key,
-  });
+// NOTE: no installLocalApiKeyEnv helper — the runtime exposes no
+// cloud.credentials.install_local_api_key_env capability, so the Studio
+// must not offer a button that POSTs to it.
 
 // ─── Webhooks ────────────────────────────────────────────────────
 

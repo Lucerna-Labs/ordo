@@ -61,7 +61,6 @@ import {
   enableAutomation,
   forgetFact,
   getInstalledSkill,
-  installLocalApiKeyEnv,
   installPlugin,
   listAssistantFacts,
   pickChatModel,
@@ -137,8 +136,6 @@ import {
   type CapabilityDescriptor,
   type CloudCredentialRow,
   type ConnectionRow,
-  type LocalApiKeyInstallResult,
-  type LocalLlmDiscovery,
   type ConnectionType,
   type FileRow,
   type McpServer,
@@ -382,7 +379,9 @@ const COMMON_SETTINGS_TAB_IDS = new Set([
 ]);
 
 const MAINTENANCE_ADMIN_TABS = new Map<string, string>([
-  ["cloud", "Provider setup"],
+  // NOTE: "cloud" is intentionally NOT gated — the Provider tab lands
+  // directly on CloudSurface (all connections) in every mode. Guided
+  // provider setup remains available inside the Tech Specialist tab.
   ["avatar", "Avatar setup"],
   ["remote-communication", "Email and remote communication setup"],
   ["hooks", "Hook setup"],
@@ -5853,74 +5852,8 @@ type OllamaConnectionMode = "local" | "signin" | "api-key";
 
 const PROVIDER_TEMPLATES: ProviderTemplate[] = [
   {
-    id: "anthropic",
-    label: "Anthropic",
-    auth_style: "anthropic",
-    endpoint: "https://api.anthropic.com",
-    default_model: "claude-sonnet-4-5",
-    default_context_window: 200000,
-    supports_images: true,
-    api_key_required: true,
-    setup_url: "https://console.anthropic.com/settings/keys",
-    letter_color: "#cc785c",
-  },
-  {
-    id: "anthropic-env",
-    label: "Anthropic Local Env",
-    auth_style: "anthropic",
-    endpoint: "https://api.anthropic.com",
-    default_model: "claude-sonnet-4-5",
-    default_context_window: 200000,
-    supports_images: true,
-    api_key_required: false,
-    secret_source: "environment",
-    env_var: "ANTHROPIC_API_KEY",
-    setup_url: "https://platform.claude.com/docs/en/api/authentication/overview",
-    letter_color: "#cc785c",
-  },
-  {
-    id: "openai",
-    label: "OpenAI API",
-    auth_style: "bearer",
-    endpoint: "https://api.openai.com/v1",
-    default_model: "gpt-5.1",
-    default_context_window: 128000,
-    supports_images: true,
-    api_key_required: false,
-    secret_source: "environment",
-    env_var: "OPENAI_API_KEY",
-    setup_url: "https://platform.openai.com/api-keys",
-    letter_color: "#10a37f",
-  },
-  {
-    id: "codex",
-    label: "Codex / OpenAI Env",
-    auth_style: "bearer",
-    endpoint: "https://api.openai.com/v1",
-    default_model: "gpt-5-codex",
-    default_context_window: 128000,
-    supports_images: true,
-    api_key_required: false,
-    secret_source: "environment",
-    env_var: "OPENAI_API_KEY",
-    setup_url: "https://platform.openai.com/docs",
-    letter_color: "#10a37f",
-  },
-  {
-    id: "google",
-    label: "Google Gemini",
-    auth_style: "api_key_query",
-    endpoint: "https://generativelanguage.googleapis.com",
-    default_model: "gemini-2.0-flash",
-    default_context_window: 1048576,
-    supports_images: true,
-    api_key_required: true,
-    setup_url: "https://aistudio.google.com/apikey",
-    letter_color: "#4285f4",
-  },
-  {
     id: "openrouter",
-    label: "OpenRouter Env",
+    label: "OpenRouter",
     auth_style: "bearer",
     endpoint: "https://openrouter.ai/api/v1",
     default_model: "anthropic/claude-sonnet-4-5",
@@ -5931,6 +5864,136 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     env_var: "OPENROUTER_API_KEY",
     setup_url: "https://openrouter.ai/keys",
     letter_color: "#a98ad6",
+  },
+  // ── Coding-plan lineup ──────────────────────────────────────────
+  // One-click templates below are the subscription / coding-plan surface
+  // for each provider (plan key pasted once, stored encrypted locally).
+  // Raw direct-API endpoints stay available through Customize API.
+  {
+    id: "opencode-zen",
+    label: "OpenCode Zen",
+    auth_style: "bearer",
+    // Pay-as-you-go curated gateway; OpenAI-compatible surface.
+    // https://opencode.ai/docs/zen — key from https://opencode.ai/auth
+    endpoint: "https://opencode.ai/zen/v1/chat/completions",
+    default_model: "opencode/claude-sonnet-5",
+    default_context_window: 200000,
+    supports_images: true,
+    api_key_required: true,
+    setup_url: "https://opencode.ai/auth",
+    letter_color: "#e8e8e8",
+  },
+  {
+    id: "opencode-go",
+    label: "OpenCode Go",
+    auth_style: "bearer",
+    // $10/mo flat subscription for hosted open coding models; same Zen
+    // account/key, Go endpoint. https://opencode.ai/docs/go/
+    endpoint: "https://opencode.ai/zen/go/v1/chat/completions",
+    default_model: "kimi-k2.7-code",
+    default_context_window: 200000,
+    supports_images: true,
+    api_key_required: true,
+    setup_url: "https://opencode.ai/auth",
+    letter_color: "#57c7ff",
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    auth_style: "bearer",
+    endpoint: "https://api.deepseek.com/v1",
+    default_model: "deepseek-chat",
+    default_context_window: 128000,
+    supports_images: true,
+    api_key_required: true,
+    setup_url: "https://platform.deepseek.com/api_keys",
+    letter_color: "#4d6bfe",
+  },
+  {
+    id: "qwen-coding-plan",
+    label: "Qwen Coding Plan",
+    auth_style: "bearer",
+    // Alibaba Model Studio Coding Plan (Pro $50/mo): plan key sk-sp-*
+    // MUST use the coding base URL or usage bills pay-as-you-go.
+    // https://www.alibabacloud.com/help/en/model-studio/coding-plan
+    endpoint: "https://coding-intl.dashscope.aliyuncs.com/v1",
+    default_model: "qwen3.7-plus",
+    default_context_window: 256000,
+    supports_images: true,
+    api_key_required: true,
+    setup_url: "https://common-buy-intl.alibabacloud.com/coding-plan/",
+    letter_color: "#ff6a00",
+  },
+  {
+    id: "metaspark",
+    label: "MetaSpark",
+    auth_style: "bearer",
+    // Meta Muse Spark contributor tier via OpenRouter; reuses the
+    // OPENROUTER_API_KEY environment key, no extra secret to paste.
+    endpoint: "https://openrouter.ai/api/v1",
+    default_model: "meta/muse-spark-1.3-contributor",
+    default_context_window: 128000,
+    supports_images: false,
+    api_key_required: false,
+    secret_source: "environment",
+    env_var: "OPENROUTER_API_KEY",
+    setup_url: "https://openrouter.ai/keys",
+    letter_color: "#0082fb",
+  },
+  {
+    id: "kimi",
+    label: "Kimi",
+    auth_style: "bearer",
+    // Moonshot global API. https://platform.moonshot.ai/docs
+    endpoint: "https://api.moonshot.ai/v1",
+    default_model: "kimi-k2.5",
+    default_context_window: 256000,
+    supports_images: true,
+    api_key_required: true,
+    setup_url: "https://platform.moonshot.ai/console/api-keys",
+    letter_color: "#facc15",
+  },
+  {
+    id: "minimax",
+    label: "MiniMax",
+    auth_style: "bearer",
+    // MiniMax global OpenAI-compatible API. https://platform.minimax.io
+    endpoint: "https://api.minimax.io/v1",
+    default_model: "MiniMax-M2.1",
+    default_context_window: 192000,
+    supports_images: false,
+    api_key_required: true,
+    setup_url: "https://platform.minimax.io",
+    letter_color: "#ef4444",
+  },
+  {
+    id: "zai",
+    label: "Z.AI Coding Plan",
+    auth_style: "bearer",
+    // Zhipu global GLM Coding Plan: OpenAI protocol MUST use the coding
+    // base URL or quota won't deduct from the plan. https://docs.z.ai
+    endpoint: "https://api.z.ai/api/coding/paas/v4",
+    default_model: "glm-5",
+    default_context_window: 200000,
+    supports_images: true,
+    api_key_required: true,
+    setup_url: "https://z.ai/subscribe",
+    letter_color: "#2f6bff",
+  },
+  {
+    id: "mimo",
+    label: "MiMo",
+    auth_style: "bearer",
+    // Xiaomi MiMo via OpenRouter; reuses OPENROUTER_API_KEY like MetaSpark.
+    endpoint: "https://openrouter.ai/api/v1",
+    default_model: "xiaomi/mimo-v2-flash",
+    default_context_window: 128000,
+    supports_images: false,
+    api_key_required: false,
+    secret_source: "environment",
+    env_var: "OPENROUTER_API_KEY",
+    setup_url: "https://openrouter.ai/keys",
+    letter_color: "#ff6900",
   },
   {
     id: "ollama",
@@ -5996,85 +6059,6 @@ const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     setup_url: "https://lmstudio.ai",
     letter_color: "#5865f2",
   },
-  {
-    id: "azure",
-    label: "Azure OpenAI",
-    auth_style: "api_key_header",
-    endpoint: "https://YOUR-RESOURCE.openai.azure.com",
-    default_model: "gpt-4o",
-    default_context_window: 128000,
-    supports_images: true,
-    api_key_required: true,
-    setup_url: "https://learn.microsoft.com/en-us/azure/ai-services/openai/",
-    letter_color: "#0078d4",
-  },
-  {
-    id: "bedrock",
-    label: "Amazon Bedrock",
-    auth_style: "bearer",
-    endpoint: "https://bedrock-runtime.us-east-1.amazonaws.com",
-    default_model: "anthropic.claude-sonnet-4-5",
-    default_context_window: 200000,
-    supports_images: true,
-    api_key_required: true,
-    setup_url: "https://docs.aws.amazon.com/bedrock/",
-    // Was the Amazon orange (#ff9900); recolored to the Ordo peach
-    // tone so the provider grid stays inside the brand palette.
-    letter_color: "#f0b67f",
-  },
-  {
-    id: "moonshot",
-    label: "Moonshot AI",
-    auth_style: "bearer",
-    endpoint: "https://api.moonshot.cn/v1",
-    default_model: "moonshot-v1-128k",
-    default_context_window: 128000,
-    supports_images: false,
-    api_key_required: true,
-    setup_url: "https://platform.moonshot.cn/",
-    letter_color: "#7b68ee",
-  },
-  {
-    id: "qwen",
-    label: "Qwen",
-    auth_style: "bearer",
-    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    default_model: "qwen-max",
-    default_context_window: 32768,
-    supports_images: true,
-    api_key_required: true,
-    setup_url: "https://dashscope.console.aliyun.com/",
-    // Was Qwen's orange (#ff7a00); recolored to the Ordo rose tone so
-    // the provider grid stays inside the brand palette.
-    letter_color: "#f07f9f",
-  },
-  {
-    id: "groq",
-    label: "Groq Env",
-    auth_style: "bearer",
-    endpoint: "https://api.groq.com/openai/v1",
-    default_model: "llama-3.3-70b-versatile",
-    default_context_window: 128000,
-    supports_images: false,
-    api_key_required: false,
-    secret_source: "environment",
-    env_var: "GROQ_API_KEY",
-    setup_url: "https://console.groq.com/keys",
-    letter_color: "#f55036",
-  },
-  {
-    id: "openai-compatible",
-    label: "Compatible Endpoint",
-    auth_style: "bearer",
-    endpoint: "https://your-server/v1",
-    default_model: "your-model",
-    default_context_window: 32768,
-    supports_images: false,
-    api_key_required: false,
-    secret_source: "environment",
-    env_var: "OPENAI_API_KEY",
-    letter_color: "#888888",
-  },
 ];
 
 interface CredentialDraft {
@@ -6093,6 +6077,10 @@ interface CredentialDraft {
   api_key_required?: boolean;
   secret_source?: "vault" | "environment";
   env_var?: string;
+  // Custom auth transport details. Only sent when the auth_style needs them:
+  // api_key_header -> header_name (default "x-api-key"), api_key_query -> param_name (default "key").
+  header_name?: string;
+  param_name?: string;
   letter_color?: string;
   enabled: boolean;
 }
@@ -6108,6 +6096,8 @@ const blankDraft = (): CredentialDraft => ({
   temperature: 0.2,
   supports_images: false,
   secret_source: "vault",
+  header_name: "x-api-key",
+  param_name: "key",
   enabled: true,
 });
 
@@ -6125,6 +6115,8 @@ const draftFromTemplate = (t: ProviderTemplate): CredentialDraft => ({
   api_key_required: t.api_key_required,
   secret_source: t.secret_source ?? "vault",
   env_var: t.env_var,
+  header_name: "x-api-key",
+  param_name: "key",
   letter_color: t.letter_color,
   enabled: true,
 });
@@ -6147,6 +6139,17 @@ const liveOrFallback = (
   return trimmed;
 };
 
+// The runtime redacts secret-shaped extras keys to "***" on read. Never
+// write that placeholder back: it would permanently overwrite the stored
+// value with the literal sentinel.
+const extrasWithoutSentinels = (extras: Record<string, string>): Record<string, string> => {
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(extras)) {
+    if (value !== "***") clean[key] = value;
+  }
+  return clean;
+};
+
 const defaultEnvVarForProvider = (
   provider: { id?: string; service?: string; auth_style: ProviderTemplate["auth_style"]; env_var?: string },
 ): string => {
@@ -6160,9 +6163,13 @@ const defaultEnvVarForProvider = (
     return "AZURE_OPENAI_API_KEY";
   }
   if (service.includes("openrouter")) return "OPENROUTER_API_KEY";
-  if (service.includes("groq")) return "GROQ_API_KEY";
-  if (service.includes("moonshot")) return "MOONSHOT_API_KEY";
+  if (service.includes("opencode")) return "OPENCODE_API_KEY";
+  if (service.includes("deepseek")) return "DEEPSEEK_API_KEY";
   if (service.includes("qwen") || service.includes("dashscope")) return "DASHSCOPE_API_KEY";
+  if (service.includes("metaspark") || service.includes("mimo")) return "OPENROUTER_API_KEY";
+  if (service.includes("kimi") || service.includes("moonshot")) return "MOONSHOT_API_KEY";
+  if (service.includes("minimax")) return "MINIMAX_API_KEY";
+  if (service.includes("zai") || service.includes("bigmodel")) return "ZAI_API_KEY";
   return "OPENAI_API_KEY";
 };
 
@@ -6231,24 +6238,38 @@ const pickOllamaCloudModel = (models: string[], preferred?: string | null) => {
 const localDiscoveryProvider = (
   credential: CloudCredentialRow,
 ): "ollama" | "lmstudio" | null => {
+  // Base URL decides first: only loopback hosts are local. A custom
+  // service whose name merely contains "ollama"/"lmstudio" but points at
+  // a remote host must go down the remote test path with its own key.
   const service = credential.service.toLowerCase();
   const base = (credential.base_url ?? credential.endpoint ?? "").toLowerCase();
   if (service === "ollama-cloud-api" || base.includes("ollama.com")) return null;
-  const isLocalOllama =
+  const host11434 =
     base.includes("localhost:11434") ||
     base.includes("127.0.0.1:11434") ||
     base.includes("[::1]:11434") ||
     base.includes("0.0.0.0:11434");
-  const isLocalLmStudio =
+  const host1234 =
     base.includes("localhost:1234") ||
     base.includes("127.0.0.1:1234") ||
     base.includes("[::1]:1234") ||
     base.includes("0.0.0.0:1234");
-  if (service.includes("ollama") || isLocalOllama) return "ollama";
-  if (service.includes("lmstudio") || service.includes("lm-studio") || isLocalLmStudio) {
-    return "lmstudio";
-  }
+  if (host11434) return "ollama";
+  if (host1234) return "lmstudio";
+  // Non-loopback (or missing) base: only the exact built-in local ids
+  // still count — their endpoint is implied localhost.
+  if (service === "ollama" || service === "ollama-cloud") return "ollama";
+  if (service === "lmstudio") return "lmstudio";
   return null;
+};
+
+// Backend parity for the bedrock guard: the runtime hard-fails test +
+// discovery only for these exact service names (case-insensitive), so the
+// UI must disable Test/Models for exactly those — not for any name that
+// merely contains the substring (e.g. "my-bedrock-proxy" is servable).
+const isBedrockService = (service: string) => {
+  const name = service.trim().toLowerCase();
+  return name === "bedrock" || name === "aws_bedrock";
 };
 
 type CustomProviderShape =
@@ -6270,116 +6291,11 @@ const CUSTOM_PROVIDER_SHAPES: Array<{ value: CustomProviderShape; label: string 
   { value: "lmstudio-local", label: "LM Studio local" },
 ];
 
-type ApiKeyWizardPresetId =
-  | "openai"
-  | "ollama-cloud-api"
-  | "gemini"
-  | "anthropic"
-  | "openrouter"
-  | "groq"
-  | "custom";
-
-interface ApiKeyWizardPreset {
-  id: ApiKeyWizardPresetId;
-  label: string;
-  service: string;
-  env_var: string;
-  auth_style: ProviderTemplate["auth_style"];
-  endpoint: string;
-  model: string;
-  context_window: number;
-  supports_images: boolean;
-}
-
-interface ApiKeyWizardDraft extends ApiKeyWizardPreset {
-  api_key: string;
-}
-
-const API_KEY_WIZARD_PRESETS: ApiKeyWizardPreset[] = [
-  {
-    id: "openai",
-    label: "OpenAI / Codex",
-    service: "openai",
-    env_var: "OPENAI_API_KEY",
-    auth_style: "bearer",
-    endpoint: "https://api.openai.com/v1",
-    model: "gpt-5.1",
-    context_window: 128000,
-    supports_images: true,
-  },
-  {
-    id: "ollama-cloud-api",
-    label: "Ollama Cloud API",
-    service: "ollama-cloud-api",
-    env_var: "OLLAMA_API_KEY",
-    auth_style: "bearer",
-    // OpenAI-compatible /v1 surface (see PROVIDER_TEMPLATES note above).
-    endpoint: "https://ollama.com/v1",
-    model: "gpt-oss:120b",
-    context_window: 128000,
-    supports_images: false,
-  },
-  {
-    id: "gemini",
-    label: "Gemini compatible",
-    service: "gemini-compatible",
-    env_var: "GEMINI_API_KEY",
-    auth_style: "bearer",
-    endpoint: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.0-flash",
-    context_window: 1048576,
-    supports_images: true,
-  },
-  {
-    id: "anthropic",
-    label: "Claude / Anthropic",
-    service: "anthropic-env",
-    env_var: "ANTHROPIC_API_KEY",
-    auth_style: "anthropic",
-    endpoint: "https://api.anthropic.com",
-    model: "claude-sonnet-4-5",
-    context_window: 200000,
-    supports_images: true,
-  },
-  {
-    id: "openrouter",
-    label: "OpenRouter compatible",
-    service: "openrouter",
-    env_var: "OPENROUTER_API_KEY",
-    auth_style: "bearer",
-    endpoint: "https://openrouter.ai/api/v1",
-    model: "anthropic/claude-sonnet-4-5",
-    context_window: 200000,
-    supports_images: true,
-  },
-  {
-    id: "groq",
-    label: "Groq compatible",
-    service: "groq",
-    env_var: "GROQ_API_KEY",
-    auth_style: "bearer",
-    endpoint: "https://api.groq.com/openai/v1",
-    model: "llama-3.3-70b-versatile",
-    context_window: 128000,
-    supports_images: false,
-  },
-  {
-    id: "custom",
-    label: "Custom compatible",
-    service: "custom-compatible",
-    env_var: "OPENAI_API_KEY",
-    auth_style: "bearer",
-    endpoint: "https://your-server/v1",
-    model: "your-model",
-    context_window: 32768,
-    supports_images: false,
-  },
-];
-
-const apiKeyWizardDraft = (preset = API_KEY_WIZARD_PRESETS[0]): ApiKeyWizardDraft => ({
-  ...preset,
-  api_key: "",
-});
+// NOTE: the old "Install API Key" wizard was removed: its Install action
+// POSTed to a cloud.credentials.install_local_api_key_env capability that
+// has no backend implementation, so it could never succeed. Env-backed
+// profiles are created through the Configure modal (Customize API / template
+// "Use"); the key itself must be set in Ordo's launch environment.
 
 const customShapeForDraft = (draft: CredentialDraft): CustomProviderShape => {
   if (draft.service === "ollama") return "ollama-local";
@@ -6414,6 +6330,10 @@ const applyCustomProviderShape = (
         supports_images: true,
         secret_source: "environment",
         api_key_required: false,
+        // Env shapes never store a key: a keystroke typed under a
+        // stored-key shape must not survive the switch while the field
+        // is hidden.
+        secret: "",
         env_var: draft.env_var || "ANTHROPIC_API_KEY",
       };
     case "anthropic-key":
@@ -6443,6 +6363,7 @@ const applyCustomProviderShape = (
         secret_source: "vault",
         api_key_required: true,
         env_var: "",
+        param_name: draft.param_name || "key",
       };
     case "ollama-local":
       return {
@@ -6499,6 +6420,8 @@ const applyCustomProviderShape = (
         supports_images: draft.supports_images,
         secret_source: "environment",
         api_key_required: false,
+        // See anthropic-env: switching shapes must not carry a hidden key.
+        secret: "",
         env_var: draft.env_var || "OPENAI_API_KEY",
         enabled: draft.enabled,
       };
@@ -6543,6 +6466,8 @@ const draftFromCredential = (
       secretSource === "environment" ? false : template?.api_key_required ?? true,
     secret_source: secretSource,
     env_var: liveOrFallback(extras.env_var, template ? defaultEnvVarForProvider(template) : ""),
+    header_name: liveOrFallback(extras.header_name, "x-api-key"),
+    param_name: liveOrFallback(extras.param_name, "key"),
     letter_color: template?.letter_color,
     enabled: credentialIsEnabled(c),
   };
@@ -6550,6 +6475,118 @@ const draftFromCredential = (
 
 const findTemplate = (service: string): ProviderTemplate | undefined =>
   PROVIDER_TEMPLATES.find((t) => t.id === service);
+
+// Filter-as-you-type model picker over a fetched catalog (OpenRouter's
+// catalog is hundreds of models — the Servo-safe Dropdown has no search,
+// so a plain input + click list is used; everything stays free-typeable
+// when the catalog can't load).
+const CatalogModelInput = ({
+  value,
+  onChange,
+  catalog,
+  status,
+  onLoad,
+  onReset,
+  defaultModel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  catalog: string[];
+  status: "idle" | "loading" | "ready" | "failed";
+  onLoad: () => void;
+  onReset: () => void;
+  defaultModel: string;
+}) => {
+  const [open, setOpen] = useState(false);
+  const q = value.trim().toLowerCase();
+  // Always pin the current value as the first row so it stays visible
+  // (and highlighted) even when it falls outside the 80-row slice.
+  const pinned = value.trim() ? [value.trim()] : [];
+  const matches =
+    status === "ready"
+      ? [...pinned, ...catalog.filter((m) => m !== value.trim() && (!q || m.toLowerCase().includes(q)))].slice(0, 80)
+      : [];
+  const isDefault = value.trim() === defaultModel.trim() || !value.trim();
+  return (
+    <div>
+      <TextInput
+        value={value}
+        onChange={(v) => {
+          onChange(v);
+          setOpen(true);
+        }}
+        placeholder="type to filter, or enter any model id"
+      />
+      <div className="flex justify-end gap-2" style={{ marginTop: 6 }}>
+        {!isDefault && (
+          <Button size="sm" onClick={onReset}>
+            Reset to default
+          </Button>
+        )}
+        <Button
+          size="sm"
+          onClick={() => {
+            if (status === "idle" || status === "failed") onLoad();
+            setOpen((o) => !o);
+          }}
+        >
+          {status === "loading"
+            ? "Loading models…"
+            : open
+            ? "Hide list"
+            : catalog.length > 0
+            ? `Browse ${catalog.length} models`
+            : "Browse models"}
+        </Button>
+      </div>
+      {open && status === "ready" && (
+        <div
+          style={{
+            marginTop: 6,
+            maxHeight: 180,
+            overflowY: "auto",
+            border: `1px solid ${UI.cardBorder}`,
+            borderRadius: 8,
+            background: UI.cardBg,
+          }}
+        >
+          {matches.length === 0 ? (
+            <div style={{ padding: "10px 12px" }}>
+              <Mono size={11} color={UI.textMuted}>
+                No matches — any typed id works.
+              </Mono>
+            </div>
+          ) : (
+            matches.map((m) => (
+              <div
+                key={m}
+                onClick={() => {
+                  onChange(m);
+                  setOpen(false);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  borderBottom: `1px solid ${UI.cardBorder}`,
+                  background: m === value.trim() ? UI.cardBgRaised : "transparent",
+                }}
+              >
+                <Mono size={11} color={m === value.trim() ? UI.parchment : UI.textMuted}>
+                  {m}
+                </Mono>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+      {open && status === "failed" && (
+        <div style={{ marginTop: 6 }}>
+          <Alert variant="warn">Catalog unreachable — type any model id manually.</Alert>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // Letter avatar: the first letter of the provider name in a colored
 // rounded square. Inline replacement for brand SVGs we don't ship.
@@ -6587,13 +6624,43 @@ const BrandMark = ({ name, color, size = 30 }: { name: string; color?: string; s
 const CloudSurface = () => {
   const [creds, setCreds] = useState<CloudCredentialRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  // In-flight operation keys (sets, not a single string) so concurrent
+  // operations on different rows can't clobber each other's spinners or
+  // re-enable buttons mid-operation.
+  const [busySet, setBusySet] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [testingSet, setTestingSet] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const isBusy = (key: string) => busySet.has(key);
+  const anyBusy = busySet.size > 0;
+  const markBusy = (key: string) =>
+    setBusySet((prev) => new Set(prev).add(key));
+  const clearBusy = (key: string) =>
+    setBusySet((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  const isTesting = (service: string) => testingSet.has(service);
+  const markTesting = (service: string) =>
+    setTestingSet((prev) => new Set(prev).add(service));
+  const clearTesting = (service: string) =>
+    setTestingSet((prev) => {
+      if (!prev.has(service)) return prev;
+      const next = new Set(prev);
+      next.delete(service);
+      return next;
+    });
   const [toast, setToast] = useState<string | null>(null);
   const [editing, setEditing] = useState<CredentialDraft | null>(null);
   const [editingMode, setEditingMode] = useState<"new" | "rotate">("new");
-  const [keyWizard, setKeyWizard] = useState<ApiKeyWizardDraft | null>(null);
-  const [keyWizardError, setKeyWizardError] = useState<string | null>(null);
-  const [keyWizardResult, setKeyWizardResult] = useState<LocalApiKeyInstallResult | null>(null);
+  // Baseline extras of the credential being edited (rotate mode). Merged on
+  // save so fields the modal doesn't edit (provider_kind,
+  // requires_ollama_signin, header_name, custom voice keys, …) survive.
+  const [editingBaseline, setEditingBaseline] = useState<Record<string, string> | null>(null);
+  // Whether the row being edited holds a stored vault secret. Switching
+  // such a row to environment-backed orphans the old secret (the runtime
+  // has no clear-secret op) — the modal warns instead of silently keeping it.
+  const [editingHadSecret, setEditingHadSecret] = useState(false);
   // Sticky inline error inside the configure modal — survives until
   // the operator fixes the form and tries again. Distinct from the
   // surface-level toast (which can fade).
@@ -6603,7 +6670,6 @@ const CloudSurface = () => {
       ? window.localStorage.getItem("ordo:default_provider")
       : null,
   );
-  const [testing, setTesting] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<
     Record<string, { ok: boolean; ms: number; body: string }>
   >({});
@@ -6616,8 +6682,42 @@ const CloudSurface = () => {
   const [ollamaConnectionMode, setOllamaConnectionMode] = useState<OllamaConnectionMode>("local");
   const [localProbe, setLocalProbe] = useState<Record<string, { reachable: boolean; models: string[]; base_url: string; error?: string }>>({});
   const [localSelectedModel, setLocalSelectedModel] = useState<Record<string, string>>({});
+  // OpenRouter catalog (public, no key) shared by the OpenRouter-family
+  // cards (OpenRouter, MetaSpark, MiMo ride the same base URL). Picked
+  // model per template id; falls back to the template default.
+  const [orCatalog, setOrCatalog] = useState<string[]>([]);
+  const [orCatalogStatus, setOrCatalogStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [orPicked, setOrPicked] = useState<Record<string, string>>({});
 
+  const loadOpenRouterCatalog = async () => {
+    if (orCatalogStatus === "loading" || orCatalogStatus === "ready") return;
+    setOrCatalogStatus("loading");
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { data?: Array<{ id?: string }> };
+      // Bound what enters state: a tampering proxy serving a huge or
+      // hostile id list must not get unbounded residency. Only the render
+      // is sliced elsewhere; cap here too.
+      const ids = (body.data ?? [])
+        .slice(0, 2000)
+        .map((m) => (typeof m?.id === "string" ? m.id.trim() : ""))
+        .filter((id) => id.length > 0 && id.length <= 160)
+        .sort();
+      setOrCatalog(ids);
+      setOrCatalogStatus(ids.length > 0 ? "ready" : "failed");
+    } catch {
+      setOrCatalogStatus("failed");
+    }
+  };
+
+  const defaultIdRef = useRef(defaultId);
+  defaultIdRef.current = defaultId;
   const setDefaultId = (id: string | null) => {
+    const prev = defaultIdRef.current;
     setDefaultIdRaw(id);
     if (typeof window !== "undefined") {
       if (id) window.localStorage.setItem("ordo:default_provider", id);
@@ -6625,11 +6725,25 @@ const CloudSurface = () => {
     }
     void setCloudCredentialDefault(id).then((result) => {
       if (result?.ok === false) {
+        // Backend rejected the change (unknown service, lifecycle
+        // failure): roll the optimistic UI value back instead of
+        // displaying a default the runtime doesn't honor.
+        adoptDefaultId(prev);
         setToast(result.error || "runtime default provider update failed");
       }
     }).catch((err: unknown) => {
       setToast(`runtime default provider update failed: ${err instanceof Error ? err.message : String(err)}`);
     });
+  };
+
+  // Adopt a default from the runtime without POSTing it back (avoids a
+  // sync loop and avoids overriding an explicit "(none)" choice).
+  const adoptDefaultId = (id: string | null) => {
+    setDefaultIdRaw(id);
+    if (typeof window !== "undefined") {
+      if (id) window.localStorage.setItem("ordo:default_provider", id);
+      else window.localStorage.removeItem("ordo:default_provider");
+    }
   };
 
   const refresh = async () => {
@@ -6644,17 +6758,17 @@ const CloudSurface = () => {
         res.default_service && enabledCredentials.some((c) => c.service === res.default_service)
           ? res.default_service
           : null;
-      const effectiveDefault =
+      // Keep the operator's explicit choice when it is still valid. Fall
+      // back to the runtime default when the local choice is missing or
+      // paused. Never force-promote the newest credential — "(none)" is a
+      // valid explicit state (the chat path picks a compatible credential).
+      const localValid =
         defaultId && enabledCredentials.some((c) => c.service === defaultId)
           ? defaultId
-          : runtimeDefault;
+          : null;
+      const effectiveDefault = localValid ?? runtimeDefault;
       if (effectiveDefault !== defaultId) {
-        setDefaultId(effectiveDefault);
-        return;
-      }
-      // Auto-promote the newest enabled credential to default if nothing chosen yet.
-      if (!effectiveDefault && enabledCredentials.length > 0) {
-        setDefaultId(enabledCredentials[0].service);
+        adoptDefaultId(effectiveDefault);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -6665,20 +6779,24 @@ const CloudSurface = () => {
     void refresh();
   }, []);
 
-  const openTemplate = async (t: ProviderTemplate) => {
+  const openTemplate = async (t: ProviderTemplate, modelOverride?: string) => {
     publishUxiDebugEvent("ordo.provider", "provider_template_selected", "Provider template selected.", {
       provider: t.id,
       auth_style: t.auth_style,
       secret_source: t.secret_source ?? "vault",
     });
+    // Explicit model pick from the card picker wins over the template
+    // default (e.g. any OpenRouter catalog id, not just the default).
+    const effectiveModel = modelOverride?.trim() || t.default_model;
     if (t.secret_source === "environment") {
       const envVar = defaultEnvVarForProvider(t);
       if (providerNeedsManualDetails(t)) {
         setEditing({ ...draftFromTemplate(t), env_var: envVar });
         setEditingMode("new");
+        setEditingBaseline(null);
         return;
       }
-      setBusy(t.id);
+      markBusy(t.id);
       setToast(`connecting ${t.label} through ${envVar}...`);
       try {
         await upsertCloudCredential({
@@ -6688,7 +6806,7 @@ const CloudSurface = () => {
           label: t.label,
           extras: {
             name: t.label,
-            model: t.default_model,
+            model: effectiveModel,
             context_window: String(t.default_context_window),
             temperature: "0.2",
             supports_images: t.supports_images ? "true" : "false",
@@ -6706,9 +6824,9 @@ const CloudSurface = () => {
           env_var: envVar,
         });
         setToast(
-          `${t.label} added. Ordo will read ${envVar} from the runtime environment when it calls this provider.`,
+          `${t.label} added (${effectiveModel}). Ordo will read ${envVar} from the runtime environment when it calls this provider.`,
         );
-        setDefaultId(t.id);
+        if (!defaultId) setDefaultId(t.id);
         await refresh();
       } catch (err: unknown) {
         setToast(
@@ -6716,8 +6834,9 @@ const CloudSurface = () => {
         );
         setEditing(draftFromTemplate(t));
         setEditingMode("new");
+        setEditingBaseline(null);
       } finally {
-        setBusy(null);
+        clearBusy(t.id);
       }
       return;
     }
@@ -6731,7 +6850,7 @@ const CloudSurface = () => {
         ? "lmstudio"
         : null;
     if (localKind) {
-      setBusy(t.id);
+      markBusy(t.id);
       setToast(`detecting ${t.label}…`);
       try {
         const found = await detectLocalLlm(localKind);
@@ -6749,7 +6868,8 @@ const CloudSurface = () => {
           // Fall back to the modal so the operator can fix it by hand.
           setEditing(draftFromTemplate(t));
           setEditingMode("new");
-          setBusy(null);
+          setEditingBaseline(null);
+          clearBusy(t.id);
           return;
         }
         if (discoveredModels.length === 0) {
@@ -6762,8 +6882,9 @@ const CloudSurface = () => {
           if (t.id !== "ollama-cloud") {
             setEditing(draftFromTemplate(t));
             setEditingMode("new");
+            setEditingBaseline(null);
           }
-          setBusy(null);
+          clearBusy(t.id);
           return;
         }
         const model =
@@ -6773,7 +6894,7 @@ const CloudSurface = () => {
         if (t.id === "ollama-cloud" && !model) {
           setToast("Ollama is reachable, but no cloud models were listed. Sign in with ollama signin, then pull or select a cloud model.");
           setLocalProbe((prev) => ({ ...prev, [t.id]: scopedFound }));
-          setBusy(null);
+          clearBusy(t.id);
           return;
         }
         await upsertCloudCredential({
@@ -6782,7 +6903,8 @@ const CloudSurface = () => {
           base_url: t.endpoint,
           // Local providers don't validate the secret; send a placeholder
           // so the credential row reports has_secret=true and goes through
-          // the same auth path as remote providers.
+          // the same auth path as remote providers. local_placeholder marks
+          // the row honestly in the subtitle.
           secret: "local",
           label: `${t.label} (local)`,
           extras: {
@@ -6792,6 +6914,16 @@ const CloudSurface = () => {
             temperature: "0.2",
             supports_images: t.supports_images ? "true" : "false",
             enabled: "true",
+            local_placeholder: "true",
+            // Keep the cloud markers identical to connectOllamaCloudModel
+            // so downstream providerKind checks classify the row the same
+            // way regardless of which connect path created it.
+            ...(t.id === "ollama-cloud"
+              ? {
+                  provider_kind: "ollama_cloud_via_local_ollama",
+                  requires_ollama_signin: "true",
+                }
+              : {}),
             // Inherit the operator's timeout preset (set in the
             // Runtime tab, default 5 min) so this provider gets the
             // same response budget as everything else.
@@ -6814,13 +6946,15 @@ const CloudSurface = () => {
         );
         setEditing(draftFromTemplate(t));
         setEditingMode("new");
+        setEditingBaseline(null);
       } finally {
-        setBusy(null);
+        clearBusy(t.id);
       }
       return;
     }
     setEditing(draftFromTemplate(t));
     setEditingMode("new");
+    setEditingBaseline(null);
   };
 
   const openCustom = () => {
@@ -6835,17 +6969,11 @@ const CloudSurface = () => {
       env_var: "OPENAI_API_KEY",
     });
     setEditingMode("new");
-  };
-
-  const openKeyWizard = (presetId: ApiKeyWizardPresetId = "openai") => {
-    const preset = API_KEY_WIZARD_PRESETS.find((item) => item.id === presetId) ?? API_KEY_WIZARD_PRESETS[0];
-    setKeyWizard(apiKeyWizardDraft(preset));
-    setKeyWizardError(null);
-    setKeyWizardResult(null);
+    setEditingBaseline(null);
   };
 
   const probeLocalProvider = async (provider: "ollama" | "lmstudio") => {
-    setBusy(`probe-${provider}`);
+    markBusy(`probe-${provider}`);
     try {
       const found = await detectLocalLlm(provider);
       const scopedModels = provider === "ollama" ? localOllamaModels(found.models) : found.models;
@@ -6878,13 +7006,13 @@ const CloudSurface = () => {
       }));
       setToast(`local model probe failed: ${message}`);
     } finally {
-      setBusy(null);
+      clearBusy(`probe-${provider}`);
     }
   };
 
   const probeOllamaCloudModels = async () => {
     const provider = "ollama-cloud";
-    setBusy(`probe-${provider}`);
+    markBusy(`probe-${provider}`);
     try {
       const found = await detectLocalLlm("ollama");
       const cloudModels = cloudOllamaModels(found.models);
@@ -6922,7 +7050,7 @@ const CloudSurface = () => {
       }));
       setToast(`Ollama Cloud probe failed: ${message}`);
     } finally {
-      setBusy(null);
+      clearBusy(`probe-ollama-cloud`);
     }
   };
 
@@ -6937,7 +7065,7 @@ const CloudSurface = () => {
       setToast("That is an Ollama Cloud model. Use Ollama Cloud via Sign-In instead of Ollama Local.");
       return;
     }
-    setBusy(`connect-${provider}`);
+    markBusy(`connect-${provider}`);
     try {
       await upsertCloudCredential({
         service: template.id,
@@ -6952,11 +7080,11 @@ const CloudSurface = () => {
           temperature: "0.2",
           supports_images: template.supports_images ? "true" : "false",
           enabled: "true",
+          local_placeholder: "true",
           provider_kind: "local_model",
           timeout_secs: String(loadTimeoutPreset()),
         },
       });
-      setDefaultId(template.id);
       setLocalSelectedModel((prev) => ({ ...prev, [provider]: model }));
       publishUxiDebugEvent("ordo.provider", "local_model_connected", "Local model connected.", {
         provider: template.id,
@@ -6964,11 +7092,12 @@ const CloudSurface = () => {
         base_url: template.endpoint,
       });
       setToast(`${template.label} connected with ${model}.`);
+      if (!defaultId) setDefaultId(template.id);
       await refresh();
     } catch (err: unknown) {
       setToast(`local model connect failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusy(null);
+      clearBusy(`connect-${provider}`);
     }
   };
 
@@ -6979,9 +7108,10 @@ const CloudSurface = () => {
     if (!selectedModel) {
       setEditing(draftFromTemplate(template));
       setEditingMode("new");
+      setEditingBaseline(null);
       return;
     }
-    setBusy("connect-ollama-cloud");
+    markBusy("connect-ollama-cloud");
     try {
       await upsertCloudCredential({
         service: template.id,
@@ -6996,12 +7126,12 @@ const CloudSurface = () => {
           temperature: "0.2",
           supports_images: template.supports_images ? "true" : "false",
           enabled: "true",
+          local_placeholder: "true",
           provider_kind: "ollama_cloud_via_local_ollama",
           requires_ollama_signin: "true",
           timeout_secs: String(loadTimeoutPreset()),
         },
       });
-      setDefaultId(template.id);
       setLocalSelectedModel((prev) => ({ ...prev, "ollama-cloud": selectedModel }));
       publishUxiDebugEvent("ordo.provider", "ollama_cloud_connected", "Ollama Cloud provider connected.", {
         provider: template.id,
@@ -7009,11 +7139,12 @@ const CloudSurface = () => {
         base_url: template.endpoint,
       });
       setToast(`Ollama Cloud connected with ${selectedModel}.`);
+      if (!defaultId) setDefaultId(template.id);
       await refresh();
     } catch (err: unknown) {
       setToast(`Ollama Cloud connect failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusy(null);
+      clearBusy("connect-ollama-cloud");
     }
   };
 
@@ -7021,48 +7152,8 @@ const CloudSurface = () => {
     const t = findTemplate(c.service);
     setEditing(draftFromCredential(c, t));
     setEditingMode("rotate");
-  };
-
-  const installKeyWizard = async () => {
-    if (!keyWizard) return;
-    setKeyWizardError(null);
-    setBusy("api-key-wizard");
-    try {
-      const installed = await installLocalApiKeyEnv(keyWizard.env_var, keyWizard.api_key);
-      const service =
-        keyWizard.id === "custom"
-          ? `${keyWizard.service}-${Date.now().toString(36)}`
-          : keyWizard.service;
-      await upsertCloudCredential({
-        service,
-        auth_style: keyWizard.auth_style,
-        base_url: keyWizard.endpoint,
-        label: keyWizard.label,
-        extras: {
-          name: keyWizard.label,
-          model: keyWizard.model,
-          context_window: String(keyWizard.context_window),
-          temperature: "0.2",
-          supports_images: keyWizard.supports_images ? "true" : "false",
-          enabled: "true",
-          auth_source: "environment",
-          env_var: keyWizard.env_var,
-          timeout_secs: String(loadTimeoutPreset()),
-          ...(service === "ollama-cloud-api" ? { provider_kind: "cloud_model" } : {}),
-        },
-      });
-      setKeyWizardResult(installed);
-      setToast(`${keyWizard.label} installed locally via ${keyWizard.env_var}.`);
-      if (!defaultId) setDefaultId(service);
-      await refresh();
-      setKeyWizard({ ...keyWizard, api_key: "" });
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setKeyWizardError(message);
-      setToast(`key install failed: ${message}`);
-    } finally {
-      setBusy(null);
-    }
+    setEditingBaseline({ ...((c.extras ?? {}) as Record<string, string>) });
+    setEditingHadSecret(c.has_secret === true);
   };
 
   const saveDraft = async () => {
@@ -7073,17 +7164,26 @@ const CloudSurface = () => {
     setSaveError(null);
     const trimmedService = editing.service.trim();
     const trimmedModel = (editing.model ?? "").trim();
+    const trimmedEndpoint = (editing.endpoint ?? "").trim();
     if (!trimmedService) {
       setSaveError("Provider id is required.");
+      return;
+    }
+    if (editingMode === "new" && (creds ?? []).some((c) => c.service.toLowerCase() === trimmedService.toLowerCase())) {
+      setSaveError(`A provider with id "${trimmedService}" already exists — open it and Edit instead of creating a duplicate.`);
       return;
     }
     if (!trimmedModel) {
       setSaveError("Model is required — pick whichever model the provider serves.");
       return;
     }
+    if (!trimmedEndpoint) {
+      setSaveError("Base URL is required — the credential can never succeed without an endpoint.");
+      return;
+    }
     const isEnvironmentBacked = editing.secret_source === "environment";
-    const envVar = isEnvironmentBacked ? defaultEnvVarForProvider(editing) : "";
-    if (isEnvironmentBacked && !envVar.trim()) {
+    const rawEnvVar = (editing.env_var ?? "").trim();
+    if (isEnvironmentBacked && !rawEnvVar) {
       setSaveError("Environment variable is required for env-backed providers.");
       return;
     }
@@ -7091,42 +7191,67 @@ const CloudSurface = () => {
       setSaveError("API key is required for this provider.");
       return;
     }
-    setBusy(editing.service);
+    markBusy(editing.service);
     setToast(null);
     try {
       // Runtime keeps extras as plain strings — stringify everything
       // we want to round-trip. base_url (not endpoint) is the canonical
-      // URL field on CloudCredentialUpdate. For local providers that
-      // don't validate the secret (Ollama, LM Studio), we still send
-      // a placeholder so has_secret reads true and the bearer header
-      // dispatch path stays consistent.
+      // URL field on CloudCredentialUpdate.
+      //
+      // Secret rules: a typed key always wins. Env-backed rows never
+      // store a key (a hidden keystroke must not leak into storage when
+      // switching shapes). The "local" placeholder is sent ONLY on
+      // creation of keyless local rows — on rotate a blank field means
+      // "preserve", never "overwrite with placeholder".
+      const typedSecret = editing.secret.trim();
       const isLocal = editing.api_key_required === false && editing.secret_source !== "environment";
-      const secretToSend =
-        editing.secret.trim() || (isLocal ? "local" : undefined);
+      const secretToSend = typedSecret || (isLocal && editingMode === "new" ? "local" : undefined);
+      // Merge baseline extras so modal-invisible keys survive an edit
+      // (provider_kind, requires_ollama_signin, voice keys, custom headers).
+      // Form fields win; a stored per-credential timeout_secs is preserved
+      // (global preset applies only when the row has none); "***"
+      // redaction placeholders are stripped so they can never overwrite
+      // real stored values.
+      const mergedExtras: Record<string, string> = extrasWithoutSentinels({
+        ...(editingBaseline ?? {}),
+        name: editing.name,
+        model: trimmedModel,
+        context_window: String(editing.context_window),
+        temperature: String(editing.temperature),
+        supports_images: editing.supports_images ? "true" : "false",
+        enabled: editing.enabled ? "true" : "false",
+        timeout_secs:
+          editingBaseline?.timeout_secs?.trim() || String(loadTimeoutPreset()),
+      });
+      if (secretToSend === "local") {
+        mergedExtras.local_placeholder = "true";
+      } else if (typedSecret) {
+        delete mergedExtras.local_placeholder;
+      }
+      if (isEnvironmentBacked) {
+        mergedExtras.auth_source = "environment";
+        mergedExtras.env_var = rawEnvVar.toUpperCase();
+      } else {
+        delete mergedExtras.auth_source;
+        delete mergedExtras.env_var;
+      }
+      if (editing.auth_style === "api_key_header") {
+        mergedExtras.header_name = (editing.header_name ?? "").trim() || "x-api-key";
+        delete mergedExtras.param_name;
+      } else if (editing.auth_style === "api_key_query") {
+        mergedExtras.param_name = (editing.param_name ?? "").trim() || "key";
+        delete mergedExtras.header_name;
+      } else {
+        delete mergedExtras.header_name;
+        delete mergedExtras.param_name;
+      }
       await upsertCloudCredential({
         service: trimmedService,
         auth_style: editing.auth_style,
-        base_url: editing.endpoint || undefined,
+        base_url: trimmedEndpoint || undefined,
         secret: secretToSend,
         label: editing.name || undefined,
-        extras: {
-          name: editing.name,
-          model: trimmedModel,
-          context_window: String(editing.context_window),
-          temperature: String(editing.temperature),
-          supports_images: editing.supports_images ? "true" : "false",
-          enabled: editing.enabled ? "true" : "false",
-          ...(isEnvironmentBacked
-            ? {
-                auth_source: "environment",
-                env_var: envVar,
-              }
-            : {}),
-          // Inherit the operator's timeout preset (set in the
-          // Runtime tab) so this provider gets the same response
-          // budget as everything else.
-          timeout_secs: String(loadTimeoutPreset()),
-        },
+        extras: mergedExtras,
       });
       publishUxiDebugEvent("ordo.provider", "provider_saved", "Provider credential saved.", {
         provider: trimmedService,
@@ -7134,17 +7259,13 @@ const CloudSurface = () => {
         secret_source: isEnvironmentBacked ? "environment" : "vault",
       });
       setToast(`${editing.name || editing.service}: credential saved.`);
-      if (localDiscoveryProvider({
-        service: trimmedService,
-        base_url: editing.endpoint || null,
-        endpoint: editing.endpoint || null,
-        auth_style: editing.auth_style,
-      })) {
-        setDefaultId(trimmedService);
-      } else if (!defaultId) {
+      // Don't steal the default on edit. Only adopt when nothing is set.
+      if (!defaultId) {
         setDefaultId(trimmedService);
       }
       setEditing(null);
+      setEditingBaseline(null);
+      setEditingHadSecret(false);
       setSaveError(null);
       await refresh();
     } catch (err: unknown) {
@@ -7157,13 +7278,13 @@ const CloudSurface = () => {
       setSaveError(msg);
       setToast(`save failed: ${msg}`);
     } finally {
-      setBusy(null);
+      clearBusy(editing?.service ?? "");
     }
   };
 
   const removeCred = async (service: string) => {
     if (!confirm(`Remove credential for "${service}"?`)) return;
-    setBusy(service);
+    markBusy(service);
     setToast(null);
     try {
       await deleteCloudCredential(service);
@@ -7176,7 +7297,7 @@ const CloudSurface = () => {
     } catch (err: unknown) {
       setToast(`delete failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusy(null);
+      clearBusy(service);
     }
   };
 
@@ -7186,8 +7307,8 @@ const CloudSurface = () => {
   // receive chat-completion probes here: LM Studio's JIT loader treats
   // even a tiny "ping" as a real request and may reload an ejected model.
   // For local providers, use model-list discovery only. Remote providers
-  // still get a tiny completion probe because auth/model errors are often
-  // only visible at chat time.
+  // go through cloud.credentials.test WITH the row's service name so the
+  // runtime tests THIS credential — never the default.
   //
   // Runtime auto-injects `extras.model` from the credential when the
   // request omits it (see ordo-mcp-host::cloud_service_call), so the
@@ -7195,15 +7316,15 @@ const CloudSurface = () => {
   // instead of a phantom default like `gpt-4o-mini`.
   const toggleCred = async (credential: CloudCredentialRow) => {
     const nextEnabled = !credentialIsEnabled(credential);
-    setBusy(`toggle-${credential.service}`);
+    markBusy(`toggle-${credential.service}`);
     setToast(null);
     try {
       await upsertCloudCredential({
         service: credential.service,
-        extras: {
+        extras: extrasWithoutSentinels({
           ...(credential.extras ?? {}),
           enabled: nextEnabled ? "true" : "false",
-        },
+        }),
       });
       publishUxiDebugEvent(
         "ordo.provider",
@@ -7217,13 +7338,14 @@ const CloudSurface = () => {
     } catch (err: unknown) {
       setToast(`toggle failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusy(null);
+      clearBusy(`toggle-${credential.service}`);
     }
   };
 
-  const discoverProviderModels = async (credential: CloudCredentialRow) => {
+  const discoverProviderModels = async (credential: CloudCredentialRow, force = false) => {
     const current = modelDiscovery[credential.service];
-    if (current && current.status !== "loading") {
+    // Panel toggle only when a result already exists; Refresh always refetches.
+    if (current && current.status !== "loading" && !force) {
       setModelDiscovery((prev) => ({
         ...prev,
         [credential.service]: { ...current, open: !current.open },
@@ -7293,20 +7415,19 @@ const CloudSurface = () => {
   const setModelForCredential = async (credential: CloudCredentialRow, model: string) => {
     const nextModel = model.trim();
     if (!nextModel) return;
-    setBusy(`model-${credential.service}`);
+    markBusy(`model-${credential.service}`);
     try {
       await upsertCloudCredential({
         service: credential.service,
-        extras: {
+        extras: extrasWithoutSentinels({
           ...(credential.extras ?? {}),
           model: nextModel,
-        },
+        }),
       });
       publishUxiDebugEvent("ordo.provider", "provider_model_selected", "Provider model selected.", {
         provider: credential.service,
         model: nextModel,
       });
-      setDefaultId(credential.service);
       setToast(`${credential.label ?? credential.service}: model set to ${nextModel}.`);
       await refresh();
     } catch (err: unknown) {
@@ -7318,67 +7439,116 @@ const CloudSurface = () => {
         error: message,
       }, "ERROR");
     } finally {
-      setBusy(null);
+      clearBusy(`model-${credential.service}`);
     }
   };
 
   const runTest = async (c: CloudCredentialRow) => {
-    const isOllamaCloudApi = c.service === "ollama-cloud-api";
-    const localProvider = localDiscoveryProvider(c);
-    const cap =
-      localProvider
-        ? "local.models"
-        : isOllamaCloudApi
-        ? "cloud.credentials.models"
-        : c.auth_style === "anthropic"
-        ? "cloud.anthropic.messages"
-        : "cloud.openai.chat";
-    // Anthropic requires `max_tokens`; OpenAI-shape accepts it as a budget hint.
-    // Keep it tiny so a manual cloud test cannot burn a large thinking trace.
-    const args = isOllamaCloudApi
-      ? { service: c.service }
-      : {
-          messages: [{ role: "user", content: "ping" }],
-          max_tokens: 16,
-        };
-    setTesting(c.service);
+    // Live "Test" verifies reachability without waking local runtimes.
+    //
+    // Local OpenAI-compatible servers like Ollama and LM Studio must not
+    // receive chat-completion probes here: LM Studio's JIT loader treats
+    // even a tiny "ping" as a real request and may reload an ejected model.
+    // For local providers, use model-list discovery only.
+    //
+    // Remote providers go through `cloud.credentials.test` WITH the row's
+    // service name so the runtime tests THIS credential — never the default.
+    // (The old chat-probe path omitted `service`, so Test silently tested
+    // whichever compatible credential the backend picked first.)
+    const cExtras = (c.extras ?? {}) as { provider_kind?: string };
+    // ollama-cloud rows ride the local daemon but their entitlement is
+    // cloud-side: probe the daemon, then scope to *-cloud models and say
+    // so explicitly. A reachable daemon with no cloud models is a FAILED
+    // test for this row (sign-in missing), not a pass.
+    const isOllamaCloudRow =
+      c.service === "ollama-cloud" ||
+      cExtras.provider_kind === "ollama_cloud_via_local_ollama";
+    const localProvider = isOllamaCloudRow ? "ollama" as const : localDiscoveryProvider(c);
+    const cap = localProvider && !isOllamaCloudRow ? "local.models" : isOllamaCloudRow ? "local.models+cloud-scope" : "cloud.credentials.test";
+    markTesting(c.service);
     const t0 = performance.now();
     try {
-      const out = localProvider
-        ? await detectLocalLlm(localProvider)
-        : await invokeTool(cap, args);
-      const ms = Math.round(performance.now() - t0);
-      if (localProvider && !(out as LocalLlmDiscovery).reachable) {
-        const local = out as LocalLlmDiscovery;
-        setTestResult((r) => ({
-          ...r,
-          [c.service]: {
-            ok: false,
-            ms,
-            body: local.error ?? `${local.provider} not reachable at ${local.base_url}`,
-          },
-        }));
-        publishUxiDebugEvent("ordo.provider", "provider_test_failed", "Provider model-list test failed.", {
+      if (localProvider) {
+        const out = await detectLocalLlm(localProvider);
+        const ms = Math.round(performance.now() - t0);
+        const cloudModels = isOllamaCloudRow ? cloudOllamaModels(out.models) : out.models;
+        if (!out.reachable) {
+          setTestResult((r) => ({
+            ...r,
+            [c.service]: {
+              ok: false,
+              ms,
+              body: out.error ?? `${out.provider} not reachable at ${out.base_url}`,
+            },
+          }));
+          publishUxiDebugEvent("ordo.provider", "provider_test_failed", "Provider model-list test failed.", {
+            provider: c.service,
+            capability: cap,
+            elapsed_ms: ms,
+            error: out.error ?? "not reachable",
+          }, "WARN");
+          return;
+        }
+        if (isOllamaCloudRow && cloudModels.length === 0) {
+          const msg = "Daemon reachable, but no *-cloud models listed — sign in (ollama signin) to enable the cloud path.";
+          setTestResult((r) => ({
+            ...r,
+            [c.service]: { ok: false, ms, body: msg },
+          }));
+          publishUxiDebugEvent("ordo.provider", "provider_test_failed", "Provider cloud entitlement missing.", {
+            provider: c.service,
+            capability: cap,
+            elapsed_ms: ms,
+            error: msg,
+          }, "WARN");
+          return;
+        }
+        publishUxiDebugEvent("ordo.provider", "provider_test_succeeded", "Provider test succeeded.", {
           provider: c.service,
           capability: cap,
           elapsed_ms: ms,
-          error: local.error ?? "not reachable",
-        }, "WARN");
+        });
+        setTestResult((r) => ({
+          ...r,
+          [c.service]: {
+            ok: true,
+            ms,
+            body: isOllamaCloudRow
+              ? `daemon reachable — ${cloudModels.length} cloud model(s) listed (local models excluded).`
+              : `${out.provider} reachable at ${out.base_url} — ${out.models.length} model(s) listed.`,
+          },
+        }));
         return;
       }
-      publishUxiDebugEvent("ordo.provider", "provider_test_succeeded", "Provider test succeeded.", {
-        provider: c.service,
-        capability: cap,
-        elapsed_ms: ms,
-      });
-      setTestResult((r) => ({
-        ...r,
-        [c.service]: {
-          ok: true,
-          ms,
-          body: JSON.stringify(out, null, 2).slice(0, 2000),
-        },
-      }));
+      const out = await invokeTool(cap, { service: c.service }) as { ok?: boolean; error?: string | null };
+      const ms = Math.round(performance.now() - t0);
+      if (out?.ok) {
+        publishUxiDebugEvent("ordo.provider", "provider_test_succeeded", "Provider test succeeded.", {
+          provider: c.service,
+          capability: cap,
+          elapsed_ms: ms,
+        });
+        setTestResult((r) => ({
+          ...r,
+          [c.service]: {
+            ok: true,
+            ms,
+            body: `GET ${c.base_url ?? c.endpoint ?? ""}models → 2xx`,
+          },
+        }));
+      } else {
+        const errorMessage = out?.error || "test failed";
+        publishUxiDebugEvent("ordo.provider", "provider_test_failed", "Provider test failed.", {
+          provider: c.service,
+          capability: cap,
+          elapsed_ms: ms,
+          error: errorMessage.slice(0, 500),
+        }, "WARN");
+        setTestResult((r) => ({
+          ...r,
+          [c.service]: { ok: false, ms, body: errorMessage },
+        }));
+      }
     } catch (err: unknown) {
       const ms = Math.round(performance.now() - t0);
       // Surface the runtime's actual error body when available — the
@@ -7414,7 +7584,7 @@ const CloudSurface = () => {
         [c.service]: { ok: false, ms, body: detail },
       }));
     } finally {
-      setTesting(null);
+      clearTesting(c.service);
     }
   };
 
@@ -7424,15 +7594,13 @@ const CloudSurface = () => {
     return credentialUpdatedAtMs(b) - credentialUpdatedAtMs(a) || a.service.localeCompare(b.service);
   });
   const enabledCreds = orderedCreds.filter(credentialIsEnabled);
-  const openaiTemplate = findTemplate("openai");
-  const openaiCredential = orderedCreds.find((c) => c.service === "openai");
 
   return (
     <div className="h-full flex flex-col gap-4 overflow-auto pb-4">
       <SectionHeader
         icon={<Cloud size={22} />}
         title="Provider"
-        sub="OpenAI API is the default. Custom endpoints are added only when you choose to configure one."
+        sub="Pick a default, connect a local model, or add a cloud endpoint. Nothing leaves this machine until a provider is configured."
         trailing={
           <div className="flex items-center gap-3">
             <Field label="" hint={undefined}>
@@ -7475,15 +7643,15 @@ const CloudSurface = () => {
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <Mono size={11} upper track="0.18em" color={UI.textMuted}>
-                ollama and local models
+                local models
               </Mono>
               <div style={{ marginTop: 5, maxWidth: 760 }}>
                 <Mono size={11} color={UI.textMuted}>
-                  Choose how Ollama connects, then detect models and save the selected one as a provider profile. LM Studio remains local-only.
+                  Ollama (local, cloud sign-in, or API key) and LM Studio (local-only). Detect models, then connect the selected one as a provider profile.
                 </Mono>
               </div>
             </div>
-            <Badge variant="info">single Ollama setup</Badge>
+            <Badge variant="info">local</Badge>
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", marginTop: 16 }}>
             {(() => {
@@ -7508,8 +7676,9 @@ const CloudSurface = () => {
                 : modelOptions.length
                 ? pickChatModel(modelOptions) ?? modelOptions[0]
                 : preferredModel;
-              const probeBusy = busy === `probe-${probeKey}`;
+              const probeBusy = isBusy(`probe-${probeKey}`);
               const connectBusy = mode === "signin" ? "connect-ollama-cloud" : "connect-ollama";
+              const connectBusyActive = isBusy(connectBusy);
               const statusLabel =
                 mode === "api-key"
                   ? "env key"
@@ -7532,7 +7701,7 @@ const CloudSurface = () => {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3" style={{ minWidth: 0 }}>
-                      <BrandMark name="Ollama" color={UI.primary} size={32} />
+                      <BrandMark name="Ollama" color={template?.letter_color ?? "#d6b25e"} size={32} />
                       <div style={{ minWidth: 0 }}>
                         <Mono size={13} color={UI.parchment} weight={700}>Ollama</Mono>
                         <div style={{ marginTop: 4 }}>
@@ -7599,7 +7768,7 @@ const CloudSurface = () => {
                         size="sm"
                         variant="primary"
                         onClick={() => template && void openTemplate(template)}
-                        disabled={!template || busy === "ollama-cloud-api"}
+                        disabled={!template || isBusy("ollama-cloud-api")}
                       >
                         Use Ollama API Key
                       </Button>
@@ -7613,9 +7782,6 @@ const CloudSurface = () => {
                         }}
                       >
                         Manual setup
-                      </Button>
-                      <Button size="sm" onClick={() => openKeyWizard("ollama-cloud-api")}>
-                        Install OLLAMA_API_KEY
                       </Button>
                     </div>
                   ) : (
@@ -7637,7 +7803,7 @@ const CloudSurface = () => {
                             ? void connectOllamaCloudModel(selected)
                             : void connectLocalModel("ollama", selected)
                         }
-                        disabled={busy === connectBusy || !selected.trim()}
+                        disabled={connectBusyActive || !selected.trim()}
                       >
                         {selected ? `Connect ${selected}` : "Connect"}
                       </Button>
@@ -7678,7 +7844,7 @@ const CloudSurface = () => {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3" style={{ minWidth: 0 }}>
-                      <BrandMark name="LM Studio Local" color={UI.primary} size={32} />
+                      <BrandMark name="LM Studio Local" color={findTemplate("lmstudio")?.letter_color ?? "#5865f2"} size={32} />
                       <div style={{ minWidth: 0 }}>
                         <Mono size={13} color={UI.parchment} weight={700}>LM Studio Local</Mono>
                         <div style={{ marginTop: 4 }}>
@@ -7710,15 +7876,15 @@ const CloudSurface = () => {
                     <Button
                       size="sm"
                       onClick={() => void probeLocalProvider("lmstudio")}
-                      disabled={busy === "probe-lmstudio"}
+                      disabled={isBusy("probe-lmstudio")}
                     >
-                      {busy === "probe-lmstudio" ? "Detecting..." : "Detect models"}
+                      {isBusy("probe-lmstudio") ? "Detecting..." : "Detect models"}
                     </Button>
                     <Button
                       size="sm"
                       variant="primary"
                       onClick={() => void connectLocalModel("lmstudio", selected)}
-                      disabled={busy === "connect-lmstudio" || !selected.trim()}
+                      disabled={isBusy("connect-lmstudio") || !selected.trim()}
                     >
                       {selected ? `Connect ${selected}` : "Connect"}
                     </Button>
@@ -7744,127 +7910,217 @@ const CloudSurface = () => {
 
       <Card padded={false}>
         <div style={{ padding: "18px 20px" }}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <BrandMark name="OpenAI API" color={UI.primary} size={34} />
-              <div>
-                <div style={{ fontFamily: FRAUNCES, fontSize: 18, fontWeight: 650, color: UI.parchment }}>
-                  OpenAI API
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <Mono size={11} color={UI.textMuted}>
-                    Uses `OPENAI_API_KEY` from the environment that launches Ordo.
-                  </Mono>
-                </div>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <Mono size={11} upper track="0.18em" color={UI.textMuted}>
+                coding plans
+              </Mono>
+              <div style={{ marginTop: 5, maxWidth: 760 }}>
+                <Mono size={11} color={UI.textMuted}>
+                  One-click setup for coding-plan subscriptions — paste a plan key, detect, connect. Raw direct-API endpoints go through Customize API below.
+                </Mono>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {openaiCredential ? (
-                <Button onClick={() => openRotate(openaiCredential)} size="sm">
-                  Edit
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => openaiTemplate && void openTemplate(openaiTemplate)}
-                  disabled={!openaiTemplate || busy === "openai"}
-                  variant="primary"
-                  size="sm"
-                >
-                  Use OpenAI API
-                </Button>
-              )}
               <Button onClick={openCustom} size="sm">
                 <Plus size={13} /> Customize API
               </Button>
-              <Button onClick={() => openKeyWizard("openai")} size="sm">
-                Install API Key
-              </Button>
             </div>
+          </div>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", marginTop: 16 }}>
+            {PROVIDER_TEMPLATES.filter((t) => t.id !== "ollama" && t.id !== "ollama-cloud" && t.id !== "lmstudio").map((t) => {
+              const configured = (creds ?? []).some((c) => c.service === t.id);
+              const cardBusy = isBusy(t.id);
+              // OpenRouter-family cards (OpenRouter, MetaSpark, MiMo share
+              // the base URL) get a catalog-backed model picker so the
+              // operator can choose ANY OpenRouter model, not just the
+              // template default. Key-gated plan cards open the modal,
+              // whose Model field is already free-typeable.
+              const isOrFamily = t.endpoint.includes("openrouter.ai");
+              if (isOrFamily) {
+                const picked = orPicked[t.id] ?? t.default_model;
+                return (
+                  <div
+                    key={t.id}
+                    style={{
+                      border: `1px solid ${UI.cardBorder}`,
+                      background: UI.cardBgRaised,
+                      borderRadius: 10,
+                      padding: 12,
+                      minWidth: 0,
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+                        <BrandMark name={t.label} color={t.letter_color} size={30} />
+                        <Mono size={12} color={UI.parchment} weight={700}>{t.label}</Mono>
+                        {configured && <Badge variant="success">set</Badge>}
+                        {t.secret_source === "environment" && <Badge variant="info">env</Badge>}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={configured ? undefined : "primary"}
+                        onClick={() => void openTemplate(t, picked)}
+                        disabled={cardBusy || !picked.trim()}
+                      >
+                        {cardBusy ? "…" : configured ? "Reconnect" : "Use"}
+                      </Button>
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      <CatalogModelInput
+                        value={picked}
+                        onChange={(v) => setOrPicked((prev) => ({ ...prev, [t.id]: v }))}
+                        catalog={orCatalog}
+                        status={orCatalogStatus}
+                        onLoad={() => void loadOpenRouterCatalog()}
+                        onReset={() => setOrPicked((prev) => {
+                          const next = { ...prev };
+                          delete next[t.id];
+                          return next;
+                        })}
+                        defaultModel={t.default_model}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={t.id}
+                  style={{
+                    border: `1px solid ${UI.cardBorder}`,
+                    background: UI.cardBgRaised,
+                    borderRadius: 10,
+                    padding: 12,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    minWidth: 0,
+                  }}
+                >
+                  <BrandMark name={t.label} color={t.letter_color} size={30} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="flex items-center gap-2">
+                      <Mono size={12} color={UI.parchment} weight={700}>{t.label}</Mono>
+                      {configured && <Badge variant="success">set</Badge>}
+                      {t.secret_source === "environment" && <Badge variant="info">env</Badge>}
+                    </div>
+                    <div style={{ marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <Mono size={10} color={UI.textMuted}>{t.default_model || "detect on connect"}</Mono>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={configured ? undefined : "primary"}
+                    onClick={() => void openTemplate(t)}
+                    disabled={cardBusy}
+                  >
+                    {cardBusy ? "…" : configured ? "Reconnect" : "Use"}
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         </div>
       </Card>
 
       <div className="space-y-2">
         <Card padded={false}>
-          <div className="flex items-center justify-between gap-3" style={{ padding: "14px 16px" }}>
+          <div className="flex items-center justify-between gap-3 flex-wrap" style={{ padding: "14px 16px" }}>
             <div>
               <Mono size={11} upper track="0.18em" color={UI.textMuted}>
                 configured providers
               </Mono>
               <div style={{ marginTop: 3 }}>
                 <Mono size={10} color={UI.textDim}>
-                  Customized APIs appear here after setup and can be selected as the default provider.
+                  {creds === null
+                    ? "Loading providers…"
+                    : orderedCreds.length === 0
+                    ? "Nothing configured yet — use a template above or Customize API."
+                    : "Change the default with the header Default picker. Paused rows must be enabled first."}
                 </Mono>
               </div>
             </div>
-            <div style={{ minWidth: 240 }}>
-              <Select
-                value={defaultId ?? ""}
-                onChange={(v) => setDefaultId(v || null)}
-                options={[
-                  { value: "", label: "(none)" },
-                  ...enabledCreds.map((c) => {
-                    const t = findTemplate(c.service);
-                    return {
-                      value: c.service,
-                      label: ((c.extras ?? {}) as { name?: string }).name ?? t?.label ?? c.service,
-                    };
-                  }),
-                ]}
-              />
-            </div>
+            <Badge variant={orderedCreds.length > 0 ? "success" : "neutral"}>
+              {creds === null ? "…" : `${orderedCreds.length} configured · ${enabledCreds.length} active`}
+            </Badge>
           </div>
         </Card>
         {orderedCreds.map((c) => {
           const t = findTemplate(c.service);
-          const extras = (c.extras ?? {}) as { name?: string; model?: string; auth_source?: string; env_var?: string };
+          const extras = (c.extras ?? {}) as { name?: string; model?: string; auth_source?: string; env_var?: string; local_placeholder?: string };
           const tr = testResult[c.service];
           const discovery = modelDiscovery[c.service];
           const isEnabled = credentialIsEnabled(c);
-          const providerMeta = [
-            isEnabled ? "active" : "paused",
-            extras.model ?? "provider model pending",
-            c.base_url ?? c.endpoint ?? "",
+          const isBedrock = isBedrockService(c.service);
+          const rawUrl = c.base_url ?? c.endpoint ?? "";
+          let host = rawUrl;
+          try {
+            const parsed = new URL(rawUrl);
+            host = parsed.host + (parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "");
+          } catch {
+            // Keep the raw value when it isn't a parseable URL.
+          }
+          const displayName = extras.name ?? t?.label ?? c.service;
+          const subtitle = [
+            extras.model?.trim() || "model pending",
             extras.auth_source === "environment"
-              ? `env: ${extras.env_var ?? (t ? defaultEnvVarForProvider(t) : "OPENAI_API_KEY")}`
-              : "",
-          ].filter(Boolean).join(" - ");
+              ? `env ${extras.env_var ?? (t ? defaultEnvVarForProvider(t) : "OPENAI_API_KEY")}`
+              : extras.local_placeholder === "true"
+              ? "local · no key stored"
+              : c.has_secret === false
+              ? "no key stored"
+              : null,
+            host || null,
+          ].filter(Boolean).join(" · ");
           return (
             <div key={c.service}>
               <ConfiguredRow
                 selected={defaultId === c.service}
-                onSelect={() => isEnabled && setDefaultId(c.service)}
-                icon={<BrandMark name={extras.name ?? t?.label ?? c.service} color={UI.primary} size={28} />}
-                name={extras.name ?? t?.label ?? c.service}
+                onSelect={() => {
+                  if (isEnabled) setDefaultId(c.service);
+                  else setToast("Enable the provider before setting it as default.");
+                }}
+                icon={<BrandMark name={displayName} color={t?.letter_color ?? "#888888"} size={28} />}
+                name={displayName}
                 defaultBadge={defaultId === c.service}
-                subtitle={<span>{providerMeta}</span>}
+                rightBadge={!isEnabled ? <Badge variant="neutral">paused</Badge> : undefined}
+                subtitle={
+                  <span>
+                    <span style={{ color: UI.textMuted }}>{subtitle}</span>
+                    <span style={{ color: UI.textDim }}> · </span>
+                    <span style={{ color: UI.textDim, fontSize: 10 }}>{c.service}</span>
+                  </span>
+                }
                 actions={
                   <>
                     <Button
                       onClick={() => void toggleCred(c)}
-                      disabled={busy === `toggle-${c.service}`}
+                      disabled={isBusy(`toggle-${c.service}`)}
                       size="sm"
                     >
                       {isEnabled ? "Pause" : "Enable"}
                     </Button>
                     <Button
                       onClick={() => void runTest(c)}
-                      disabled={!isEnabled || testing === c.service || busy === c.service}
+                      disabled={!isEnabled || isTesting(c.service) || isBusy(c.service) || isBedrock}
                       size="sm"
+                      title={isBedrock ? "Bedrock uses SigV4 — live test is not supported" : "GET models probe against this credential"}
                     >
-                      {testing === c.service ? "testing…" : "Test"}
+                      {isTesting(c.service) ? "testing…" : "Test"}
                     </Button>
                     <Button
                       onClick={() => void discoverProviderModels(c)}
-                      disabled={!isEnabled || discovery?.status === "loading" || busy === c.service}
+                      disabled={!isEnabled || discovery?.status === "loading" || isBusy(c.service) || isBedrock}
                       size="sm"
+                      title={isBedrock ? "Bedrock model discovery is not supported" : "List models for this credential"}
                     >
-                      {discovery?.status === "loading" ? "Discovering..." : "Discover Models"}
+                      {discovery?.status === "loading" ? "Discovering..." : "Models"}
                     </Button>
-                    <Button onClick={() => openRotate(c)} disabled={!!busy} size="sm">
+                    <Button onClick={() => openRotate(c)} disabled={anyBusy} size="sm">
                       Edit
                     </Button>
-                    <Button onClick={() => void removeCred(c.service)} disabled={!!busy} variant="danger" size="sm">
+                    <Button onClick={() => void removeCred(c.service)} disabled={anyBusy} variant="danger" size="sm">
                       <Trash2 size={12} />
                     </Button>
                   </>
@@ -7915,7 +8171,7 @@ const CloudSurface = () => {
                         />
                         <Button
                           size="sm"
-                          onClick={() => void discoverProviderModels(c)}
+                          onClick={() => void discoverProviderModels(c, true)}
                         >
                           Refresh
                         </Button>
@@ -7958,11 +8214,20 @@ const CloudSurface = () => {
             </div>
           );
         })}
-        {orderedCreds.length === 0 && (
+        {creds === null && (
           <Card>
             <div style={{ textAlign: "center", padding: "16px 0" }}>
               <Serif size={14} italic color={UI.textMuted}>
-                No providers configured. Use OpenAI API or customize an endpoint.
+                Loading providers…
+              </Serif>
+            </div>
+          </Card>
+        )}
+        {creds !== null && orderedCreds.length === 0 && (
+          <Card>
+            <div style={{ textAlign: "center", padding: "16px 0" }}>
+              <Serif size={14} italic color={UI.textMuted}>
+                No providers configured. Use a template above or Customize API.
               </Serif>
             </div>
           </Card>
@@ -7972,171 +8237,26 @@ const CloudSurface = () => {
       <ProviderConfigureModal
         editing={editing}
         mode={editingMode}
+        hadStoredSecret={editingHadSecret}
         onChange={setEditing}
         onClose={() => {
           setEditing(null);
+          setEditingBaseline(null);
+          setEditingHadSecret(false);
           setSaveError(null);
         }}
         onSave={() => void saveDraft()}
-        busy={!!busy}
+        busy={anyBusy}
         error={saveError}
-      />
-      <ApiKeyInstallWizard
-        draft={keyWizard}
-        busy={busy === "api-key-wizard"}
-        error={keyWizardError}
-        result={keyWizardResult}
-        onChange={setKeyWizard}
-        onInstall={() => void installKeyWizard()}
-        onClose={() => {
-          setKeyWizard(null);
-          setKeyWizardError(null);
-          setKeyWizardResult(null);
-        }}
       />
     </div>
   );
 };
 
-const ApiKeyInstallWizard = ({
-  draft,
-  busy,
-  error,
-  result,
-  onChange,
-  onInstall,
-  onClose,
-}: {
-  draft: ApiKeyWizardDraft | null;
-  busy: boolean;
-  error: string | null;
-  result: LocalApiKeyInstallResult | null;
-  onChange: (draft: ApiKeyWizardDraft | null) => void;
-  onInstall: () => void;
-  onClose: () => void;
-}) => {
-  if (!draft) return null;
-  const detectedPlatform = detectKeyInstallPlatform();
-  const installHint =
-    detectedPlatform === "Windows"
-      ? "Windows user environment plus Ordo local env file"
-      : detectedPlatform === "Apple"
-        ? "Apple local Ordo env file under the user config directory"
-        : detectedPlatform === "Linux"
-          ? "Linux local Ordo env file under the user config directory"
-          : "Ordo local env file under the detected user config directory";
-  const canInstall =
-    !busy &&
-    draft.env_var.trim().length > 0 &&
-    draft.api_key.trim().length > 0 &&
-    draft.endpoint.trim().length > 0 &&
-    draft.model.trim().length > 0;
-  const set = (patch: Partial<ApiKeyWizardDraft>) => onChange({ ...draft, ...patch });
-  const choosePreset = (id: string) => {
-    const next = API_KEY_WIZARD_PRESETS.find((preset) => preset.id === id) ?? API_KEY_WIZARD_PRESETS[0];
-    onChange({ ...apiKeyWizardDraft(next), api_key: draft.api_key });
-  };
-  return (
-    <Modal
-      open={draft !== null}
-      onClose={onClose}
-      title="Install API Key"
-      sub="Install a local key and create the matching provider profile."
-      width={620}
-      footer={
-        <>
-          <Button onClick={onClose} disabled={busy}>
-            Close
-          </Button>
-          <Button onClick={onInstall} disabled={!canInstall} variant="primary">
-            {busy ? "Installing..." : "Install Locally"}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {error && <Alert variant="danger">{error}</Alert>}
-        {result && (
-          <Alert variant="success">
-            Installed for {result.platform} via {result.env_var}. Restart Ordo after switching external runtimes.
-          </Alert>
-        )}
-        {!result && (
-          <Alert>
-            Detected {detectedPlatform}. Installer will use {installHint}.
-          </Alert>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Provider" required>
-            <Select
-              value={draft.id}
-              onChange={choosePreset}
-              options={API_KEY_WIZARD_PRESETS.map((preset) => ({
-                value: preset.id,
-                label: preset.label,
-              }))}
-            />
-          </Field>
-          <Field label="Environment variable" required>
-            <TextInput
-              value={draft.env_var}
-              onChange={(value) => set({ env_var: value.toUpperCase() })}
-              placeholder="OPENAI_API_KEY"
-            />
-          </Field>
-        </div>
-
-        <Field label="API Key" required>
-          <TextInput
-            type="password"
-            value={draft.api_key}
-            onChange={(value) => set({ api_key: value })}
-            placeholder="Paste key"
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Profile name" required>
-            <TextInput value={draft.label} onChange={(value) => set({ label: value })} />
-          </Field>
-          <Field label="Model" required>
-            <TextInput value={draft.model} onChange={(value) => set({ model: value })} />
-          </Field>
-        </div>
-
-        <Field label="Base URL" required>
-          <TextInput value={draft.endpoint} onChange={(value) => set({ endpoint: value })} />
-        </Field>
-
-        {result && (
-          <Field label="Local install path">
-            <TextInput value={result.local_env_path} onChange={() => undefined} />
-          </Field>
-        )}
-      </div>
-    </Modal>
-  );
-};
-
-const detectKeyInstallPlatform = (): "Windows" | "Linux" | "Apple" | "Unknown" => {
-  const nav =
-    typeof navigator !== "undefined"
-      ? (navigator as Navigator & { userAgentData?: { platform?: string } })
-      : null;
-  const platform =
-    nav
-      ? (nav.userAgentData?.platform || nav.platform || nav.userAgent || "")
-      : "";
-  const normalized = platform.toLowerCase();
-  if (normalized.includes("win")) return "Windows";
-  if (normalized.includes("mac") || normalized.includes("iphone") || normalized.includes("ipad")) return "Apple";
-  if (normalized.includes("linux") || normalized.includes("x11")) return "Linux";
-  return "Unknown";
-};
-
 const ProviderConfigureModal = ({
   editing,
   mode,
+  hadStoredSecret,
   onChange,
   onClose,
   onSave,
@@ -8145,6 +8265,7 @@ const ProviderConfigureModal = ({
 }: {
   editing: CredentialDraft | null;
   mode: "new" | "rotate";
+  hadStoredSecret: boolean;
   onChange: (d: CredentialDraft | null) => void;
   onClose: () => void;
   onSave: () => void;
@@ -8154,17 +8275,11 @@ const ProviderConfigureModal = ({
   if (!editing) return null;
   const set = (patch: Partial<CredentialDraft>) =>
     onChange({ ...editing, ...patch });
-  // Save is disabled only when busy or when a hard requirement is
-  // missing. For local providers (api_key_required: false), the API
-  // key field is optional — don't gate Save on it.
+  // Save stays enabled unless busy: validation lives in saveDraft so the
+  // operator gets specific inline errors instead of a dead grey button.
+  const canSave = !busy;
   const usesEnvironmentSecret = editing.secret_source === "environment";
-  const envVar = usesEnvironmentSecret ? defaultEnvVarForProvider(editing) : "";
-  const needsSecret = editing.api_key_required !== false && !usesEnvironmentSecret && mode === "new";
-  const canSave =
-    !busy &&
-    editing.service.trim().length > 0 &&
-    (editing.model ?? "").trim().length > 0 &&
-    (!needsSecret || editing.secret.trim().length > 0);
+  const envVarHint = defaultEnvVarForProvider(editing);
   return (
     <Modal
       open={editing !== null}
@@ -8200,6 +8315,14 @@ const ProviderConfigureModal = ({
           </Field>
         </div>
 
+        <Field label="Service ID" hint={mode === "rotate" ? "Backend key — locked while editing." : "Backend key. Keep stable; rows are keyed by this."}>
+          <TextInput
+            value={editing.service}
+            onChange={(v) => mode === "new" && set({ service: v.replace(/\s+/g, "-").toLowerCase() })}
+            disabled={mode === "rotate"}
+          />
+        </Field>
+
         <Field label="Base URL" required>
           <TextInput
             value={editing.endpoint}
@@ -8208,20 +8331,44 @@ const ProviderConfigureModal = ({
           />
         </Field>
 
+        {editing.auth_style === "api_key_header" && !usesEnvironmentSecret && (
+          <Field label="Auth header" hint="Custom header carrying the key (Azure uses api-key).">
+            <TextInput
+              value={editing.header_name ?? "x-api-key"}
+              onChange={(v) => set({ header_name: v })}
+              placeholder="x-api-key"
+            />
+          </Field>
+        )}
+        {editing.auth_style === "api_key_query" && (
+          <Field label="Query param" hint="Query parameter carrying the key (Gemini uses key).">
+            <TextInput
+              value={editing.param_name ?? "key"}
+              onChange={(v) => set({ param_name: v })}
+              placeholder="key"
+            />
+          </Field>
+        )}
+
         {usesEnvironmentSecret ? (
           <>
             <Alert>
               This provider does not store a key in Ordo. The runtime reads the environment variable below when it calls the provider.
             </Alert>
+            {mode === "rotate" && hadStoredSecret && (
+              <Alert variant="warn">
+                This row currently holds a stored vault key. Saving as environment-backed keeps that old key in the vault with no UI control left for it — delete and recreate the provider to fully remove it.
+              </Alert>
+            )}
             <Field
               label="Environment variable"
               required
               hint="Set this in the environment that launches Ordo, then restart Ordo so the runtime can read it."
             >
               <TextInput
-                value={editing.env_var || envVar}
-                onChange={(v) => set({ env_var: v })}
-                placeholder={envVar || "OPENAI_API_KEY"}
+                value={editing.env_var ?? ""}
+                onChange={(v) => set({ env_var: v.toUpperCase() })}
+                placeholder={envVarHint || "OPENAI_API_KEY"}
               />
             </Field>
           </>
@@ -18506,11 +18653,13 @@ export default function OrdoShell() {
         service,
         ...(previous.authStyle ? { auth_style: previous.authStyle } : {}),
         ...(previous.baseUrl ? { base_url: previous.baseUrl } : {}),
-        label: previous.providerLabel,
-        extras: nextChoice.extras,
+        // Omit label: the stored label must survive a model switch.
+        // (Passing the derived display string here used to degrade it.)
+        extras: extrasWithoutSentinels({ ...previous.extras, model: nextModel }),
       });
-      await setCloudCredentialDefault(service);
-      if (typeof window !== "undefined") window.localStorage.setItem("ordo:default_provider", service);
+      // Intentionally NOT touching the default: changing a model on a row
+      // is not a vote for default. The operator picks defaults in the
+      // Provider tab header.
       publishUxiDebugEvent("ordo.provider", "active_model_changed", "Active chat model changed.", {
         provider: service,
         model: nextModel,

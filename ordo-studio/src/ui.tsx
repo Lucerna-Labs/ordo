@@ -488,7 +488,13 @@ export function Dropdown<T extends string>({
         style={{ display: "inline-flex", alignItems: "center", justifyContent: "space-between", gap: 6, ...buttonStyle }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {renderValue ? renderValue(selected) : selected ? selected.label : placeholder ?? ""}
+          {renderValue
+            ? renderValue(selected)
+            : selected
+            ? selected.label
+            : value
+            ? value
+            : placeholder ?? ""}
         </span>
         <ChevronDown size={13} color={C.textMuted} style={{ flex: "0 0 auto", opacity: disabled ? 0.4 : 0.8 }} />
       </button>

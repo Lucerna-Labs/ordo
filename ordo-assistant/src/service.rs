@@ -1403,6 +1403,12 @@ impl AssistantService {
         {
             push(mode_default.clone(), &mut candidates, &mut seen);
         }
+        // Operator's runtime default (Provider tab) outranks the
+        // hardcoded fallback below: deleting/pausing the default must
+        // not silently reroute chat onto the first surviving row.
+        if let Ok(Some(runtime_default)) = self.credentials.get_default().await {
+            push(runtime_default, &mut candidates, &mut seen);
+        }
         push(self.default_service.clone(), &mut candidates, &mut seen);
         for name in &self.failover_chain {
             push(name.clone(), &mut candidates, &mut seen);
@@ -1434,6 +1440,21 @@ impl AssistantService {
                             primary_error = Some(AssistantError::NoCredential(
                                 "diagnostic-local-model".into(),
                             ));
+                        }
+                        continue;
+                    }
+                    // Paused credentials never serve chat turns. An explicit
+                    // request for a paused credential is a hard error (same
+                    // message as the MCP lane); anything else skips to the
+                    // next candidate so Pause actually stops billing.
+                    if !cred.enabled() {
+                        if request.credential.as_deref() == Some(name.as_str()) {
+                            return Err(AssistantError::InvalidArgument(format!(
+                                "credential for service '{name}' is paused; enable it in the Provider tab before use"
+                            )));
+                        }
+                        if primary_error.is_none() {
+                            primary_error = Some(AssistantError::NoCredential(name.clone()));
                         }
                         continue;
                     }
@@ -1781,6 +1802,14 @@ impl AssistantService {
                 failover_remaining.remove(0);
                 match self.credentials.get(next_name.clone()).await {
                     Ok(Some(next_cred)) => {
+                        if !next_cred.enabled() {
+                            tracing::warn!(
+                                target: "ordo_assistant",
+                                to = %next_name,
+                                "failover candidate is paused; skipping"
+                            );
+                            continue;
+                        }
                         tracing::warn!(
                             target: "ordo_assistant",
                             from = %credential_service,
