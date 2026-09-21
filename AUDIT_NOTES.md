@@ -57,7 +57,7 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 ### Security Audit (cargo audit)
 | ID | Crate | Severity | Status |
 |---|---|---|---|
-| RUSTSEC-2026-0185 | quinn-proto 0.11.14 | HIGH 7.5 | Fixable → upgrade to ≥0.11.15 |
+| RUSTSEC-2026-0185 | quinn-proto 0.11.14 | HIGH 7.5 | FIXED 2026-09 — bumped to 0.11.18 (publish block from June audit is gone) |
 | RUSTSEC-2023-0071 | rsa 0.9.10 | MEDIUM 5.9 | No fix available (monitor) |
 | RUSTSEC-2025-0057 | fxhash 0.2.1 | unmaintained | Replace with rustc-hash |
 | RUSTSEC-2023-0089 | atomic-polyfill 1.0.3 | unmaintained | Transitive dep (check) |
@@ -165,6 +165,7 @@ Linux build/servo-shell work. This audit works against the GitHub canonical vers
 
 ### Security Audit Notes (no action taken)
 - **quinn-proto RUSTSEC-2026-0185** (HIGH 7.5): Fix requires v0.11.15+, but latest on crates.io is 0.11.11. Monitor and bump when published.
+- **2026-09 Dependabot sweep:** quinn-proto bumped to 0.11.18 (HIGH cleared); opentelemetry_sdk 0.27→0.32 + tracing-opentelemetry→0.33 (GHSA-w9wp-h8wv-79jx cleared, otel API breaks fixed in ordo-runtime); npm browserslist/baseline-browser-mapping/postcss/postcss-selector-parser bumped via `npm update` (Studio build clean). ml-dsa ×3 (servo-shell lock only) BLOCKED: servo-script 0.3.0 pins ml-dsa ^0.0.4, fixes need ≥0.1.0-rc.5 — requires upstream servo upgrade.
 - **rsa RUSTSEC-2023-0071** (MEDIUM 5.9): No fix available upstream. Monitor.
 - **fxhash RUSTSEC-2025-0057**: Transitive via `selectors` → `scraper`. Can't replace directly.
 ### atomic-polyfill RUSTSEC-2023-0089**: Transitive via `heapless` → `postcard` → `frost-core`. Can't replace directly.

@@ -108,13 +108,15 @@ keyring = { version = "3", default-features = false, features = ["apple-native",
 regex = "1"
 parking_lot = "0.12"
 url = "2"
-# OpenTelemetry â€” opt-in via the `otel` feature on ordo-runtime.
-# Version-matched as of the 0.27/0.28 series. See
-# docs/architecture-contract.md â€” OTel is additive, not load-bearing.
-opentelemetry = "0.27"
-opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.27", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
-tracing-opentelemetry = "0.28"
+# OpenTelemetry — opt-in via the `otel` feature on ordo-runtime.
+# Version-matched as of the 0.32/0.33 series (tracing-opentelemetry
+# trails by one minor). See docs/architecture-contract.md — OTel is
+# additive, not load-bearing. Pinned ≥0.32.1: GHSA-w9wp-h8wv-79jx
+# (unbounded W3C Baggage allocation) affects opentelemetry_sdk ≤0.32.0.
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
+tracing-opentelemetry = "0.33"
 # schemars â€” descriptive JSON Schema generation for capability args.
 # Used at provider boundaries for tool advertisement; NEVER wired into
 # runtime-enforced typed decoding. See Rule 9 in

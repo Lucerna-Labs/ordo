@@ -141,18 +141,28 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::Tracer> {
         .build()
         .ok()?;
 
-    let provider = sdktrace::TracerProvider::builder()
-        .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-        .with_resource(Resource::new(vec![KeyValue::new(
-            "service.name",
-            service_name,
-        )]))
+    let provider = sdktrace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            Resource::builder_empty()
+                .with_attribute(KeyValue::new("service.name", service_name))
+                .build(),
+        )
         .build();
 
     let tracer = provider.tracer("ordo-runtime");
+    // 0.32 removed global shutdown; keep our own handle so
+    // shutdown_tracing() can still flush (SdkTracerProvider is Clone).
+    let _ = OTEL_TRACER_PROVIDER.set(provider.clone());
     opentelemetry::global::set_tracer_provider(provider);
     Some(tracer)
 }
+
+/// Retained OTLP provider handle for shutdown_tracing(). Written once by
+/// init_otel_tracer; the global registry owns the other clone.
+#[cfg(feature = "otel")]
+static OTEL_TRACER_PROVIDER: std::sync::OnceLock<opentelemetry_sdk::trace::SdkTracerProvider> =
+    std::sync::OnceLock::new();
 
 /// Flush any buffered OTLP spans. Call before process exit to avoid
 /// losing the last second of spans. No-op when the `otel` feature is
@@ -160,7 +170,9 @@ fn init_otel_tracer() -> Option<opentelemetry_sdk::trace::Tracer> {
 pub fn shutdown_tracing() {
     #[cfg(feature = "otel")]
     {
-        opentelemetry::global::shutdown_tracer_provider();
+        if let Some(provider) = OTEL_TRACER_PROVIDER.get() {
+            let _ = provider.shutdown();
+        }
     }
 }
 
@@ -684,6 +696,7 @@ impl PlanningOrdoRuntime {
         let settings_task = RuntimeSettingsTask::open(config.database_path.clone())?;
         let runtime_embedder = build_embedding_client(&config);
         let mut host = McpHost::new(bus.clone());
+        let mcp_host_node_id = host.node_id();
         host.add_provider(Arc::new(FilesystemProvider::rooted(
             config.user_files_path.clone(),
         )));
@@ -776,9 +789,9 @@ impl PlanningOrdoRuntime {
 
         // Mode-scoped workspaces: load manifests from disk (with the
         // compiled-in defaults materialized on first run). A failed
-        // load is non-fatal â€” the assistant can still run in pre-mode
-        // legacy shape, just without scope filtering. We log loudly
-        // so the operator notices.
+        // load is non-fatal for chat and local memory meta-tools, but the
+        // assistant gateway exposes no bus capabilities without a valid mode
+        // policy. We log loudly so the operator notices.
         let mode_registry = match ordo_modes::ModeRegistry::load_with_defaults(&config.modes_path) {
             Ok(reg) => {
                 let stats = reg.stats();
@@ -798,7 +811,7 @@ impl PlanningOrdoRuntime {
                     target: "ordo_runtime",
                     path = %config.modes_path.display(),
                     error = %err,
-                    "failed to load modes; assistant will run in pre-mode legacy shape"
+                    "failed to load modes; assistant bus tools are locked until policy loads"
                 );
                 None
             }
@@ -809,7 +822,7 @@ impl PlanningOrdoRuntime {
             assistant_embedder,
             cloud_credentials.clone(),
         )
-        .with_bus(bus.clone())
+        .with_bus_and_host(bus.clone(), mcp_host_node_id)
         .with_review(review_service.clone())
         .with_memory_log(memory_log_service.clone());
 
