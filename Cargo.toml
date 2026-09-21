@@ -98,7 +98,13 @@ rcgen = "0.14"
 ring = "0.17"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "multipart"] }
 wiremock = "0.6"
-keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
+# linux-native-sync-persistent: mirror keyring entries into Secret
+# Service (GNOME Keyring/KWallet, file-backed) in addition to the kernel
+# keyutils cache. Kernel keyrings are RAM-backed and wiped on every
+# reboot, which orphaned the vault DEK row on each restart; the
+# persistent mirror survives reboots. crypto-rust keeps the D-Bus secret
+# stack pure-Rust (no openssl sys deps).
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native", "linux-native-sync-persistent", "crypto-rust"] }
 regex = "1"
 parking_lot = "0.12"
 url = "2"
