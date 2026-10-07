@@ -10,9 +10,9 @@ logged, interruptible, and visible to the operator.
 - Let the operator choose or configure a team.
 - Let each role have its own instructions and relevant skills.
 - Keep team activity visible in the Assistant surface.
-- Support both local and cloud models.
-- Scale down gracefully for small local models.
-- Keep all work behind existing security, review, memory, and provider rules.
+- Use the same resident Ordo model for every role.
+- Keep role counts and prompts appropriate for the resident model.
+- Keep all work behind existing security, review, memory, and capability rules.
 
 ## Team Shape
 
@@ -22,7 +22,7 @@ A team can define:
 - label
 - purpose
 - mode
-- provider/model preference
+- fixed resident-model identity
 - roles
 - role instructions
 - role-specific skills
@@ -42,23 +42,13 @@ Common roles:
 
 ## Model Suitability
 
-Agent Teams must account for model size and capability.
-
-Small local models:
+Agent Teams must account for the resident model's size and capability:
 
 - fewer roles
 - shorter instructions
 - simpler tasks
 - more deterministic checks
 - more operator confirmation
-
-Large local or flagship cloud models:
-
-- richer teams
-- deeper planning
-- stronger critic/reviewer role
-- broader context windows
-- more complex multi-step tasks
 
 ## Role Skills
 
@@ -103,7 +93,7 @@ Agent Teams inherit Ordo's safety boundaries:
 - MCP/plugin trust enforcement
 - review gates for sensitive actions
 - bounded rounds and tool calls
-- logs for role activity and provider decisions
+- logs for role activity and resident-model health
 
 ## Current Beta Notes
 

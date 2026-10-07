@@ -491,7 +491,7 @@ fn default_sealer_stack(passphrase: Option<String>) -> VaultResult<Vec<Box<dyn S
             stack.push(Box::new(s));
         }
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "linux-tpm"))]
     {
         if let Some(pp) = passphrase.clone() {
             let s = crate::sealer::LinuxTpmSealer::new(pp.into_bytes())?;

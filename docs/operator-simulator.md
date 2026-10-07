@@ -19,8 +19,8 @@ target/operator-sim/operator-sim-report.md
 ```
 
 Use `--strict` for a release gate. In strict mode, warnings become a failed
-verdict. Without strict mode, missing optional provider setup is reported as a
-warning so local-only builds can still be inspected.
+verdict. Without strict mode, missing optional voice-provider setup is reported
+as a warning; the resident language model is still required.
 
 Use `--voice` when cloud text-to-speech credentials are configured and you want
 the simulator to test the speech endpoint.

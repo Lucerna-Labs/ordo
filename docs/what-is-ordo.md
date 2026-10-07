@@ -1,6 +1,7 @@
 # What Is Ordo?
 
-Ordo is a local-first AI agent orchestration platform. It gives a user a local
+Ordo is a local-first AI agent system and the product home of the Lightcone
+build. It gives a user a local
 assistant that orchestrates tools, capabilities, MCP servers, agent teams,
 persistent memory, retrieval, and automation — without handing unbounded
 control to a remote platform.
@@ -10,7 +11,7 @@ control to a remote platform.
 Ordo is for users who want a capable AI operator on their own machine:
 
 - everyday users who want a friendly assistant with visible controls
-- technical users who want local models, cloud models, automation, and logs
+- technical users who want one inspectable resident model, automation, and logs
 - non-technical users who need a Tech Specialist mode to install, configure,
   diagnose, and troubleshoot Ordo safely
 - builders who want a bus-first local runtime they can extend
@@ -22,13 +23,13 @@ were removed from the active direction.
 
 - Local-first runtime with local control API.
 - Embedded Servo desktop shell instead of a browser tab or Tauri shell.
-- Provider layer for local and cloud models.
-- Model lifecycle protection for switching between local providers.
+- One permanent Bonsai 27B PQ2_0 model behind the Lightcone and cognitive engine.
+- No model-provider switching, failover, per-mode model, or avatar model.
 - Mode-scoped instructions, memory, tools, and skills.
 - Global and per-mode skills.
 - Agent Teams with visible activity and role-specific skills.
 - Tech Specialist mode for diagnostics, setup, installs, MCP/plugin upkeep,
-  automation, provider setup, local computer tasks, and avatar setup.
+  automation, resident-cognition checks, local computer tasks, and avatar setup.
 - Remote Communication setup for email and future approved channels.
 - Artifact side view for files, PDFs, docs, spreadsheets, email views, and
   generated outputs.
@@ -48,20 +49,22 @@ At a high level:
 - `ordo-studio` provides the React UXI.
 - `ordo-servo-shell` renders the Studio bundle in a custom app window.
 - `ordo-assistant` runs assistant sessions and tool loops.
-- `ordo-cloud` talks to providers and manages model lifecycle behavior.
+- `ordo-cloud` supplies the internal OpenAI-shaped HTTP client used to reach
+  Ordo's resident cognition process; it is not a user-selectable model layer.
+- `../lightcone` owns input admission, cognitive routing, immutable-weight
+  inference, post-weights steering, output validation, and verified feedback.
 - `ordo-rag` and `ordo-memory` provide retrieval and durable memory.
 - `ordo-mcp-host`, `ordo-security`, and `ordo-review` keep tools gated,
   inspectable, and approval-aware.
 
 ## Local-First Boundary
 
-Local-first does not mean local-only. Ordo can use local models and cloud
-models, but the boundary should be explicit:
+Ordo cognition is local-only in this build. The boundary is explicit:
 
-- provider configuration is visible
+- one resident model identity is visible but not selectable
 - secrets are stored outside model-visible state
-- outbound calls are routed through provider capabilities
-- model switching is logged
+- model calls remain on localhost
+- attempts to override the model route are ignored or rejected
 - local computer access is denied by default
 - sensitive actions require explicit approval
 
@@ -84,7 +87,7 @@ It can guide or perform approved maintenance tasks such as:
 - installing or repairing MCP servers
 - managing plugins, skills, apps, and webhooks
 - setting up automation and hooks
-- configuring providers and models
+- inspecting resident cognition and model health
 - configuring Agent Teams
 - configuring the Avatar surface
 - setting up SSH and API keys through secure UI/vault paths

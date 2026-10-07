@@ -169,8 +169,6 @@ import {
   openAvatarPopout,
   avatarPageUrl,
   transcribeAudio,
-  getAvatarBrain,
-  setAvatarBrain,
   getAvatarMode,
   updateAvatarMode,
   getAvatarClips,
@@ -272,15 +270,8 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   // Primary is read top-to-bottom as the operator's daily orchestration:
-  //   Provider — make sure something's wired up to answer
   //   Assistant — drive the conversation
   //   Review   — decide on artifacts the assistant queued
-  // The tab id stays `cloud` (the surface is still CloudSurface and
-  // the runtime routes are still /api/cloud/credentials); only the
-  // label changes — "Provider" is what the operator actually picks
-  // here, and reads less generic than "Cloud" for a tab that also
-  // covers local providers (Ollama, LM Studio).
-  { id: "cloud", label: "Provider", glyph: Cloud, group: "primary" },
   { id: "assistant", label: "Assistant", glyph: MessageSquare, group: "primary" },
   { id: "modes", label: "Modes", glyph: SlidersHorizontal, group: "primary" },
   // Review sits below Assistant because it's operator-essential
@@ -358,7 +349,6 @@ const TABS: TabDef[] = [
 ];
 
 const LEFT_RAIL_TAB_IDS = new Set([
-  "cloud",
   "assistant",
   "modes",
   "review",
@@ -382,7 +372,6 @@ const COMMON_SETTINGS_TAB_IDS = new Set([
 ]);
 
 const MAINTENANCE_ADMIN_TABS = new Map<string, string>([
-  ["cloud", "Provider setup"],
   ["avatar", "Avatar setup"],
   ["remote-communication", "Email and remote communication setup"],
   ["hooks", "Hook setup"],
@@ -1695,8 +1684,6 @@ const ContextUsageIndicator = ({
   usedTokens,
   budget,
   modelChoice,
-  modelSaving,
-  onModelChange,
   thinkingEffort,
   onThinkingEffortChange,
 }: {
@@ -1765,13 +1752,9 @@ const ContextUsageIndicator = ({
           {formatTokenCount(usedTokens)} / {formatTokenCount(budget.tokens)}
         </Mono>
       </div>
-      <label
+      <div
         className="flex items-center gap-2"
-        title={
-          modelChoice.service
-            ? `Active model for ${modelChoice.providerLabel}`
-            : "Configure a provider before choosing a model"
-        }
+        title="Ordo's permanent resident model: Bonsai 27B through Lightcone and the cognitive engine"
         style={{
           flex: "0 1 260px",
           minWidth: 180,
@@ -1785,35 +1768,11 @@ const ContextUsageIndicator = ({
         <Mono size={8} upper track="0.12em" color="rgba(255,255,255,0.42)">
           model
         </Mono>
-        <Dropdown
-          value={modelChoice.selected}
-          disabled={!modelChoice.service || modelSaving || modelChoice.options.length === 0}
-          onChange={(v) => onModelChange(v)}
-          placeholder="no model"
-          options={
-            modelChoice.options.length > 0
-              ? modelChoice.options.map((model) => ({ value: model, label: model }))
-              : [{ value: "", label: "no model" }]
-          }
-          buttonStyle={{
-            minWidth: 0,
-            flex: 1,
-            background: "transparent",
-            border: "none",
-            color: PARCHMENT,
-            fontFamily: MONO,
-            fontSize: 10,
-            fontWeight: 700,
-            outline: "none",
-            cursor:
-              !modelChoice.service || modelSaving || modelChoice.options.length === 0
-                ? "not-allowed"
-                : "pointer",
-            opacity:
-              !modelChoice.service || modelChoice.options.length === 0 ? 0.55 : 1,
-          }}
-        />
-      </label>
+        <Mono size={10} color={PARCHMENT} weight={700}>
+          {modelChoice.selected || "ordo-bonsai-27b-lightcone"}
+        </Mono>
+        <Badge variant="success">resident</Badge>
+      </div>
       <label
         className="flex items-center gap-2"
         title="Thinking effort for future assistant turns"
@@ -3773,137 +3732,26 @@ const SkillsSurface = ({ onOpenDirectoryTab }: { onOpenDirectoryTab: (tab: Direc
 // remember_fact / forget_fact) which are what the assistant turn
 // already pulls into context.
 
-// The avatar's own LLM endpoint, bound to the `avatar` mode. Lets the avatar
-// run as a second assistant on a different model (so it works concurrently
-// with the main assistant) while sharing memory / RAG / skills.
+// The avatar is another presentation of the same permanent Ordo cognition.
+// It may have its own persona and voice, but never a separate LLM.
 const AvatarBrainPanel = () => {
-  const [kind, setKind] = useState<"local" | "cloud">("local");
-  const [baseUrl, setBaseUrl] = useState("http://localhost:11434/v1");
-  const [model, setModel] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [current, setCurrent] = useState<{
-    bound: boolean;
-    model: string | null;
-    baseUrl: string | null;
-  } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
-  const load = async () => {
-    try {
-      const b = await getAvatarBrain();
-      setCurrent({ bound: b.bound, model: b.model, baseUrl: b.baseUrl });
-      if (b.bound) {
-        if (b.baseUrl) setBaseUrl(b.baseUrl);
-        if (b.model) setModel(b.model);
-        setKind(b.baseUrl && /localhost|127\.0\.0\.1/.test(b.baseUrl) ? "local" : "cloud");
-      }
-    } catch {
-      // first run / unreadable — keep the local-first defaults
-    }
-  };
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const pickKind = (k: "local" | "cloud") => {
-    setKind(k);
-    setBaseUrl(k === "local" ? "http://localhost:11434/v1" : "https://api.openai.com/v1");
-  };
-
-  const save = async () => {
-    if (!model.trim()) {
-      setToast("enter a model name");
-      return;
-    }
-    setBusy(true);
-    setToast(null);
-    try {
-      await setAvatarBrain({
-        kind,
-        baseUrl: baseUrl.trim(),
-        model: model.trim(),
-        apiKey: apiKey.trim() || undefined,
-      });
-      setToast("saved — the avatar now thinks with this model.");
-      setApiKey("");
-      await load();
-    } catch (err) {
-      setToast(`save failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const kindBtn = (k: "local" | "cloud", label: string) => (
-    <button
-      type="button"
-      onClick={() => pickKind(k)}
-      style={{
-        flex: 1,
-        padding: "8px 12px",
-        borderRadius: 8,
-        border: `1px solid ${kind === k ? UI.primaryBorder : UI.cardBorder}`,
-        background: kind === k ? UI.primarySoft : "transparent",
-        color: kind === k ? UI.primary : UI.textMuted,
-        fontWeight: 600,
-        fontSize: 13,
-        cursor: "pointer",
-      }}
-    >
-      {label}
-    </button>
-  );
-
-  const labelStyle = { fontSize: 12, color: UI.textMuted, marginBottom: 4 } as const;
-
   return (
     <Card>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ fontFamily: FRAUNCES, color: PARCHMENT, fontSize: 20 }}>Brain</div>
         <div style={{ fontSize: 14, color: UI.textMuted, lineHeight: 1.6 }}>
-          The avatar runs as a second assistant on its <strong>own model</strong> — so it works
-          side-by-side with your main assistant — while sharing the same memory, RAG, and skills.
-          Point it at a <strong>local</strong> (Ollama / llama.cpp) or <strong>cloud</strong> endpoint.
+          The avatar uses Ordo&apos;s permanent resident cognition: Bonsai 27B, routed through
+          Lightcone and the cognitive engine. Its persona, voice, memory, RAG, and skills remain
+          configurable; its model does not.
         </div>
-        {current?.bound && (
-          <div style={{ fontSize: 13, color: "#4ade80" }}>
-            Current brain: <strong>{current.model || "?"}</strong>
-            {current.baseUrl ? ` @ ${current.baseUrl}` : ""}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 8 }}>
-          {kindBtn("local", "Local")}
-          {kindBtn("cloud", "Cloud")}
-        </div>
-        <div>
-          <div style={labelStyle}>Endpoint (OpenAI-compatible base URL)</div>
-          <TextInput value={baseUrl} onChange={setBaseUrl} placeholder="http://localhost:11434/v1" />
-        </div>
-        <div>
-          <div style={labelStyle}>Model</div>
-          <TextInput
-            value={model}
-            onChange={setModel}
-            placeholder={kind === "local" ? "llama3.1:8b" : "gpt-4o-mini"}
-          />
-        </div>
-        {kind === "cloud" && (
-          <div>
-            <div style={labelStyle}>API key (leave blank to keep the stored one)</div>
-            <TextInput value={apiKey} onChange={setApiKey} placeholder="sk-..." />
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Button onClick={() => void save()} disabled={busy} variant="primary" size="md">
-            {busy ? "Saving…" : "Save avatar brain"}
-          </Button>
-          {toast && <span style={{ fontSize: 12, color: UI.textMuted }}>{toast}</span>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="success">resident</Badge>
+          <Badge variant="primary">ordo-bonsai-27b-lightcone</Badge>
+          <Badge variant="neutral">16k context</Badge>
         </div>
         <div style={{ fontSize: 12, color: UI.textDim, lineHeight: 1.6 }}>
-          Local-first keeps the avatar off your cloud quota and genuinely concurrent. The endpoint is
-          stored as the <code>avatar-brain</code> credential and bound to the <code>avatar</code> mode;
-          memory, RAG, and skills stay shared with the rest of Ordo.
+          There is no avatar-specific provider credential or alternate model path. This keeps every
+          Ordo surface on the same verified cognitive stack.
         </div>
       </div>
     </Card>
@@ -12781,16 +12629,16 @@ const AgentsSurface = ({
               </Field>
               <Field label="Provider target">
                 <TextInput
-                  value={selectedTeam.providerTarget}
-                  onChange={(providerTarget) => updateSelectedTeam({ providerTarget })}
-                  placeholder="Ollama, LM Studio, OpenAI, Anthropic"
+                  value="Ordo resident cognition"
+                  onChange={() => undefined}
+                  disabled
                 />
               </Field>
               <Field label="Default model">
                 <TextInput
-                  value={selectedTeam.modelTarget}
-                  onChange={(modelTarget) => updateSelectedTeam({ modelTarget })}
-                  placeholder="qwen, llama, gpt, claude"
+                  value="ordo-bonsai-27b-lightcone"
+                  onChange={() => undefined}
+                  disabled
                 />
               </Field>
               <Field label="Team skills">
@@ -12898,16 +12746,16 @@ const AgentsSurface = ({
                   </Field>
                   <Field label="Provider">
                     <TextInput
-                      value={member.provider}
-                      onChange={(provider) => updateMember(member.id, { provider })}
-                      placeholder="team default"
+                      value="Ordo resident cognition"
+                      onChange={() => undefined}
+                      disabled
                     />
                   </Field>
                   <Field label="Model">
                     <TextInput
-                      value={member.model}
-                      onChange={(model) => updateMember(member.id, { model })}
-                      placeholder="team default"
+                      value="ordo-bonsai-27b-lightcone"
+                      onChange={() => undefined}
+                      disabled
                     />
                   </Field>
                   <Field label="Skills">
@@ -15353,7 +15201,7 @@ const DiagnosticSurface = ({
   const diagnosticMode = modes.find((mode) => mode.id === "diagnostic") ?? {
     id: "diagnostic",
     label: DIAGNOSTIC_DISPLAY_LABEL,
-    description: "Friendly Ordo tech support for setup, installs, avatar, email, troubleshooting, repair planning, and bounded maintenance. Cloud models are denied by default unless allowed.",
+    description: "Friendly Ordo tech support for setup, installs, avatar, email, troubleshooting, repair planning, and bounded maintenance on the permanent resident model.",
     memory_scope: ["global", "mode:diagnostic"],
     rag_domains: [
       "diagnostic_self_learning_tree",
@@ -15394,7 +15242,7 @@ const DiagnosticSurface = ({
     });
   };
   const containment = [
-    ["Cloud denied by default", "The tech specialist refuses non-local credentials unless the operator flips the cloud-model toggle for the task."],
+    ["Resident model locked", "The tech specialist uses the same permanent Bonsai 27B + Lightcone cognition as every other Ordo mode."],
     ["Auto-return", "After a completed task, it drops back to General unless the operator keeps it awake."],
     ["Private memory", "New diagnostic facts stay in mode:diagnostic; other modes cannot borrow this mode."],
     ["No web", "Search, crawl, fetch, and web strain capabilities are blocked from this mode."],
@@ -15406,8 +15254,8 @@ const DiagnosticSurface = ({
     ["Skills and modes", "Audit registrations, install approved skills, and propose repairs without opening diagnostic memory to other modes."],
     ["Hooks", "Create, inspect, test, enable, disable, and export lifecycle hooks through approved Hook Manager routes."],
     ["Automation and Dreaming", "Set up approved routines, heartbeats, scheduled checks, and bounded Dreaming reviews."],
-    ["Provider profiles", "Create, update, test, and retire local or cloud API-key profiles without exposing secret values."],
-    ["Avatar setup", "Read and update avatar brain, persona, voice, skills, and behavior setup through approved configuration routes."],
+    ["Resident cognition", "Inspect the permanent model and Lightcone health without exposing or replacing its model route."],
+    ["Avatar setup", "Read and update avatar persona, voice, skills, and behavior while its resident model remains fixed."],
     ["Email and remote communication", "Configure user mailboxes, Ordo remote-command mailboxes, and message channels with read/write/none access controls."],
     ["SSH and APIs", "Set up SSH host descriptors, API auth profiles, and connection metadata; raw command execution stays blocked."],
     ["Troubleshooting logs", "Record symptom, evidence, action, result, verification, and follow-up with secrets redacted."],
@@ -15427,7 +15275,7 @@ const DiagnosticSurface = ({
             </Mono>
             <div style={{ marginTop: 7 }}>
               <Serif size={15} italic color={UI.textMuted}>
-                The tech specialist is on by default, denies cloud models unless explicitly allowed, and is the only assistant mode that should install or maintain Ordo capabilities.
+                The tech specialist is on by default, uses Ordo&apos;s permanent resident model, and is the only assistant mode that should install or maintain Ordo capabilities.
               </Serif>
             </div>
           </div>
@@ -15461,18 +15309,10 @@ const DiagnosticSurface = ({
             control={<TextInput value={String(ui.ragLimitMb)} onChange={(value) => onSettingsChange("diagnostic", { ragLimitMb: Math.max(0, Number(value) || 0) })} placeholder="1024" />}
           />
           <SettingsRow
-            title="Cloud model access"
-            sub="Denied by default. Allow only when you want the tech specialist to use the selected cloud provider for this diagnostic task."
+            title="Resident model"
+            sub="Diagnostics uses the same permanent Bonsai 27B + Lightcone cognition path as all Ordo modes."
             control={
-              <div className="flex items-center justify-end gap-2">
-                <Badge variant={ui.allowCloudModels ? "warn" : "success"}>
-                  {ui.allowCloudModels ? "cloud allowed" : "cloud denied"}
-                </Badge>
-                <ToggleSwitch
-                  checked={ui.allowCloudModels === true}
-                  onChange={(allowCloudModels) => onSettingsChange("diagnostic", { allowCloudModels })}
-                />
-              </div>
+              <Badge variant="success">locked</Badge>
             }
           />
           <SettingsRow
@@ -17627,29 +17467,57 @@ export default function OrdoShell() {
   // there's no default, the signal goes off and labels itself "no LLM."
   const [llmSignal, setLlmSignal] = useState<SignalDef>({
     id: "llm",
-    label: "llm",
-    state: "off",
-    detail: "no provider configured",
+    label: "ordo resident",
+    state: "ok",
+    detail: "ordo-bonsai-27b-lightcone · Lightcone + cognitive engine",
   });
   const [contextBudget, setContextBudget] = useState<ContextBudgetSignal>({
-    tokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
-    providerLabel: "default",
-    model: null,
-    configured: false,
+    tokens: 16_384,
+    providerLabel: "Ordo · Bonsai 27B · Lightcone",
+    model: "ordo-bonsai-27b-lightcone",
+    configured: true,
   });
   const [modelChoice, setModelChoice] = useState<ModelChoiceSignal>({
-    service: null,
-    providerLabel: "default",
-    selected: "",
-    options: [],
-    extras: {},
-    baseUrl: null,
-    authStyle: null,
+    service: "ordo-resident",
+    providerLabel: "Ordo · Bonsai 27B · Lightcone",
+    selected: "ordo-bonsai-27b-lightcone",
+    options: ["ordo-bonsai-27b-lightcone"],
+    extras: { model: "ordo-bonsai-27b-lightcone", context_window: "16384" },
+    baseUrl: "http://127.0.0.1:4142/v1",
+    authStyle: "none",
   });
   const [modelSaving, setModelSaving] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
+      // This Ordo build has one resident model. Keep the signal independent
+      // of the legacy credential-management API, which is intentionally not
+      // registered as a model capability.
+      const residentOnly: boolean = true;
+      if (residentOnly) {
+        setLlmSignal({
+          id: "llm",
+          label: "ordo resident",
+          state: "ok",
+          detail: "ordo-bonsai-27b-lightcone · Lightcone + cognitive engine",
+        });
+        setContextBudget({
+          tokens: 16_384,
+          providerLabel: "Ordo · Bonsai 27B · Lightcone",
+          model: "ordo-bonsai-27b-lightcone",
+          configured: true,
+        });
+        setModelChoice({
+          service: "ordo-resident",
+          providerLabel: "Ordo · Bonsai 27B · Lightcone",
+          selected: "ordo-bonsai-27b-lightcone",
+          options: ["ordo-bonsai-27b-lightcone"],
+          extras: { model: "ordo-bonsai-27b-lightcone", context_window: "16384" },
+          baseUrl: "http://127.0.0.1:4142/v1",
+          authStyle: "none",
+        });
+        return;
+      }
       try {
         const res = await listCloudCredentials();
         if (cancelled) return;
@@ -18066,12 +17934,12 @@ export default function OrdoShell() {
       turnMeta.rag_storage_budget_mb = activeModeUi.ragLimitMb;
       if (activeMode === DIAGNOSTIC_MODE_ID) {
         turnMeta.diagnostic = {
-          allow_cloud_models: activeModeUi.allowCloudModels === true,
-          cloud_model_policy: activeModeUi.allowCloudModels === true ? "allow" : "deny",
+          allow_cloud_models: false,
+          cloud_model_policy: "resident_only",
           display_name: DIAGNOSTIC_DISPLAY_LABEL,
           maintenance_authority: {
             can_install: ["skills", "mcp_servers", "plugins", "webhooks", "hooks", "apps", "agent_teams", "automation", "dreaming_jobs"],
-            can_setup: ["ssh_hosts", "api_keys", "provider_credentials", "api_auth_profiles", "connection_profiles", "hook_policies"],
+            can_setup: ["ssh_hosts", "api_keys", "api_auth_profiles", "connection_profiles", "hook_policies"],
             visibility: "all_runtime_state_except_secrets",
             secret_visibility: "redacted_only",
             cloud_off_available: true,
@@ -18124,16 +17992,16 @@ export default function OrdoShell() {
           routing: teamForTurn.routing,
           model_lane: teamForTurn.modelLane,
           capability_tier: teamForTurn.capabilityTier,
-          provider_target: teamForTurn.providerTarget,
-          model_target: teamForTurn.modelTarget,
+          provider_target: "ordo-resident",
+          model_target: "ordo-bonsai-27b-lightcone",
           shared_skills: splitAgentTeamList(teamForTurn.sharedSkills),
           members: teamForTurn.members.map((member) => ({
             id: member.id,
             name: member.name,
             role: member.role,
             mode: member.mode,
-            provider: member.provider,
-            model: member.model,
+            provider: "ordo-resident",
+            model: "ordo-bonsai-27b-lightcone",
             tools: splitAgentTeamList(member.tools),
             skills: splitAgentTeamList(member.skills),
             memory_scope: splitAgentTeamList(member.memoryScope),
@@ -18272,15 +18140,14 @@ export default function OrdoShell() {
       }
       const reason = reasonFromError(err);
       console.error("[Assistant] turn failed:", err);
-      // Provider hint is conditional — only nudge toward the Cloud tab
-      // when the failure actually looks like a credential problem,
-      // not for every error (session lost, model OOM, etc.).
+      // Resident-model failures are startup or health problems; there is
+      // no alternate provider setup path in this build.
       const looksLikeCredentialProblem =
         /no compatible credential|no credential|configure.*provider/i.test(
           reason,
         );
       const tail = looksLikeCredentialProblem
-        ? " Configure a provider in Cloud."
+        ? " Check the resident cognition process and model files."
         : "";
       const text = `assistant turn failed — ${reason}.${tail}`;
       setMessages((prev) => {

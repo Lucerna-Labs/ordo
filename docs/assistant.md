@@ -56,17 +56,11 @@ Skills are not dumped into every prompt. Ordo separates:
 
 This keeps small models usable and reduces irrelevant instructions.
 
-## Provider And Model Choice
+## Resident Model
 
-The Assistant uses the active model selected through Provider controls.
-
-Provider switching should:
-
-- save the selected provider/model
-- unload/eject the previous local model when supported
-- avoid leaving LM Studio and Ollama models loaded at the same time
-- log lifecycle outcomes
-- report failures clearly in the UI
+The Assistant always uses `ordo-bonsai-27b-lightcone`. Ordo supervises its
+local cognition service and reports lifecycle or health failures clearly in
+the UI. There is no provider or model selector.
 
 ## Agent Teams
 
@@ -74,8 +68,8 @@ When an Agent Team is active, the assistant surface should show a clear visual
 indicator around or inside the chat composer. Team roles can have separate
 instructions and skills.
 
-Agent Teams should work with both local and cloud models, but small local
-models should use smaller teams and narrower tasks.
+Every Agent Team role uses the resident model. Teams should use bounded role
+counts and narrow tasks appropriate for that model.
 
 ## Boundaries
 

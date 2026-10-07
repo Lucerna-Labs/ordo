@@ -1,12 +1,13 @@
 //! Native subprocess sandbox — the `Sandbox` impl the trait docs
 //! anticipate ("a subprocess with `unshare`, etc."). Runs a real
-//! command (cargo/rustc/python/node/pwsh/cmd) confined to a workspace
+//! command (cargo/rustc/python/node/pwsh/cmd) rooted at a workspace
 //! directory, with a wall-clock timeout, captured + size-capped
 //! stdout/stderr, and process-tree kill on timeout.
 //!
 //! This is the HIGHER-PRIVILEGE runner: unlike `WasmtimeSandbox` it has
-//! the host's filesystem reach under the workspace root and (by design,
-//! see the `ordo-code` policy) network access, so it is compiled only
+//! the host user's filesystem reach and (by design, see the `ordo-code`
+//! policy) network access; only the initial cwd is constrained to the
+//! workspace. It is therefore not an OS sandbox and is compiled only
 //! behind the `subprocess` feature and gated upstream. It is deliberately
 //! LOW-LEVEL: it runs the exact command it is handed. The language →
 //! program/args mapping and source-file materialization live upstream in
@@ -29,8 +30,9 @@ use crate::Sandbox;
 /// (in `ordo-runtime`), not per call.
 #[derive(Debug, Clone)]
 pub struct SubprocessConfig {
-    /// All execution is confined to this directory: a request's `cwd` is
-    /// resolved under it and rejected if it escapes.
+    /// The process starts in this directory: a request's `cwd` is resolved
+    /// under it and rejected if it escapes. This does not restrict paths the
+    /// child accesses after launch.
     pub root: PathBuf,
     /// Programs the runner is allowed to spawn. A request naming any
     /// other program is rejected before spawn. Empty = nothing allowed.

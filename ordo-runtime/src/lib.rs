@@ -1,20 +1,23 @@
 use std::{
+    collections::HashMap,
     env, fs,
     future::Future,
     path::{Path, PathBuf},
+    process::Stdio,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use futures::StreamExt;
 use ordo_brain::Brain;
 use ordo_bus::{Bus, InProcessBus};
-use ordo_cloud::{CloudCredentialStore, CloudCredentialTask};
+use ordo_cloud::{CloudCredentialStore, CloudCredentialTask, CloudCredentialUpdate};
 use ordo_control::run_control_api_with_plugins;
 use ordo_heal::{SelfHealHistoryBudget, SelfHealPeer, SelfHealStorageTask, SelfHealStore};
 use ordo_mcp_host::{
-    CloudOpsProvider, FilesystemProvider, InterfaceOpsProvider, KnowledgeProvider,
-    MaintenanceProvider, McpHost, MemoryToolsProvider, OrdoLlmProvider, OrdoOpsProvider,
-    ReviewProvider, RuntimeInfoProvider, RuntimePolicySnapshot, SelfHealToolsProvider,
+    FilesystemProvider, InterfaceOpsProvider, KnowledgeProvider, MaintenanceProvider, McpHost,
+    MemoryToolsProvider, OrdoLlmProvider, OrdoOpsProvider, ReviewProvider, RuntimeInfoProvider,
+    RuntimePolicySnapshot, SelfHealToolsProvider,
 };
 use ordo_memory::{MemoryBudgets, MemoryPeer, MemoryStorageTask, MemoryStore};
 use ordo_models::{
@@ -24,7 +27,18 @@ use ordo_models::{
 use ordo_protocol::{topics, RagDocument};
 use ordo_rag::{RagPeer, RagStorageBudget, RagStorageTask, RagStore};
 use ordo_store::{RuntimeSettingsStore, RuntimeSettingsTask};
-use tokio::task::{JoinError, JoinHandle};
+use tokio::{
+    process::{Child, Command},
+    task::{JoinError, JoinHandle},
+};
+
+const RESIDENT_SERVICE: &str = "ordo-resident";
+const RESIDENT_MODEL_ID: &str = "ordo-bonsai-2-27b-uncensored-lightcone-direct";
+const RESIDENT_PACK_ID: &str = "foundation-lanes-v0";
+const RESIDENT_PACK_VERSION: &str = "0.3.0";
+const RESIDENT_PACK_MANIFEST_SHA256: &str =
+    "1cfadfe5042592339fe052e85c3cbbd6a24d1b71839793d0fee22912b6f6f43c";
+const RESIDENT_PACK_NODES: u64 = 230;
 
 pub struct ComponentHandle {
     name: &'static str,
@@ -271,6 +285,10 @@ impl RuntimeProfile {
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     pub profile: RuntimeProfile,
+    /// AtomDB file containing the isolated general and self-learning RAG
+    /// slices. The main Ordo SQLite file remains only for non-RAG runtime
+    /// state.
+    pub rag_atomdb_path: PathBuf,
     pub database_path: PathBuf,
     pub control_api_bind: Option<String>,
     pub legacy_memory_path: PathBuf,
@@ -328,12 +346,28 @@ pub struct RuntimeConfig {
     /// (`skills.repair_routing` with `apply=true`). Default true; only effective
     /// when `skill_audit_interval_secs > 0`.
     pub skill_audit_autofix: bool,
+    /// Start and own Ordo's resident Lightcone cognition server. This is
+    /// enabled for the product and disabled only by focused runtime tests.
+    pub resident_cognition_enabled: bool,
+    pub resident_cognition_binary: PathBuf,
+    pub resident_model_path: PathBuf,
+    pub resident_knowledge_pack: PathBuf,
+    pub resident_cognition_bind: String,
 }
 
 impl RuntimeConfig {
     pub fn local_default() -> Self {
+        let combined_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("ordo-runtime must live under the combined Ordo workspace")
+            .to_path_buf();
         Self {
             profile: env_profile("ORDO_RUNTIME_PROFILE", RuntimeProfile::Standard),
+            rag_atomdb_path: env_path(
+                "ORDO_RAG_ATOMDB_PATH",
+                PathBuf::from("data").join("ordo-rag.atomdb"),
+            ),
             database_path: env_path("ORDO_DATABASE_PATH", PathBuf::from("data").join("ordo.db")),
             control_api_bind: env_optional_string("ORDO_CONTROL_API_BIND", Some("127.0.0.1:4141")),
             legacy_memory_path: env_path(
@@ -569,6 +603,193 @@ impl RuntimeConfig {
                 == Some("true"),
             skill_audit_interval_secs: env_usize("ORDO_SKILL_AUDIT_INTERVAL_SECS", 0) as u64,
             skill_audit_autofix: env_bool("ORDO_SKILL_AUDIT_AUTOFIX", true),
+            resident_cognition_enabled: env_bool("ORDO_RESIDENT_COGNITION", true),
+            resident_cognition_binary: env_path(
+                "ORDO_COGNITION_BINARY",
+                combined_root
+                    .join("direct-lightcone-runtime")
+                    .join("target")
+                    .join("release")
+                    .join("ordo_server"),
+            ),
+            resident_model_path: env_path(
+                "ORDO_MODEL_PATH",
+                combined_root
+                    .join("models")
+                    .join("Ternary-Bonsai-2-27B-Uncensored-Heretic-PQ2_0.gguf"),
+            ),
+            resident_knowledge_pack: env_path(
+                "ORDO_LIGHTCONE_PACK",
+                combined_root
+                    .join("lightcone")
+                    .join("artifacts")
+                    .join("worlds")
+                    .join("foundation-lanes-v0")
+                    .join("0.3.0"),
+            ),
+            resident_cognition_bind: env_optional_string(
+                "ORDO_COGNITION_BIND",
+                Some("127.0.0.1:4142"),
+            )
+            .unwrap_or_else(|| "127.0.0.1:4142".to_string()),
+        }
+    }
+}
+
+/// Owns the one resident model process when this runtime launched it. If a
+/// matching resident server is already healthy, Ordo reuses it without
+/// claiming ownership. An owned child is terminated when the runtime drops.
+struct ResidentCognitionProcess {
+    child: Option<Child>,
+}
+
+fn is_complete_resident_health(body: &serde_json::Value) -> bool {
+    body.get("resident").and_then(|value| value.as_bool()) == Some(true)
+        && body.get("model").and_then(|value| value.as_str()) == Some(RESIDENT_MODEL_ID)
+        && body.get("nodes_loaded").and_then(|value| value.as_u64())
+            == Some(RESIDENT_PACK_NODES)
+        && body
+            .pointer("/knowledge_pack/id")
+            .and_then(|value| value.as_str())
+            == Some(RESIDENT_PACK_ID)
+        && body
+            .pointer("/knowledge_pack/version")
+            .and_then(|value| value.as_str())
+            == Some(RESIDENT_PACK_VERSION)
+        && body
+            .pointer("/knowledge_pack/manifest_sha256")
+            .and_then(|value| value.as_str())
+            == Some(RESIDENT_PACK_MANIFEST_SHA256)
+        && body
+            .pointer("/lightcone/passive")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        && body
+            .pointer("/lightcone/holds_verdict")
+            .and_then(|value| value.as_bool())
+            == Some(false)
+        && body
+            .pointer("/direct_post_weights/installed")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        && body
+            .pointer("/direct_post_weights/in_process")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        && body
+            .pointer("/direct_post_weights/raw_logits")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        && body
+            .pointer("/direct_post_weights/position")
+            .and_then(|value| value.as_str())
+            == Some("after_weights_before_token_selection")
+        && body
+            .pointer("/direct_post_weights/mcp_used")
+            .and_then(|value| value.as_bool())
+            == Some(false)
+}
+
+impl ResidentCognitionProcess {
+    async fn launch(config: &RuntimeConfig) -> Result<Self, DynError> {
+        if !config.resident_cognition_enabled {
+            return Ok(Self { child: None });
+        }
+        if !config.resident_cognition_binary.is_file() {
+            return Err(format!(
+                "resident cognition binary is missing at {}; build it with `cargo build --release --bin ordo_server` in direct-lightcone-runtime",
+                config.resident_cognition_binary.display()
+            )
+            .into());
+        }
+        if !config.resident_model_path.is_file() {
+            return Err(format!(
+                "permanent Ordo model is missing at {}",
+                config.resident_model_path.display()
+            )
+            .into());
+        }
+        if !config.resident_knowledge_pack.is_dir() {
+            return Err(format!(
+                "Ordo cognitive knowledge pack is missing at {}",
+                config.resident_knowledge_pack.display()
+            )
+            .into());
+        }
+
+        let health_url = format!("http://{}/v1/health", config.resident_cognition_bind);
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()?;
+        if let Ok(response) = http.get(&health_url).send().await {
+            let status = response.status();
+            let body = response
+                .json::<serde_json::Value>()
+                .await
+                .unwrap_or_default();
+            if status.is_success() && is_complete_resident_health(&body) {
+                tracing::info!(target: "ordo_runtime", %health_url, "reusing resident cognition server");
+                return Ok(Self { child: None });
+            }
+            return Err(format!(
+                "{} is occupied by a service that is not the permanent Ordo model (status {status}, body {body})",
+                config.resident_cognition_bind
+            )
+            .into());
+        }
+
+        let mut command = Command::new(&config.resident_cognition_binary);
+        command
+            .arg("--bind")
+            .arg(&config.resident_cognition_bind)
+            .env("ORDO_MODEL_PATH", &config.resident_model_path)
+            .env("ORDO_LIGHTCONE_PACK", &config.resident_knowledge_pack)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
+        let mut child = command.spawn().map_err(|error| {
+            format!(
+                "failed to start resident cognition binary {}: {error}",
+                config.resident_cognition_binary.display()
+            )
+        })?;
+
+        let deadline = Instant::now() + Duration::from_secs(180);
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Err(
+                    format!("resident cognition exited before becoming healthy: {status}").into(),
+                );
+            }
+            if let Ok(response) = http.get(&health_url).send().await {
+                if response.status().is_success() {
+                    let body = response
+                        .json::<serde_json::Value>()
+                        .await
+                        .unwrap_or_default();
+                    if is_complete_resident_health(&body) {
+                        tracing::info!(target: "ordo_runtime", %health_url, "resident cognition ready");
+                        return Ok(Self { child: Some(child) });
+                    }
+                }
+            }
+            if Instant::now() >= deadline {
+                let _ = child.start_kill();
+                return Err(format!(
+                    "resident cognition did not become healthy within 180 seconds at {health_url}"
+                )
+                .into());
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+}
+
+impl Drop for ResidentCognitionProcess {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.child {
+            let _ = child.start_kill();
         }
     }
 }
@@ -627,6 +848,10 @@ pub struct PlanningOrdoRuntime {
     mcp_worker_pool: Arc<ordo_mcp_worker::WorkerPool>,
     #[allow(dead_code)]
     mcp_client: Arc<ordo_mcp_client::McpClientService>,
+    /// Kept last so the resident model remains available until the rest of
+    /// the runtime has finished dropping.
+    #[allow(dead_code)]
+    resident_cognition: ResidentCognitionProcess,
 }
 
 pub type CodexOrdoRuntime = PlanningOrdoRuntime;
@@ -639,6 +864,8 @@ impl PlanningOrdoRuntime {
 
         fs::create_dir_all(&config.user_files_path)?;
         fs::create_dir_all(&config.code_workspace_path)?;
+
+        let resident_cognition = ResidentCognitionProcess::launch(&config).await?;
 
         let mut memory_store = MemoryStore::open_with_budgets(
             config.database_path.clone(),
@@ -684,6 +911,7 @@ impl PlanningOrdoRuntime {
         let settings_task = RuntimeSettingsTask::open(config.database_path.clone())?;
         let runtime_embedder = build_embedding_client(&config);
         let mut host = McpHost::new(bus.clone());
+        let mcp_host_node_id = host.node_id();
         host.add_provider(Arc::new(FilesystemProvider::rooted(
             config.user_files_path.clone(),
         )));
@@ -742,7 +970,30 @@ impl PlanningOrdoRuntime {
         host.add_provider(Arc::new(InterfaceOpsProvider::new()));
         let cloud_credentials_store = CloudCredentialStore::open(config.database_path.clone())?;
         let cloud_credentials = CloudCredentialTask::start(cloud_credentials_store);
-        host.add_provider(Arc::new(CloudOpsProvider::new(cloud_credentials.clone())));
+        let resident_base_url = format!("http://{}/v1", config.resident_cognition_bind);
+        if config.resident_cognition_enabled {
+            let extras = HashMap::from([
+                ("model".to_string(), RESIDENT_MODEL_ID.to_string()),
+                ("context_window".to_string(), "16384".to_string()),
+                ("timeout_secs".to_string(), "1800".to_string()),
+                ("resident".to_string(), "true".to_string()),
+            ]);
+            cloud_credentials
+                .upsert(CloudCredentialUpdate {
+                    service: RESIDENT_SERVICE.to_string(),
+                    label: Some("Ordo · Bonsai 2 27B · Direct Lightcone".to_string()),
+                    auth_style: Some("none".to_string()),
+                    secret: Some(String::new()),
+                    base_url: Some(resident_base_url.clone()),
+                    extras: Some(extras),
+                })
+                .await
+                .map_err(|error| format!("failed to register resident cognition: {error}"))?;
+            cloud_credentials
+                .set_default(Some(RESIDENT_SERVICE.to_string()))
+                .await
+                .map_err(|error| format!("failed to make resident cognition default: {error}"))?;
+        }
 
         // Review service: SQLite-backed human-in-the-loop queue with a
         // broadcast channel for the WebSocket endpoint. Built before
@@ -755,6 +1006,7 @@ impl PlanningOrdoRuntime {
 
         host.add_provider(Arc::new(
             OrdoLlmProvider::new(cloud_credentials.clone())
+                .lock_to_service(RESIDENT_SERVICE, &resident_base_url, RESIDENT_MODEL_ID)
                 .with_bus(bus.clone())
                 .with_review(review_service.clone()),
         ));
@@ -776,9 +1028,9 @@ impl PlanningOrdoRuntime {
 
         // Mode-scoped workspaces: load manifests from disk (with the
         // compiled-in defaults materialized on first run). A failed
-        // load is non-fatal â€” the assistant can still run in pre-mode
-        // legacy shape, just without scope filtering. We log loudly
-        // so the operator notices.
+        // load is non-fatal for chat and local memory meta-tools, but the
+        // assistant gateway exposes no bus capabilities without a valid mode
+        // policy. We log loudly so the operator notices.
         let mode_registry = match ordo_modes::ModeRegistry::load_with_defaults(&config.modes_path) {
             Ok(reg) => {
                 let stats = reg.stats();
@@ -798,7 +1050,7 @@ impl PlanningOrdoRuntime {
                     target: "ordo_runtime",
                     path = %config.modes_path.display(),
                     error = %err,
-                    "failed to load modes; assistant will run in pre-mode legacy shape"
+                    "failed to load modes; assistant bus tools are locked until policy loads"
                 );
                 None
             }
@@ -809,7 +1061,8 @@ impl PlanningOrdoRuntime {
             assistant_embedder,
             cloud_credentials.clone(),
         )
-        .with_bus(bus.clone())
+        .with_resident_model(RESIDENT_SERVICE, &resident_base_url, RESIDENT_MODEL_ID)
+        .with_bus_and_host(bus.clone(), mcp_host_node_id)
         .with_review(review_service.clone())
         .with_memory_log(memory_log_service.clone());
 
@@ -1055,7 +1308,7 @@ impl PlanningOrdoRuntime {
             let code_gated = security.gate(code_adapter, "code".to_string());
             host.add_provider(Arc::new(code_gated));
 
-            // ordo-logic: hybrid reasoning. The default wiring
+            // ordo-logic: hybrid reasoning. The resident wiring
             // composes an LLM-backed `LlmLogicProvider` (for
             // identify_claims / find_fallacies / steel_man / the
             // formalize step) with a built-in propositional prover
@@ -1071,7 +1324,13 @@ impl PlanningOrdoRuntime {
             // call-site changes.
             let logic_http = Arc::new(ordo_cloud::CloudHttp::new());
             let logic_provider: Arc<dyn ordo_logic::LogicProvider> =
-                ordo_logic::hybrid::wire_default(logic_http, cloud_credentials.clone());
+                ordo_logic::hybrid::wire_resident(
+                    logic_http,
+                    cloud_credentials.clone(),
+                    RESIDENT_SERVICE,
+                    &resident_base_url,
+                    RESIDENT_MODEL_ID,
+                );
             let logic_adapter: Arc<dyn ordo_mcp_host::CapabilityProvider> =
                 Arc::new(ordo_mcp_host::LogicCapabilityAdapter::new(logic_provider));
             let logic_gated = security.gate(logic_adapter, "logic".to_string());
@@ -1119,44 +1378,46 @@ impl PlanningOrdoRuntime {
             let mgmt_gated = security.gate(mgmt_provider, "mcp-management".to_string());
             host.add_provider(Arc::new(mgmt_gated));
 
-                        // ── URL-based MCP extensions ──────────────────────────
-                        // Load user-configured external MCP servers from
-                        // <user_files>/mcp-extensions.json (written by the
-                        // /api/extensions/connect API) and wire them as a
-                        // capability provider so the assistant sees their tools
-                        // as `ext.<alias>.<tool_name>`.
-                        let extensions_path = config.user_files_path.join("mcp-extensions.json");
-                        if extensions_path.exists() {
-                            if let Ok(json_text) = std::fs::read_to_string(&extensions_path) {
-                                if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&json_text) {
-                                    let mut configs = Vec::new();
-                                    for entry in &entries {
-                                        let alias = entry["alias"].as_str().unwrap_or("").to_string();
-                                        let url = entry["url"].as_str().unwrap_or("").to_string();
-                                        if alias.is_empty() || url.is_empty() {
-                                            continue;
-                                        }
-                                        configs.push(ordo_mcp_host::ExternalMcpServerConfig {
-                                            alias,
-                                            url,
-                                            auth_token: entry["auth_token"].as_str().map(String::from),
-                                            timeout_secs: entry["timeout_secs"].as_u64().unwrap_or(60),
-                                        });
-                                    }
-                                    if !configs.is_empty() {
-                                        let ext_provider =
-                                            ordo_mcp_host::ExternalMcpProvider::connect(configs).await;
-                                        let ext_gated = security.gate(
-                                            Arc::new(ext_provider) as Arc<dyn ordo_mcp_host::CapabilityProvider>,
-                                            "mcp-extensions".to_string(),
-                                        );
-                                        host.add_provider(Arc::new(ext_gated));
-                                    }
-                                }
+            // ── URL-based MCP extensions ──────────────────────────
+            // Load user-configured external MCP servers from
+            // <user_files>/mcp-extensions.json (written by the
+            // /api/extensions/connect API) and wire them as a
+            // capability provider so the assistant sees their tools
+            // as `ext.<alias>.<tool_name>`.
+            let extensions_path = config.user_files_path.join("mcp-extensions.json");
+            if extensions_path.exists() {
+                if let Ok(json_text) = std::fs::read_to_string(&extensions_path) {
+                    if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&json_text)
+                    {
+                        let mut configs = Vec::new();
+                        for entry in &entries {
+                            let alias = entry["alias"].as_str().unwrap_or("").to_string();
+                            let url = entry["url"].as_str().unwrap_or("").to_string();
+                            if alias.is_empty() || url.is_empty() {
+                                continue;
                             }
+                            configs.push(ordo_mcp_host::ExternalMcpServerConfig {
+                                alias,
+                                url,
+                                auth_token: entry["auth_token"].as_str().map(String::from),
+                                timeout_secs: entry["timeout_secs"].as_u64().unwrap_or(60),
+                            });
                         }
+                        if !configs.is_empty() {
+                            let ext_provider =
+                                ordo_mcp_host::ExternalMcpProvider::connect(configs).await;
+                            let ext_gated = security.gate(
+                                Arc::new(ext_provider)
+                                    as Arc<dyn ordo_mcp_host::CapabilityProvider>,
+                                "mcp-extensions".to_string(),
+                            );
+                            host.add_provider(Arc::new(ext_gated));
+                        }
+                    }
+                }
+            }
 
-                        let mut maintenance = MaintenanceProvider::new(
+            let mut maintenance = MaintenanceProvider::new(
                 config.user_files_path.clone(),
                 config.plugins_path.clone(),
             );
@@ -1556,6 +1817,7 @@ impl PlanningOrdoRuntime {
             mcp_sandbox,
             mcp_worker_pool,
             mcp_client,
+            resident_cognition,
         })
     }
 
@@ -1845,14 +2107,13 @@ fn open_rag_store(config: &RuntimeConfig) -> Result<RagStore, DynError> {
     let budget = RagStorageBudget {
         max_bytes: config.rag_budget_bytes,
     };
-    // Default is the generative-free lexical-statistical engine; a
-    // configured llama.cpp/Ollama model adds the optional embedding
-    // retrieval channel on top.
+    // Default is AtomDB's generative-free bounded retrieval field; a configured
+    // llama.cpp/Ollama model adds an optional embedding channel on top.
     let mut rag_store = match build_generative_embedding_client(config) {
         Some(embedder) => {
-            RagStore::open_with_embedder(config.database_path.clone(), embedder, budget)?
+            RagStore::open_with_embedder(config.rag_atomdb_path.clone(), embedder, budget)?
         }
-        None => RagStore::open_with_budget(config.database_path.clone(), budget)?,
+        None => RagStore::open_with_budget(config.rag_atomdb_path.clone(), budget)?,
     };
     if rag_store.is_empty() {
         let imported = rag_store.import_legacy_jsonl(&config.legacy_rag_index_path)?;
@@ -1970,11 +2231,9 @@ fn bootstrap_pinned_memories(path: &PathBuf, store: &mut MemoryStore) -> Result<
 
 /// A GENERATIVE embedding client (llama.cpp or Ollama) when the
 /// operator configured one and it is usable; `None` otherwise. The RAG
-/// lane treats `None` as "run the generative-free lexical-statistical
-/// engine alone" — the hashing embedder is no longer its fallback.
-fn build_generative_embedding_client(
-    config: &RuntimeConfig,
-) -> Option<Arc<dyn EmbeddingClient>> {
+/// lane treats `None` as "run native AtomDB retrieval alone" — the hashing
+/// embedder is no longer its fallback.
+fn build_generative_embedding_client(config: &RuntimeConfig) -> Option<Arc<dyn EmbeddingClient>> {
     if let (Some(binary_path), Some(model_path)) = (
         config.embedding_llama_cpp_binary.clone(),
         config.embedding_model_path.clone(),
@@ -2036,4 +2295,52 @@ fn build_self_heal_model(config: &RuntimeConfig) -> Option<Arc<dyn ModelClient>>
     }
 
     Some(Arc::new(LlamaCppClient::new(llama_config)))
+}
+
+#[cfg(test)]
+mod resident_health_tests {
+    use super::is_complete_resident_health;
+    use serde_json::json;
+
+    fn complete_health() -> serde_json::Value {
+        json!({
+            "resident": true,
+            "model": "ordo-bonsai-2-27b-uncensored-lightcone-direct",
+            "nodes_loaded": 230,
+            "knowledge_pack": {
+                "id": "foundation-lanes-v0",
+                "version": "0.3.0",
+                "manifest_sha256": "1cfadfe5042592339fe052e85c3cbbd6a24d1b71839793d0fee22912b6f6f43c"
+            },
+            "lightcone": {
+                "passive": true,
+                "holds_verdict": false
+            },
+            "direct_post_weights": {
+                "installed": true,
+                "in_process": true,
+                "raw_logits": true,
+                "position": "after_weights_before_token_selection",
+                "mcp_used": false
+            }
+        })
+    }
+
+    #[test]
+    fn accepts_only_the_complete_resident_membrane() {
+        assert!(is_complete_resident_health(&complete_health()));
+
+        let mut incomplete = complete_health();
+        incomplete["direct_post_weights"]["installed"] = json!(false);
+        assert!(!is_complete_resident_health(&incomplete));
+
+        let mut mcp_route = complete_health();
+        mcp_route["direct_post_weights"]["mcp_used"] = json!(true);
+        assert!(!is_complete_resident_health(&mcp_route));
+
+        let mut stale_pack = complete_health();
+        stale_pack["knowledge_pack"]["id"] = json!("foundation-lanes-v0-stale");
+        stale_pack["nodes_loaded"] = json!(45);
+        assert!(!is_complete_resident_health(&stale_pack));
+    }
 }

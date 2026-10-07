@@ -62,11 +62,16 @@ operator tighten the loop without a schema change.
 
 **Proof:** [ordo-review/src/service.rs:40](../ordo-review/src/service.rs)
 
-## Rule 6 â€” One SQLite, migrations added to `ordo-store`'s slice
+## Rule 6 â€” SQLite for operational state; AtomDB for both RAG slices
 
-All persistence lives in the single shared SQLite file. New tables are
-added to the migration slice in `ordo-store`, not as separate DB files
-per crate. Conventions:
+Non-RAG operational persistence lives in the shared SQLite file, and new
+operational tables are added to `ordo-store` migrations. RAG is the deliberate
+exception: general retrieval and self-learning are independent immutable roots
+in `data/ordo-rag.atomdb`. AtomDB's native bounded retrieval field is the only
+RAG search and persistence path; the retired relational RAG tables are dropped
+by migration and are no longer imported or reconstructed.
+
+SQLite conventions for operational tables:
 
 - JSON columns for structured blobs (`metadata_json`, `actions_json`).
 - Normalized columns for simple scalars.
@@ -77,7 +82,7 @@ per crate. Conventions:
 one**, defaulted to `"local"`. Retrofitting is Rule 6's hardest case
 (see Phase 4.4); avoid it by never omitting the column.
 
-**Proof:** [ordo-store/src/lib.rs:88](../ordo-store/src/lib.rs)
+**Proof:** [ordo-rag/src/atom_persistence.rs](../ordo-rag/src/atom_persistence.rs)
 
 ## Rule 7 â€” Services: `new(deps) + .with_X()` builder, Arc-wrapped
 
@@ -214,9 +219,9 @@ to protocol drift.
 
 Notes that fall out of the rules but are worth making explicit:
 
-- **Phase 1.3 multimodal.** Only Anthropic and OpenAI cloud adapters
-  exist today. Gemini and Ollama are stubs; if they get added, multi-
-  modal support is part of their contribution, not a blocker for 1.3.
+- **Phase 1.3 multimodal.** Historical cloud adapters remain in source for
+  compatibility tests, but the combined runtime does not register them. New
+  multimodal work must preserve the single resident LLM route.
 - **Phase 2.4 external MCP client.** First call to a newly-configured
   external MCP tool triggers review regardless of its declared scope.
   After approval, the tool flows through the normal `SecurityStack`

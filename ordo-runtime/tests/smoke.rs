@@ -26,7 +26,12 @@ fn temp_workspace() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("ordo-e2e-{stamp}"));
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("ordo-runtime lives inside the Ordo workspace")
+        .join("target")
+        .join("test-workspaces")
+        .join(format!("ordo-e2e-{stamp}"));
     std::fs::create_dir_all(&dir).expect("create workspace");
     dir
 }
@@ -46,7 +51,7 @@ async fn wait_for_health(origin: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn runtime_boots_and_round_trips_cloud_credentials() {
+async fn runtime_boots_without_legacy_model_provider_capabilities() {
     // Force the in-memory credential vault so the test never touches the
     // developer's OS keychain.
     std::env::set_var("ORDO_CLOUD_VAULT", "memory");
@@ -54,7 +59,9 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
     let workspace = temp_workspace();
     let port = pick_free_port();
     let mut config = RuntimeConfig::local_default();
+    config.resident_cognition_enabled = false;
     config.database_path = workspace.join("ordo.db");
+    config.rag_atomdb_path = workspace.join("ordo-rag.atomdb");
     config.legacy_memory_path = workspace.join("memory.jsonl");
     config.legacy_rag_index_path = workspace.join("rag-index.jsonl");
     config.user_files_path = workspace.join("user-files");
@@ -75,7 +82,7 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
         .expect("reqwest client");
 
     // Capability inventory should cover every lane that was wired during
-    // boot â€” including the new `cloud.*` and Ordo operations surfaces.
+    // boot, while the retired cloud-model lane stays absent.
     let capabilities: Value = client
         .get(format!("{origin}/api/capabilities"))
         .send()
@@ -91,12 +98,8 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
         .filter_map(|d| d["capability"].as_str().map(str::to_string))
         .collect();
     assert!(
-        names.iter().any(|c| c == "cloud.openai.chat"),
-        "missing cloud.openai.chat in {names:?}"
-    );
-    assert!(
-        names.iter().any(|c| c == "cloud.credentials.list"),
-        "missing cloud.credentials.list"
+        !names.iter().any(|c| c == "cloud.openai.chat"),
+        "legacy model-provider capability must not be exposed: {names:?}"
     );
     assert!(
         names.iter().any(|c| c == "planning.plan_initiative"),
@@ -118,8 +121,9 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
         .expect("profile json");
     assert!(profile["profile"].as_str().is_some());
 
-    // Round-trip a cloud credential through the control API.
-    let upsert: Value = client
+    // Model-provider mutation is not backed by a runtime capability in the
+    // resident build. The legacy HTTP route fails closed.
+    let upsert_response = client
         .post(format!("{origin}/api/cloud/credentials"))
         .json(&json!({
             "service": "e2e-openai",
@@ -129,52 +133,11 @@ async fn runtime_boots_and_round_trips_cloud_credentials() {
         }))
         .send()
         .await
-        .expect("upsert request")
-        .json()
-        .await
-        .expect("upsert json");
-    assert_eq!(upsert["credential"]["service"].as_str(), Some("e2e-openai"));
-    assert!(upsert["credential"]["has_secret"]
-        .as_bool()
-        .unwrap_or(false));
-    assert!(
-        upsert["credential"]
-            .get("secret")
-            .is_none_or(|v| v.is_null()),
-        "secret field must not appear in the response"
-    );
-    let response_text = serde_json::to_string(&upsert).expect("serialize upsert");
-    assert!(
-        !response_text.contains("sk-e2e-never-leaks"),
-        "secret leaked in response: {response_text}"
-    );
-
-    let list: Value = client
-        .get(format!("{origin}/api/cloud/credentials"))
-        .send()
-        .await
-        .expect("list request")
-        .json()
-        .await
-        .expect("list json");
-    let credentials = list["credentials"].as_array().expect("credentials array");
-    assert!(
-        credentials
-            .iter()
-            .any(|c| c["service"].as_str() == Some("e2e-openai")),
-        "expected e2e-openai in credentials: {credentials:?}"
-    );
-
-    let delete: Value = client
-        .delete(format!("{origin}/api/cloud/credentials"))
-        .json(&json!({ "service": "e2e-openai" }))
-        .send()
-        .await
-        .expect("delete request")
-        .json()
-        .await
-        .expect("delete json");
-    assert_eq!(delete["removed"].as_bool(), Some(true));
+        .expect("upsert request");
+    assert!(!upsert_response.status().is_success());
+    let response_text = upsert_response.text().await.expect("upsert error body");
+    assert!(response_text.contains("no provider handled the requested capability"));
+    assert!(!response_text.contains("sk-e2e-never-leaks"));
 
     // Invoke a pure-data orchestration capability through the bus via the
     // brain. This proves the full bus + capability-host pipeline works

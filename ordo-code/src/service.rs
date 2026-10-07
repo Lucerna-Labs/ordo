@@ -1,9 +1,11 @@
-//! `CodeService` — write + run code in a confined workspace.
+//! `CodeService` — write + run code from a controlled workspace.
 //!
-//! Owns a workspace root (all paths are confined under it) and two
+//! Owns a workspace root (`workspace.*` paths are confined under it) and two
 //! `Sandbox` backends: a low-risk WASM runner (`code.run`, default) and
 //! a higher-privilege native subprocess runner (`code.run_native`,
-//! opt-in + gated). The language → program/args mapping for the native
+//! opt-in + gated). Native execution is cwd-rooted but is not an OS
+//! filesystem/network sandbox; callers must place it behind operator
+//! authorization. The language → program/args mapping for the native
 //! runner lives HERE; the `SubprocessSandbox` stays a thin "run this
 //! exact command" seam.
 
@@ -343,10 +345,43 @@ impl CodeService {
             normalize_lexical(&base.join(candidate))
         };
         if target.starts_with(&base) {
+            self.reject_symlink_components(&base, &target)?;
             Ok(target)
         } else {
             Err(format!("path '{requested}' escapes the workspace"))
         }
+    }
+
+    fn reject_symlink_components(&self, base: &Path, target: &Path) -> Result<(), String> {
+        if let Ok(metadata) = std::fs::symlink_metadata(base) {
+            if metadata.file_type().is_symlink() {
+                return Err("workspace root must not be a symbolic link".into());
+            }
+        }
+        let relative = target
+            .strip_prefix(base)
+            .map_err(|_| "resolved path is outside the workspace".to_string())?;
+        let mut current = base.to_path_buf();
+        for component in relative.components() {
+            current.push(component.as_os_str());
+            match std::fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(format!(
+                        "path crosses symbolic link '{}'",
+                        current.display()
+                    ));
+                }
+                Ok(_) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(format!(
+                        "could not inspect path component '{}': {err}",
+                        current.display()
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -464,5 +499,34 @@ mod tests {
             .expect_err("native must be disabled");
         assert!(err.contains("disabled"), "got: {err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_operations_reject_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let (svc, dir) = service(false);
+        let outside =
+            std::env::temp_dir().join(format!("ordo-code-outside-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "outside").unwrap();
+        symlink(&outside, dir.join("link")).unwrap();
+
+        let read_err = svc
+            .read_file(&json!({"path": "link/secret.txt"}))
+            .await
+            .expect_err("read through symlink must fail");
+        assert!(read_err.contains("symbolic link"), "got: {read_err}");
+
+        let write_err = svc
+            .write_file(&json!({"path": "link/new.txt", "content": "x"}))
+            .await
+            .expect_err("write through symlink must fail");
+        assert!(write_err.contains("symbolic link"), "got: {write_err}");
+
+        let _ = std::fs::remove_file(dir.join("link"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 }

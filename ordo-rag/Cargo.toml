@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+atom-db = { path = "../atom-db" }
 ordo-protocol = { path = "../ordo-protocol" }
 ordo-bus = { path = "../ordo-bus" }
 ordo-models = { path = "../ordo-models" }
@@ -15,4 +16,3 @@ thiserror.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-rusqlite.workspace = true

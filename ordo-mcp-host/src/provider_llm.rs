@@ -1,5 +1,5 @@
-use crate::*;
 use crate::helpers::*;
+use crate::*;
 
 /// LLM-backed variant of the orchestration lane.
 ///
@@ -14,6 +14,11 @@ pub struct OrdoLlmProvider {
     credentials: ordo_cloud::CloudCredentialTask,
     http: ordo_cloud::CloudHttp,
     default_service: String,
+    /// Ignore caller credential overrides and keep every planning LLM
+    /// call on the resident Ordo model.
+    locked_service: bool,
+    resident_base_url: Option<String>,
+    resident_model_id: Option<String>,
     /// When set, the provider will hydrate the LLM prompt with RAG
     /// snippets taken from the local retrieval lane. This turns generic
     /// LLM output into operator-consistent output without any caller
@@ -39,6 +44,9 @@ impl OrdoLlmProvider {
             credentials,
             http: ordo_cloud::CloudHttp::new(),
             default_service: "openai".to_string(),
+            locked_service: false,
+            resident_base_url: None,
+            resident_model_id: None,
             bus: None,
             rag_top_k: 3,
             review: None,
@@ -48,6 +56,21 @@ impl OrdoLlmProvider {
 
     pub fn with_default_service(mut self, service: impl Into<String>) -> Self {
         self.default_service = service.into();
+        self
+    }
+
+    /// Bind the provider to one resident model service. Unlike a default,
+    /// this cannot be replaced by a tool-call argument.
+    pub fn lock_to_service(
+        mut self,
+        service: impl Into<String>,
+        base_url: impl Into<String>,
+        model_id: impl Into<String>,
+    ) -> Self {
+        self.default_service = service.into();
+        self.resident_base_url = Some(base_url.into());
+        self.resident_model_id = Some(model_id.into());
+        self.locked_service = true;
         self
     }
 
@@ -114,13 +137,17 @@ async fn run_planning_llm_call(
     capability: &str,
     arguments: &Value,
 ) -> Option<ToolCallResult> {
-    let service = arguments
-        .get("credential")
-        .and_then(|value| value.as_str())
-        .unwrap_or(&provider.default_service)
-        .to_string();
+    let service = if provider.locked_service {
+        provider.default_service.clone()
+    } else {
+        arguments
+            .get("credential")
+            .and_then(|value| value.as_str())
+            .unwrap_or(&provider.default_service)
+            .to_string()
+    };
 
-    let credential = match provider.credentials.get(service.clone()).await {
+    let mut credential = match provider.credentials.get(service.clone()).await {
         Ok(Some(credential)) => credential,
         Ok(None) => {
             return Some(ToolCallResult::Failed {
@@ -136,6 +163,17 @@ async fn run_planning_llm_call(
             });
         }
     };
+    if provider.locked_service {
+        credential.service = provider.default_service.clone();
+        credential.auth_style = "none".to_string();
+        credential.secret.clear();
+        credential.base_url = provider.resident_base_url.clone();
+        if let Some(model_id) = &provider.resident_model_id {
+            credential
+                .extras
+                .insert("model".to_string(), model_id.clone());
+        }
+    }
 
     // Build a chat-style prompt. We forward any caller-supplied
     // arguments as the user message body so downstream prompts can
@@ -202,25 +240,27 @@ async fn run_planning_llm_call(
         chat_args["model"] = json!(model);
     }
 
-    match provider
-        .credentials
-        .enforce_single_local_model(
-            &provider.http,
-            Some(&credential.service),
-            "planning_llm_call",
-        )
-        .await
-    {
-        Ok(report) => {
-            log_cloud_lifecycle_report("planning llm call", &report);
-            if let Some(error) = lifecycle_error(&report) {
-                return Some(ToolCallResult::Failed { error });
+    if !provider.locked_service {
+        match provider
+            .credentials
+            .enforce_single_local_model(
+                &provider.http,
+                Some(&credential.service),
+                "planning_llm_call",
+            )
+            .await
+        {
+            Ok(report) => {
+                log_cloud_lifecycle_report("planning llm call", &report);
+                if let Some(error) = lifecycle_error(&report) {
+                    return Some(ToolCallResult::Failed { error });
+                }
             }
-        }
-        Err(err) => {
-            return Some(ToolCallResult::Failed {
-                error: err.to_string(),
-            });
+            Err(err) => {
+                return Some(ToolCallResult::Failed {
+                    error: err.to_string(),
+                });
+            }
         }
     }
 
@@ -546,4 +586,3 @@ impl CapabilityProvider for OrdoLlmProvider {
         run_planning_llm_call(self, capability, arguments).await
     }
 }
-

@@ -380,7 +380,8 @@ impl ModeManifest {
     }
 
     /// Convenience — does this mode allow the given capability?
-    /// Lane match + blocklist check. Used by ToolGateway.
+    /// Entries ending in `.` or `_` are prefixes; every other entry is an
+    /// exact capability. The exact blocklist always wins.
     pub fn allows_capability(&self, capability: &str) -> bool {
         if self
             .blocked_tool_capabilities
@@ -391,7 +392,7 @@ impl ModeManifest {
         }
         self.allowed_tool_lanes
             .iter()
-            .any(|prefix| capability.starts_with(prefix.as_str()))
+            .any(|lane| capability_matches_lane(capability, lane))
     }
 
     /// Hybrid skill routing: should this mode SURFACE the given skill?
@@ -536,6 +537,16 @@ fn validate_policy(
 fn dedupe_preserve_order(v: &mut Vec<String>) {
     let mut seen = std::collections::HashSet::new();
     v.retain(|item| seen.insert(item.clone()));
+}
+
+fn capability_matches_lane(capability: &str, lane: &str) -> bool {
+    if let Some(namespace) = lane.strip_suffix('.') {
+        capability == namespace || capability.starts_with(lane)
+    } else if lane.ends_with('_') {
+        capability.starts_with(lane)
+    } else {
+        capability == lane
+    }
 }
 
 #[cfg(test)]
@@ -767,12 +778,17 @@ mod tests {
     #[test]
     fn allows_capability_lane_match() {
         let mut m = minimal_manifest();
-        m.allowed_tool_lanes = vec!["filesystem.read_".into(), "web.".into()];
+        m.allowed_tool_lanes = vec![
+            "filesystem.read_".into(),
+            "web.".into(),
+            "skills.get".into(),
+        ];
         m.normalize_and_validate().unwrap();
         assert!(m.allows_capability("filesystem.read_file"));
         assert!(m.allows_capability("web.fetch_and_strain"));
         assert!(!m.allows_capability("filesystem.write_file"));
         assert!(!m.allows_capability("api.dispatch_webhook"));
+        assert!(!m.allows_capability("skills.get_and_delete"));
     }
 
     #[test]

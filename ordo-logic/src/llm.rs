@@ -47,6 +47,10 @@ pub struct LogicResolverHints {
     /// Service id of the credential to prefer (e.g. "ollama",
     /// "anthropic"). Falls back to compatibility walk on miss.
     pub preferred_service: Option<String>,
+    /// When both are present, provider fallback is disabled and the
+    /// credential is pinned to this resident endpoint/model in memory.
+    pub resident_base_url: Option<String>,
+    pub resident_model_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -75,8 +79,17 @@ impl LlmLogicProvider {
     /// reuses the same walk.
     async fn pick_credential(&self) -> LogicResult<CloudCredential> {
         if let Some(name) = self.hints.preferred_service.clone() {
-            if let Ok(Some(cred)) = self.credentials.get(name).await {
+            if let Ok(Some(mut cred)) = self.credentials.get(name).await {
+                if let (Some(base_url), Some(model_id)) = (
+                    self.hints.resident_base_url.as_deref(),
+                    self.hints.resident_model_id.as_deref(),
+                ) {
+                    pin_resident_credential(&mut cred, base_url, model_id);
+                }
                 return Ok(cred);
+            }
+            if self.hints.resident_base_url.is_some() {
+                return Err(LogicError::NoCredential);
             }
         }
         let all = self
@@ -133,6 +146,19 @@ impl LlmLogicProvider {
         }
         Ok(text)
     }
+}
+
+pub(crate) fn pin_resident_credential(
+    credential: &mut CloudCredential,
+    base_url: &str,
+    model_id: &str,
+) {
+    credential.auth_style = "none".to_string();
+    credential.secret.clear();
+    credential.base_url = Some(base_url.to_string());
+    credential
+        .extras
+        .insert("model".to_string(), model_id.to_string());
 }
 
 /// Public alias for the credential walker so the hybrid provider's

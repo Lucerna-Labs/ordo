@@ -143,6 +143,12 @@ impl McpHost {
         self.providers.push(provider);
     }
 
+    /// Stable identity used by gateways to bind inventory and tool responses
+    /// to this host rather than trusting any in-process bus publisher.
+    pub fn node_id(&self) -> NodeId {
+        self.node_id.clone()
+    }
+
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut requirement_sub = self.bus.subscribe(topics::REQUIREMENT).await?;
         let mut capability_inventory_sub = self

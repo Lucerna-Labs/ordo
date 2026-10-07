@@ -6,6 +6,7 @@ services:
     image: codex-ordo-project:latest
     environment:
       ORDO_DATABASE_PATH: /workspace/data/ordo.db
+      ORDO_RAG_ATOMDB_PATH: /workspace/data/ordo-rag.atomdb
       ORDO_CONTROL_API_BIND: 0.0.0.0:4141
       ORDO_LEGACY_MEMORY_PATH: /workspace/data/memory.jsonl
       ORDO_LEGACY_RAG_INDEX_PATH: /workspace/data/rag-index.jsonl

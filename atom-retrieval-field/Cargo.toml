@@ -1,0 +1,10 @@
+[package]
+name = "atom-retrieval-field"
+version = "0.1.0"
+edition = "2024"
+description = "Dependency-free bounded multi-cue activation for Atom DB"
+license = "MIT"
+
+[lib]
+name = "atom_retrieval_field"
+path = "src/lib.rs"

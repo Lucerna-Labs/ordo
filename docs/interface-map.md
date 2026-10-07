@@ -16,10 +16,8 @@ API work without digging through the whole doc set.
   - resource-oriented HTTP endpoints, route contracts, request/response bodies,
     CRUD-style service integrations
 - `cloud.*`
-  - real outbound HTTP to named cloud providers (OpenAI, Anthropic, generic
-    REST vendors), driven by stored credentials. This is the local-first
-    escape hatch â€” Ordo is local-first, not local-only, and this
-    lane is where the boundary lives.
+  - retired in this resident-model build. Cloud-model calls and model-provider
+    credential mutation are not registered with the runtime.
 
 ## Separation rules
 
@@ -32,11 +30,9 @@ API work without digging through the whole doc set.
 - If an integration is not REST-specific, it should stay under `api.*`.
 - Remote host access, remote commands, and deployment hops belong under
   `ssh.*`, even if they eventually trigger API or REST workflows elsewhere.
-- Stays strict: `rest.*` stays pure-data helpers (endpoint description,
-  request scaffolding, response validation). The moment a capability reaches
-  for real credentials and makes a real outbound call, it belongs under
-  `cloud.*`. This keeps the in-memory REST helpers safe to use in tests and
-  keeps the credential-bearing network path auditable in one place.
+- `rest.*` stays pure-data helpers (endpoint description, request scaffolding,
+  response validation). External application integrations must use a scoped
+  non-LLM integration surface and must not create an alternate model path.
 
 ## Example capability layout
 
@@ -50,13 +46,6 @@ API work without digging through the whole doc set.
 - `rest.prepare_request`
 - `rest.validate_response`
 - `rest.sync_resource`
-- `cloud.openai.chat`
-- `cloud.openai.embed`
-- `cloud.anthropic.messages`
-- `cloud.rest.request`
-- `cloud.credentials.list`
-- `cloud.credentials.upsert`
-- `cloud.credentials.delete`
 
 ## Quick reference
 
@@ -72,7 +61,7 @@ API work without digging through the whole doc set.
 ## Why this matters
 
 - Users can see where a tool belongs before it is implemented.
-- Provider naming stays understandable as the platform grows.
+- The resident-model boundary stays distinct from non-LLM integrations.
 - Retrieval can pull the correct integration context more reliably.
 - Future interface-specific providers can be added without collapsing into one
   overloaded "API" bucket.

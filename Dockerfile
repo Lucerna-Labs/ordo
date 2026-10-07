@@ -31,6 +31,7 @@ WORKDIR /workspace
 COPY --from=builder /workspace/target/release/ordo /usr/local/bin/ordo
 
 ENV ORDO_DATABASE_PATH=/workspace/data/ordo.db
+ENV ORDO_RAG_ATOMDB_PATH=/workspace/data/ordo-rag.atomdb
 ENV ORDO_CONTROL_API_BIND=0.0.0.0:4141
 ENV ORDO_LEGACY_MEMORY_PATH=/workspace/data/memory.jsonl
 ENV ORDO_LEGACY_RAG_INDEX_PATH=/workspace/data/rag-index.jsonl

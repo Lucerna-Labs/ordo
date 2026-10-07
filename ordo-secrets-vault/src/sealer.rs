@@ -73,7 +73,7 @@ pub mod mock;
 #[cfg(target_os = "windows")]
 pub mod windows_tbs;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-tpm"))]
 pub mod linux_tpm;
 
 #[cfg(target_os = "macos")]
@@ -83,7 +83,7 @@ pub use argon2id::Argon2idSealer;
 pub use keychain::KeychainSealer;
 pub use mock::MockSealer;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-tpm"))]
 pub use linux_tpm::LinuxTpmSealer;
 #[cfg(target_os = "macos")]
 pub use sep::SecureEnclaveSealer;

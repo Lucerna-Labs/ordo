@@ -51,8 +51,9 @@ Provider defaults should not leak from one provider family into another.
 
 ## Avatar Brain
 
-Avatar can use its own mode and model/provider choice so it can operate as a
-companion without fighting the main Assistant for the same model endpoint.
+Avatar can use its own concise mode, but its language-model cognition always
+uses Ordo's resident model. Avatar metadata cannot select another LLM or
+endpoint.
 
 The Avatar mode should remain concise and spoken-response friendly.
 
@@ -62,7 +63,7 @@ Tech Specialist should be able to help configure Avatar because avatar setup is
 complex:
 
 - voice provider setup
-- model/provider selection
+- resident cognition health
 - avatar behavior
 - pop-out troubleshooting
 - microphone troubleshooting

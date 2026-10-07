@@ -449,6 +449,7 @@ def launch_runtime(bin_path, port):
         "ORDO_CONTROL_API_BIND": f"127.0.0.1:{port}",
         "ORDO_ENABLE_AVATAR": "1",
         "ORDO_DATABASE_PATH": os.path.join(tmpdir, "test.db"),
+        "ORDO_RAG_ATOMDB_PATH": os.path.join(tmpdir, "test-rag.atomdb"),
         "ORDO_RUNTIME_PROFILE": "standard",
         # The HTTP rate limiter defaults to 60 req/10s per IP. This functional
         # suite fires far more than that in a burst and is NOT testing the

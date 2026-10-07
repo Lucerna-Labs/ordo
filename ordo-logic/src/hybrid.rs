@@ -466,6 +466,75 @@ pub fn wire_default(
     Arc::new(HybridLogicProvider::new(llm, formalize))
 }
 
+/// Build the hybrid logic surface against Ordo's one resident cognition
+/// route. Stored credential edits cannot redirect this provider because the
+/// endpoint, auth style, and model id are pinned again for every call.
+pub fn wire_resident(
+    http: Arc<CloudHttp>,
+    credentials: CloudCredentialTask,
+    service: impl Into<String>,
+    base_url: impl Into<String>,
+    model_id: impl Into<String>,
+) -> Arc<dyn LogicProvider> {
+    let service = service.into();
+    let base_url = base_url.into();
+    let model_id = model_id.into();
+    let llm = Arc::new(
+        crate::llm::LlmLogicProvider::new(http.clone(), credentials.clone()).with_hints(
+            crate::llm::LogicResolverHints {
+                preferred_service: Some(service.clone()),
+                resident_base_url: Some(base_url.clone()),
+                resident_model_id: Some(model_id.clone()),
+            },
+        ),
+    );
+    let formalize_http = http;
+    let formalize_creds = credentials;
+    let formalize: FormalizeFn = Arc::new(move |premises, conclusion| {
+        let http = formalize_http.clone();
+        let creds = formalize_creds.clone();
+        let service = service.clone();
+        let base_url = base_url.clone();
+        let model_id = model_id.clone();
+        Box::pin(async move {
+            let mut cred = creds
+                .get(service)
+                .await
+                .map_err(|err| LogicError::LlmFailed(err.to_string()))?
+                .ok_or(LogicError::NoCredential)?;
+            crate::llm::pin_resident_credential(&mut cred, &base_url, &model_id);
+            let prompt = crate::prompts::formalize_chain(&premises, &conclusion);
+            let chat_args = json!({
+                "model": model_id,
+                "messages": [{ "role": "user", "content": prompt }],
+                "temperature": 0.1,
+                "max_tokens": 2048,
+            });
+            let response = ordo_cloud::openai::chat(&http, &cred, &chat_args)
+                .await
+                .map_err(|err| LogicError::LlmFailed(err.to_string()))?;
+            let raw = response
+                .get("content_raw")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    response
+                        .get("assistant_message")
+                        .and_then(|value| value.as_str())
+                })
+                .unwrap_or_default();
+            let json_slice = crate::llm::extract_json_public(raw);
+            serde_json::from_str::<FormalizationOutput>(json_slice).map_err(|err| {
+                let snippet: String = json_slice.chars().take(240).collect();
+                LogicError::LlmFailed(format!(
+                    "could not parse formalize JSON ({err}); snippet: {snippet}"
+                ))
+            })
+        })
+    });
+    Arc::new(HybridLogicProvider::new(llm, formalize))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

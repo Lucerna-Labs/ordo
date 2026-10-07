@@ -106,28 +106,10 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
             ON memory_records (stored_at);
         ",
     ),
-    M::up(
-        "
-        CREATE TABLE IF NOT EXISTS rag_chunks (
-            document_id TEXT NOT NULL,
-            uri TEXT NOT NULL,
-            title TEXT NOT NULL,
-            tags_json TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            text TEXT NOT NULL,
-            PRIMARY KEY (document_id, chunk_index)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_rag_chunks_document_id
-            ON rag_chunks (document_id);
-        ",
-    ),
-    M::up(
-        "
-        ALTER TABLE rag_chunks
-        ADD COLUMN embedding_json TEXT NOT NULL DEFAULT '[]';
-        ",
-    ),
+    // Reserved slots from the retired relational RAG schema. Keeping the slots
+    // preserves migration numbering for existing operational databases.
+    M::up("SELECT 1;"),
+    M::up("SELECT 1;"),
     M::up(
         "
         ALTER TABLE memory_records
@@ -140,18 +122,8 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
         ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0;
         ",
     ),
-    M::up(
-        "
-        ALTER TABLE rag_chunks
-        ADD COLUMN indexed_at TEXT NOT NULL DEFAULT '';
-        ",
-    ),
-    M::up(
-        "
-        ALTER TABLE rag_chunks
-        ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0;
-        ",
-    ),
+    M::up("SELECT 1;"),
+    M::up("SELECT 1;"),
     M::up(
         "
         CREATE TABLE IF NOT EXISTS heal_cases (
@@ -204,24 +176,9 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
             ON runtime_settings (updated_at);
         ",
     ),
-    M::up(
-        "
-        ALTER TABLE rag_chunks
-        ADD COLUMN collection_name TEXT NOT NULL DEFAULT 'main';
-        ",
-    ),
-    M::up(
-        "
-        ALTER TABLE rag_chunks
-        ADD COLUMN source_document_id TEXT NOT NULL DEFAULT '';
-        ",
-    ),
-    M::up(
-        "
-        CREATE INDEX IF NOT EXISTS idx_rag_chunks_collection_name
-            ON rag_chunks (collection_name);
-        ",
-    ),
+    M::up("SELECT 1;"),
+    M::up("SELECT 1;"),
+    M::up("SELECT 1;"),
     M::up(
         "
         CREATE TABLE IF NOT EXISTS cloud_credentials (
@@ -486,7 +443,6 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
         -- created below predate that rule; this migration brings
         -- them in line.
         ALTER TABLE memory_records ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
-        ALTER TABLE rag_chunks ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
         ALTER TABLE heal_cases ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
         ALTER TABLE heal_attempts ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
         ALTER TABLE runtime_settings ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local';
@@ -784,80 +740,21 @@ const MIGRATIONS_SLICE: &[M<'_>] = &[
             ON assistant_facts (scope);
         ",
     ),
+    M::up("SELECT 1;"),
+    M::up("SELECT 1;"),
     M::up(
         "
-        -- Generative-free retrieval index (Fable-Rag refactor).
-        --
-        -- Replaces the dense hash-collision embedding as the DEFAULT
-        -- retrieval path with exact sparse statistics: BM25 posting
-        -- lists, per-term document/corpus frequencies, and a term
-        -- co-occurrence matrix that powers PPMI query expansion.
-        -- Every value is a plain count, so incremental add/remove is
-        -- exact integer arithmetic, and the whole index can be rebuilt
-        -- from rag_chunks.text at any time.
-        CREATE TABLE IF NOT EXISTS rag_postings (
-            term TEXT NOT NULL,
-            chunk_key TEXT NOT NULL,
-            tf REAL NOT NULL,
-            PRIMARY KEY (term, chunk_key)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_rag_postings_chunk
-            ON rag_postings (chunk_key);
-
-        CREATE TABLE IF NOT EXISTS rag_terms (
-            term TEXT PRIMARY KEY,
-            df INTEGER NOT NULL DEFAULT 0,
-            cf INTEGER NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS rag_chunk_stats (
-            chunk_key TEXT PRIMARY KEY,
-            document_id TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            collection_name TEXT NOT NULL,
-            token_count INTEGER NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_rag_chunk_stats_document
-            ON rag_chunk_stats (document_id);
-
-        CREATE TABLE IF NOT EXISTS rag_cooc (
-            term_a TEXT NOT NULL,
-            term_b TEXT NOT NULL,
-            cooc_count INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (term_a, term_b)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_rag_cooc_term_b
-            ON rag_cooc (term_b);
-
-        CREATE TABLE IF NOT EXISTS rag_corpus_stats (
-            stat_key TEXT PRIMARY KEY,
-            stat_value INTEGER NOT NULL DEFAULT 0
-        );
-        ",
-    ),
-    M::up(
-        "
-        -- Self-learning retrieval tree (Fable-Rag refactor, layer 2).
-        -- Usage feedback becomes plain counts at two levels of the
-        -- tree: chunk reinforcement at the leaves, term->collection
-        -- routing affinity at the branches. The semantic layer learns
-        -- through the existing rag_cooc / rag_terms tables, so it
-        -- needs no table of its own.
-        CREATE TABLE IF NOT EXISTS rag_chunk_feedback (
-            chunk_key TEXT PRIMARY KEY,
-            useful REAL NOT NULL DEFAULT 0,
-            useless REAL NOT NULL DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS rag_routing_stats (
-            term TEXT NOT NULL,
-            collection_name TEXT NOT NULL,
-            affinity REAL NOT NULL DEFAULT 0,
-            PRIMARY KEY (term, collection_name)
-        );
+        -- AtomDB is now the sole RAG persistence and retrieval engine.
+        -- Remove the retired relational projection after every supported
+        -- version has had an opportunity to move to the AtomDB store.
+        DROP TABLE IF EXISTS rag_chunk_feedback;
+        DROP TABLE IF EXISTS rag_routing_stats;
+        DROP TABLE IF EXISTS rag_postings;
+        DROP TABLE IF EXISTS rag_chunk_stats;
+        DROP TABLE IF EXISTS rag_cooc;
+        DROP TABLE IF EXISTS rag_corpus_stats;
+        DROP TABLE IF EXISTS rag_terms;
+        DROP TABLE IF EXISTS rag_chunks;
         ",
     ),
 ];
@@ -1223,7 +1120,32 @@ fn parse_optional_nonempty_string(value: Option<&String>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{RuntimeSettingsStore, RuntimeSettingsUpdate};
+    use super::{OrdoDatabase, RuntimeSettingsStore, RuntimeSettingsUpdate};
+
+    #[test]
+    fn retired_relational_rag_tables_are_absent() {
+        let db = OrdoDatabase::in_memory().expect("open migrated database");
+        for table in [
+            "rag_chunks",
+            "rag_postings",
+            "rag_terms",
+            "rag_chunk_stats",
+            "rag_cooc",
+            "rag_corpus_stats",
+            "rag_chunk_feedback",
+            "rag_routing_stats",
+        ] {
+            let exists: bool = db
+                .conn()
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+                    [table],
+                    |row| row.get(0),
+                )
+                .expect("inspect migrated schema");
+            assert!(!exists, "retired RAG table still exists: {table}");
+        }
+    }
 
     #[test]
     fn runtime_settings_round_trip() {

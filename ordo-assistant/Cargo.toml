@@ -14,6 +14,7 @@ ordo-memory-log = { path = "../ordo-memory-log" }
 ordo-modes = { path = "../ordo-modes" }
 ordo-skills = { path = "../ordo-skills" }
 ordo-orchestrator = { path = "../ordo-orchestrator" }
+tool-lightcone-mcp = { path = "../../tool-lightcone-mcp", default-features = false }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["full"] }
 serde.workspace = true
@@ -25,6 +26,7 @@ uuid.workspace = true
 rusqlite.workspace = true
 parking_lot.workspace = true
 futures.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 wiremock.workspace = true

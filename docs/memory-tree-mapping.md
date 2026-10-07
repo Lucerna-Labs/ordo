@@ -14,7 +14,7 @@ This document maps Ordo memory/RAG areas to the current product direction.
 | `tech_specialist` | Diagnostics, installs, setup, and safety rules | Read-wide, write-narrow. |
 | `automation` | Routines, hooks, cron, webhooks, dreaming reviews | Bounded and logged. |
 | `remote_communication` | Email and future approved channels | SMS excluded. |
-| `providers` | Local/cloud model setup and lifecycle | Includes LM Studio and Ollama guidance. |
+| `providers` | Resident cognition health and lifecycle | Provider switching is retired; preserve the node name for stored-data compatibility. |
 | `memory` | Pinned/working memory and dreaming proposals | Operator-curated. |
 | `security` | MCP/plugin trust, review, secrets, permissions | No secrets in memory. |
 | `artifacts` | Files, PDFs, docs, spreadsheets, email views | Used by side artifact view. |
@@ -26,8 +26,12 @@ by default.
 
 ## Retrieval Defaults
 
-- Use hashing fallback if no embedding model is configured.
-- Prefer embedding-backed retrieval when a model is available.
+- Store neutral source chunks in AtomDB's general RAG slice.
+- Store feedback and learned query-cue bridges in the separate self-learning
+  slice; never rewrite general facts from feedback.
+- Use AtomDB's bounded multi-cue retrieval field when no embedding model is
+  configured.
+- Treat embedding-backed retrieval as an additional channel when available.
 - Tell the user when retrieval is operating in fallback mode.
 - Prefer focused collection hits over large mixed context.
 

@@ -44,7 +44,7 @@ pub use sealer::{
 pub use service::{VaultError, VaultResult, VaultService, VaultServiceBuilder};
 pub use store::{SealedSecretRow, VaultStateRow, VaultStore, VaultStoreError};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "linux-tpm"))]
 pub use sealer::LinuxTpmSealer;
 #[cfg(target_os = "macos")]
 pub use sealer::SecureEnclaveSealer;

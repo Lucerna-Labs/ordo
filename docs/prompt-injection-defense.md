@@ -346,35 +346,28 @@ unmoored assertion isn't.
 
 ---
 
-## The model is not the layer
+## The resident model boundary
 
-A note to settle the framing: **the model is external to Ordo**.
-Ordo connects to it via the cloud-credential plumbing. For a
-local Ollama setup, the model (qwen3.6:35b weights, the inference
-engine) is loaded by Ollama in a separate process, and Ordo
-talks to it over `http://localhost:11434/v1`.
+The combined Ordo runtime supervises its permanent Bonsai 27B model behind the
+Lightcone and cognitive-engine boundary. Ordo talks to that service only over
+its pinned localhost endpoint; cloud credentials, Ollama, and request metadata
+cannot replace it.
 
 This means:
 
-- All three Ordo layers (strainer, cup, grounding floor) are
-  **model-independent**. They work the same way regardless of
-  which model the operator wires in.
-- Whatever safety training the model brings (RLHF refusals,
-  built-in jailbreak resistance, prompt-injection awareness)
-  is a **separate, additive** layer the operator inherits from
-  their model choice. Ordo doesn't ship it, can't enforce it,
-  can't remove it.
-- A weaker model means Ordo's layers have to do more work alone.
-  A stronger model means defense in depth gets thicker. Either
-  way, Ordo's contribution is the same — the operator's model
-  choice is the variable.
+- All three Ordo layers (strainer, cup, grounding floor) remain separate from
+  the model weights and enforce their boundary around the resident path.
+- Whatever safety behavior the fixed model weights bring is an additive layer;
+  it does not replace Ordo's runtime enforcement.
+- The resident model and Ordo's deterministic layers provide defense in depth;
+  neither is treated as a substitute for the other.
 
 This is why the strictness preset starts at `medium` by default
 and `off` is explicitly labeled DEBUG. With strictness off,
 Ordo is still doing strainer transformations and cup gating —
-those are model-independent — but the system-prompt rule
-(which the model interprets) is absent, and you're trusting
-whatever the operator's model brings on its own.
+those are weight-independent — but the system-prompt rule
+(which the resident model interprets) is absent, leaving only the model's own
+learned behavior at that layer.
 
 ---
 

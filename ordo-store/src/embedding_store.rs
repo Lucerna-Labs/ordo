@@ -1,15 +1,14 @@
 //! `EmbeddingStore` trait â€” the pluggability seam for vector storage
 //! (Phase 4.3).
 //!
-//! The current in-tree embedding storage (SQLite BLOB/JSON columns on
-//! `rag_chunks`, `assistant_facts`, `assistant_knowledge`) is fine
-//! for single-operator deploys up to maybe ~100k vectors. Past that,
+//! The current in-tree embedding storage for non-RAG operational records is
+//! fine for single-operator deploys up to maybe ~100k vectors. Past that,
 //! cosine similarity over a full table scan gets slow, and operators
 //! want real vector databases.
 //!
 //! This trait is the seam: callers request nearest-neighbor lookups
 //! through it, and a builder wires in either the default
-//! SQLite-backed adapter or a Qdrant / pgvector / Pinecone adapter
+//! local adapter or a Qdrant / pgvector / Pinecone adapter
 //! behind a feature flag.
 //!
 //! **What ships in Phase 4.3:** the trait + an `InMemoryEmbeddingStore`

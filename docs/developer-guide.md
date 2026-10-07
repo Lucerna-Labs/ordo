@@ -14,29 +14,27 @@ Core ideas:
 - bus-first subsystem communication
 - capability inventory
 - mode-scoped tools and memory
-- local SQLite persistence
+- hybrid local persistence: SQLite operational state plus AtomDB RAG roots
 - explicit human approval gates
-- provider and model abstraction
+- one pinned resident model boundary
 - diagnostic and operator tooling
 
 ## Unique Runtime Commitments
 
 These are core Ordo design rules, not optional UI language.
 
-### Gateway With Fallback
+### Resident Cognition Boundary
 
-Provider access should pass through Ordo's gateway/provider layer. Local models
-and OpenAI-compatible APIs are preferred where possible, with fallback profiles
-for compatible providers. Do not scatter provider-specific calls throughout the
-runtime.
+Every LLM call passes through the private resident cognition service. Its
+service name, localhost endpoint, and model ID are pinned at each call site.
+Do not add provider fallbacks, request-level overrides, or direct model calls.
 
 ### P2P And NAT/Cloud Device Paths
 
 Ordo's connection layer should support direct local app and device
 communication first, then use NAT traversal and cloud relay fallback only when
 direct connection is unavailable. This is for Ordo-to-device and Ordo-to-app
-communication; provider handshakes and cloud model access still go through the
-gateway/provider layer.
+communication. It must not become a second model or cognition route.
 
 Post-quantum handshakes belong in this connection layer. Treat them as part of
 the peer/device trust establishment path, not as a reason to expose secrets to

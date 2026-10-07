@@ -3,6 +3,12 @@ name = "ordo-secrets-vault"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+# Linux TPM support requires the host TSS2 development libraries. Keep it
+# opt-in so Ordo retains its keychain/software fallback on ordinary desktops.
+linux-tpm = ["dep:tss-esapi"]
+
 [dependencies]
 ordo-protocol = { path = "../ordo-protocol" }
 ordo-bus = { path = "../ordo-bus" }
@@ -44,4 +50,4 @@ security-framework = "3"
 [target.'cfg(target_os = "linux")'.dependencies]
 # Tier-1 Linux: TSS 2.0 Enhanced System API. 7.x is stable; 8.x
 # is alpha. Audit verdict: pin to "7".
-tss-esapi = "7"
+tss-esapi = { version = "7", optional = true }

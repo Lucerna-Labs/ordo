@@ -11,8 +11,8 @@ generic assistant bucket.
   - team setup, role definitions, role skills, team activity, bounded
     multi-agent work
 - `tech_specialist.*`
-  - diagnostics, setup, installs, repairs, provider help, MCP/plugin upkeep,
-    automation help, avatar setup, local computer tasks with approval
+  - diagnostics, setup, installs, repairs, resident-cognition help, MCP/plugin
+    upkeep, automation help, avatar setup, local computer tasks with approval
 - `automation.*`
   - routines, hooks, cron-style schedules, heartbeats, webhooks, local events,
     dreaming reviews, bounded coding automation
@@ -22,7 +22,8 @@ generic assistant bucket.
   - local retrieval, self-knowledge, document context, hash fallback,
     optional embedding-backed search
 - `provider.*` / `cloud.*`
-  - local model providers, cloud model providers, credentials, model lifecycle
+  - retired model-selection names retained only for stored-data compatibility;
+    runtime cognition is the fixed resident Ordo service
 - `remote_comm.*`
   - email accounts, remote communication identities, read/write/none access
     controls, future Signal/Telegram support
@@ -48,8 +49,8 @@ explicitly changed again.
   security, and review remain shared infrastructure.
 - Tech Specialist can manage setup surfaces, but it should not bypass secrets,
   approval, or permission UI.
-- Provider/model work belongs under provider/cloud lifecycle surfaces, not
-  inside normal assistant chat.
+- Resident-model lifecycle work belongs to runtime diagnostics, not normal
+  assistant chat. Provider/cloud names must not become alternate LLM paths.
 - Remote communication belongs under Remote Communication, not under general
   automation.
 - Agent Team setup belongs to Agent Teams and Tech Specialist, not to hidden

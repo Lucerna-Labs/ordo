@@ -33,7 +33,8 @@ logs, and explicit user approval.
 
 Important concepts:
 
-- Provider setup controls which local or cloud models Ordo can use.
+- Ordo always uses its resident Bonsai 27B + Lightcone + cognitive-engine
+  stack; there is no model setup or provider selection.
 - General mode is the default everyday assistant mode.
 - Agent Teams are for bounded multi-agent work.
 - Tech Specialist handles setup, diagnostics, installs, and maintenance.
@@ -54,7 +55,7 @@ The assistant surface includes:
 - session selector
 - mode selector
 - workspace selector
-- model selector
+- fixed resident-model status
 - thinking selector
 - context usage indicator
 - Agent Team working indicator when a team is active
@@ -67,21 +68,15 @@ The assistant surface includes:
 Voice output and avatar-specific controls belong on the Avatar surface. The
 assistant chatbox should only keep dictation and normal chat controls.
 
-## Provider
+## Resident Model
 
-Use Provider to configure local and cloud models.
+Ordo uses one permanent model, `ordo-bonsai-27b-lightcone`. The runtime loads
+the Bonsai 27B PQ2_0 weights behind Lightcone and the Atom cognitive engine.
+Studio shows this identity as status information; it is not a selector.
 
-Supported provider directions include:
-
-- Ollama local
-- Ollama Cloud/OpenAI-compatible
-- LM Studio local
-- OpenAI-compatible custom endpoints
-- cloud providers configured through Ordo's credential system
-
-When switching local providers or models, Ordo should unload/eject the previous
-active local model before selecting the next one. This prevents LM Studio and
-Ollama from leaving multiple heavy models loaded at the same time.
+The Provider page and cloud-model credential controls are removed. Attempts to
+override the provider, endpoint, or model through a request, mode, avatar, team,
+or stored credential are ignored or rejected.
 
 ## Modes
 
@@ -115,8 +110,8 @@ Use Agent Teams when a job naturally benefits from multiple roles, such as:
 - researcher
 - critic
 
-Small local models should use smaller teams and narrower tasks. Larger local
-models and flagship cloud models can handle richer team structures.
+Team sizes and tasks should be chosen for Ordo's resident model. Every role in
+a team uses that same model and cognition path.
 
 Each team role should have its own instructions and relevant skills.
 
@@ -185,7 +180,7 @@ Ask Tech Specialist for help with:
 
 - diagnostics
 - logs
-- model/provider setup
+- resident cognition health and model-file validation
 - MCP servers
 - plugins
 - apps

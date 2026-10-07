@@ -1,55 +1,28 @@
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
-    fs::File,
-    io::{BufRead, BufReader},
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
 
-use chrono::Utc;
 use futures::StreamExt;
 use ordo_bus::Bus;
-use ordo_models::{cosine_similarity, EmbeddingClient, EmbeddingRequest};
+use ordo_models::{EmbeddingClient, EmbeddingRequest};
 use ordo_protocol::{
-    default_rag_collection_name, normalize_rag_collection_name, normalize_rag_collections,
-    rag_collection_group, rag_collection_label, topics, CorrelationId, Envelope, NodeId,
-    NodeStatus, OrdoMessage, RagCollectionSummary, RagDocument, RagHit, RAG_COLLECTION_MAIN,
+    CorrelationId, Envelope, NodeId, NodeStatus, OrdoMessage, RAG_COLLECTION_MAIN,
+    RagCollectionSummary, RagDocument, RagHit, default_rag_collection_name, topics,
 };
-use ordo_store::{OrdoDatabase, StorageTask, StorageTaskError};
-use rusqlite::{params, TransactionBehavior};
+use ordo_store::{StorageTask, StorageTaskError};
 use serde::{Deserialize, Serialize};
 use tokio::task;
 
-mod index;
-mod learn;
+mod atom_persistence;
+mod native_store;
+
+pub use native_store::RagStore;
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
-
-/// Signals the self-learning tree contributes to one search: chunk
-/// reinforcement bonuses (keyed by chunk key) and learned routing
-/// bonuses (keyed by collection; empty when the search is
-/// collection-scoped or nothing is learned yet).
-struct LearnedSignals {
-    feedback: HashMap<String, f32>,
-    routing: HashMap<String, f32>,
-}
-
-#[derive(Debug, Clone)]
-pub struct ChunkingConfig {
-    pub target_words: usize,
-    pub overlap_words: usize,
-}
-
-impl Default for ChunkingConfig {
-    fn default() -> Self {
-        Self {
-            target_words: 120,
-            overlap_words: 30,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct RagChunkRecord {
@@ -65,14 +38,92 @@ struct RagChunkRecord {
     embedding: Vec<f32>,
 }
 
-pub struct RagStore {
-    db: OrdoDatabase,
-    config: ChunkingConfig,
-    /// Optional generative re-ranking channel (Ollama / llama.cpp).
-    /// `None` — the default — runs the generative-free
-    /// lexical-statistical engine in `index.rs` alone.
-    embedder: Option<Arc<dyn EmbeddingClient>>,
-    budget: RagStorageBudget,
+/// Durable catalog metadata for one bounded passage produced by AtomDB's
+/// native retrieval membrane. The passage text itself remains an immutable
+/// atom; this record only maps it back to Ordo's document protocol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NativePassageRecord {
+    identity: String,
+    chunk_index: usize,
+    #[serde(default)]
+    embedding: Vec<f32>,
+}
+
+/// Immutable events in AtomDB's neutral, general-retrieval slice.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum GeneralRagEvent {
+    NativeUpsertDocument {
+        storage_document_id: String,
+        source_document_id: String,
+        collection: String,
+        uri: String,
+        title: String,
+        tags: Vec<String>,
+        indexed_at: String,
+        version: String,
+        #[serde(default)]
+        size_bytes: usize,
+        passages: Vec<NativePassageRecord>,
+    },
+    UpsertDocument {
+        storage_document_id: String,
+        source_document_id: String,
+        collection: String,
+        indexed_at: String,
+        chunks: Vec<RagChunkRecord>,
+    },
+    UpsertChunk {
+        storage_document_id: String,
+        source_document_id: String,
+        collection: String,
+        indexed_at: String,
+        chunk: RagChunkRecord,
+    },
+    RemoveDocument {
+        storage_document_id: String,
+    },
+}
+
+/// Immutable events in AtomDB's bounded self-learning slice.  The payloads
+/// preserve judgments and routing observations without altering source facts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum LearningRagEvent {
+    NativeFeedback {
+        query: String,
+        storage_document_id: String,
+        document_version: String,
+        passage_identity: String,
+        useful: bool,
+    },
+    ExplicitFeedback {
+        query: String,
+        storage_document_id: String,
+        collection: String,
+        chunk_index: usize,
+        content_hash: String,
+        useful: bool,
+    },
+    ImplicitRouting {
+        query_terms: Vec<String>,
+        collection: String,
+    },
+    /// Compatibility representation for aggregate learning events written by
+    /// early AtomDB builds. New learning is always stored as individual events.
+    FeedbackSeed {
+        chunk_key: String,
+        useful: f64,
+        useless: f64,
+    },
+    RoutingSeed {
+        term: String,
+        collection: String,
+        affinity: f64,
+    },
+    SemanticBridgeSeed {
+        term_a: String,
+        term_b: String,
+        count: i64,
+    },
 }
 
 #[derive(Clone)]
@@ -94,880 +145,7 @@ impl Default for RagStorageBudget {
     }
 }
 
-impl RagStore {
-    pub fn in_memory() -> Self {
-        Self::in_memory_with_budget(RagStorageBudget::default())
-    }
-
-    pub fn in_memory_with_budget(budget: RagStorageBudget) -> Self {
-        let db = OrdoDatabase::in_memory().expect("open in-memory sqlite database");
-        Self::from_database(db, None, budget).expect("prepare in-memory rag index")
-    }
-
-    pub fn in_memory_with_embedder(
-        embedder: Arc<dyn EmbeddingClient>,
-        budget: RagStorageBudget,
-    ) -> Self {
-        let db = OrdoDatabase::in_memory().expect("open in-memory sqlite database");
-        Self::from_database(db, Some(embedder), budget).expect("prepare in-memory rag index")
-    }
-
-    pub fn open(path: impl Into<PathBuf>) -> Result<Self, DynError> {
-        Self::open_with_budget(path, RagStorageBudget::default())
-    }
-
-    pub fn open_with_budget(
-        path: impl Into<PathBuf>,
-        budget: RagStorageBudget,
-    ) -> Result<Self, DynError> {
-        Self::from_database(OrdoDatabase::open(path)?, None, budget)
-    }
-
-    pub fn open_with_embedder(
-        path: impl Into<PathBuf>,
-        embedder: Arc<dyn EmbeddingClient>,
-        budget: RagStorageBudget,
-    ) -> Result<Self, DynError> {
-        Self::from_database(OrdoDatabase::open(path)?, Some(embedder), budget)
-    }
-
-    fn from_database(
-        mut db: OrdoDatabase,
-        embedder: Option<Arc<dyn EmbeddingClient>>,
-        budget: RagStorageBudget,
-    ) -> Result<Self, DynError> {
-        // Databases created before the lexical-statistical index — or
-        // ones whose index has drifted — rebuild it from chunk text.
-        index::rebuild_if_needed(db.conn_mut())?;
-        Ok(Self {
-            db,
-            config: ChunkingConfig::default(),
-            embedder,
-            budget,
-        })
-    }
-
-    pub fn embedding_backend(&self) -> &str {
-        self.embedder
-            .as_deref()
-            .map(EmbeddingClient::backend_name)
-            .unwrap_or("lexical-statistical")
-    }
-
-    pub fn embedding_dimensions(&self) -> usize {
-        self.embedder
-            .as_deref()
-            .map(EmbeddingClient::dimensions)
-            .unwrap_or(0)
-    }
-
-    pub fn path(&self) -> Option<&Path> {
-        self.db.path()
-    }
-
-    pub fn chunk_count(&self) -> usize {
-        self.chunk_count_result().expect("count rag chunks")
-    }
-
-    pub fn document_count(&self) -> usize {
-        self.document_count_result().expect("count rag documents")
-    }
-
-    pub fn collection_summaries(&self) -> Vec<RagCollectionSummary> {
-        self.collection_summaries_result()
-            .expect("list rag collections")
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.chunk_count() == 0
-    }
-
-    pub fn upsert_document(&mut self, document: &RagDocument) -> Result<usize, DynError> {
-        let collection = normalize_rag_collection_name(&document.collection);
-        let source_document_id = document.document_id.trim().to_string();
-        let storage_document_id = storage_document_id(&collection, &source_document_id);
-        let chunk_texts = chunk_text(&document.content, &self.config);
-        // IMMEDIATE: this transaction reads (the replaced-chunk SELECT)
-        // before writing. A deferred transaction that upgrades to a
-        // write after another connection commits fails instantly with
-        // SQLITE_BUSY_SNAPSHOT, bypassing the busy_timeout retry.
-        let tx = self
-            .db
-            .conn_mut()
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let indexed_at = Utc::now().to_rfc3339();
-
-        // Subtract the outgoing chunks from the lexical-statistical
-        // index before their rows disappear.
-        let replaced: Vec<(String, i64, String)> = {
-            let mut stmt = tx.prepare(
-                "
-                SELECT document_id, chunk_index, text FROM rag_chunks
-                WHERE document_id = ?1
-                   OR source_document_id = ?2
-                   OR (source_document_id = '' AND document_id = ?2)
-                ",
-            )?;
-            let rows = stmt.query_map(params![&storage_document_id, &source_document_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })?;
-            rows.collect::<Result<_, _>>()?
-        };
-        for (chunk_document_id, chunk_index, text) in &replaced {
-            index::deindex_chunk(&tx, chunk_document_id, *chunk_index as usize, text)?;
-        }
-        tx.execute(
-            "
-            DELETE FROM rag_chunks
-            WHERE document_id = ?1
-               OR source_document_id = ?2
-               OR (source_document_id = '' AND document_id = ?2)
-            ",
-            params![&storage_document_id, &source_document_id],
-        )?;
-
-        for (chunk_index, text) in chunk_texts.iter().enumerate() {
-            let tags_json = serde_json::to_string(&document.tags)?;
-            let embedding_json =
-                serde_json::to_string(&embed_or_empty(self.embedder.as_ref(), text)?)?;
-            let size_bytes = (storage_document_id.len()
-                + source_document_id.len()
-                + collection.len()
-                + document.uri.len()
-                + document.title.len()
-                + tags_json.len()
-                + text.len()
-                + embedding_json.len()) as i64;
-            tx.execute(
-                "
-                INSERT INTO rag_chunks (
-                    document_id, uri, title, tags_json, chunk_index, text, embedding_json,
-                    indexed_at, size_bytes, collection_name, source_document_id
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                ",
-                params![
-                    &storage_document_id,
-                    &document.uri,
-                    &document.title,
-                    tags_json,
-                    chunk_index as i64,
-                    text,
-                    embedding_json,
-                    &indexed_at,
-                    size_bytes,
-                    &collection,
-                    &source_document_id,
-                ],
-            )?;
-            index::index_chunk(&tx, &storage_document_id, chunk_index, &collection, text)?;
-        }
-
-        tx.commit()?;
-        self.prune_to_budget()?;
-        Ok(chunk_texts.len())
-    }
-
-
-    pub fn search(&self, query: &str, top_k: usize) -> Vec<RagHit> {
-        self.search_in_collections(query, top_k, &[])
-    }
-
-    /// Record usage feedback for a hit previously returned by search —
-    /// the write half of the self-learning retrieval tree.
-    ///
-    /// `content_hash` is the fingerprint the hit carried; when
-    /// non-empty it must still match the stored chunk text, so
-    /// feedback about text that was replaced in the meantime is
-    /// rejected instead of poisoning the learned signals. Returns
-    /// false when the feedback could not be pinned to the chunk the
-    /// caller saw.
-    pub fn record_feedback(
-        &mut self,
-        query: &str,
-        document_id: &str,
-        collection: &str,
-        chunk_index: usize,
-        content_hash: &str,
-        useful: bool,
-    ) -> Result<bool, DynError> {
-        let collection = normalize_rag_collection_name(collection);
-        let source_document_id = document_id.trim().to_string();
-        // Hits identify documents by their source id; resolve back to
-        // the storage id, trying the legacy "::" join for rows written
-        // before the unit-separator format.
-        let storage_candidates = [
-            storage_document_id(&collection, &source_document_id),
-            format!("{collection}::{source_document_id}"),
-        ];
-
-        let tx = self
-            .db
-            .conn_mut()
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut recorded = false;
-        for storage_id in &storage_candidates {
-            let text: Option<String> = tx
-                .query_row(
-                    "SELECT text FROM rag_chunks WHERE document_id = ?1 AND chunk_index = ?2",
-                    params![storage_id, chunk_index as i64],
-                    |row| row.get(0),
-                )
-                .map(Some)
-                .or_else(|err| match err {
-                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                    other => Err(other),
-                })?;
-            let Some(text) = text else {
-                continue;
-            };
-            if !content_hash.is_empty() && index::content_hash(&text) != content_hash {
-                // Same identity, different text: the document was
-                // re-ingested since the hit. Learning from this would
-                // bind the query's vocabulary to text the caller never
-                // judged.
-                continue;
-            }
-            let chunk_key = index::chunk_key(storage_id, chunk_index);
-            learn::record_feedback(&tx, &chunk_key, &collection, query, useful)?;
-            recorded = true;
-            break;
-        }
-        tx.commit()?;
-        Ok(recorded)
-    }
-
-    pub fn search_in_collections(
-        &self,
-        query: &str,
-        top_k: usize,
-        collections: &[String],
-    ) -> Vec<RagHit> {
-        self.search_result(query, top_k, collections)
-            .expect("query rag store")
-    }
-
-    pub fn import_legacy_jsonl(&mut self, path: &Path) -> Result<usize, DynError> {
-        if !path.exists() {
-            return Ok(0);
-        }
-
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        // IMMEDIATE for the same read-then-write reason as
-        // upsert_document.
-        let tx = self
-            .db
-            .conn_mut()
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut imported = 0usize;
-
-        for line in reader.lines() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-
-            let chunk: RagChunkRecord = serde_json::from_str(&line)?;
-            let collection = normalize_rag_collection_name(&chunk.collection);
-            let storage_document_id = storage_document_id(&collection, &chunk.document_id);
-            let embedding = if chunk.embedding.is_empty() {
-                embed_or_empty(self.embedder.as_ref(), &chunk.text)?
-            } else {
-                chunk.embedding.clone()
-            };
-            let tags_json = serde_json::to_string(&chunk.tags)?;
-
-            // The INSERT OR REPLACE below can displace an existing row;
-            // subtract that row from the index first so counts stay exact.
-            let displaced: Option<String> = tx
-                .query_row(
-                    "SELECT text FROM rag_chunks WHERE document_id = ?1 AND chunk_index = ?2",
-                    params![&storage_document_id, chunk.chunk_index as i64],
-                    |row| row.get(0),
-                )
-                .map(Some)
-                .or_else(|err| match err {
-                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                    other => Err(other),
-                })?;
-            if let Some(old_text) = displaced {
-                index::deindex_chunk(&tx, &storage_document_id, chunk.chunk_index, &old_text)?;
-            }
-            let embedding_json = serde_json::to_string(&embedding)?;
-            let indexed_at = Utc::now().to_rfc3339();
-            let size_bytes = (storage_document_id.len()
-                + chunk.document_id.len()
-                + collection.len()
-                + chunk.uri.len()
-                + chunk.title.len()
-                + tags_json.len()
-                + chunk.text.len()
-                + embedding_json.len()) as i64;
-            tx.execute(
-                "
-                INSERT OR REPLACE INTO rag_chunks (
-                    document_id, uri, title, tags_json, chunk_index, text, embedding_json,
-                    indexed_at, size_bytes, collection_name, source_document_id
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-                ",
-                params![
-                    &storage_document_id,
-                    &chunk.uri,
-                    &chunk.title,
-                    tags_json,
-                    chunk.chunk_index as i64,
-                    &chunk.text,
-                    embedding_json,
-                    &indexed_at,
-                    size_bytes,
-                    &collection,
-                    &chunk.document_id,
-                ],
-            )?;
-            index::index_chunk(
-                &tx,
-                &storage_document_id,
-                chunk.chunk_index,
-                &collection,
-                &chunk.text,
-            )?;
-            imported += 1;
-        }
-
-        tx.commit()?;
-        self.prune_to_budget()?;
-        Ok(imported)
-    }
-
-    fn chunk_count_result(&self) -> Result<usize, DynError> {
-        let count = self
-            .db
-            .conn()
-            .query_row("SELECT COUNT(*) FROM rag_chunks", [], |row| {
-                row.get::<_, i64>(0)
-            })?;
-        Ok(count as usize)
-    }
-
-    fn document_count_result(&self) -> Result<usize, DynError> {
-        // CHAR(31) (unit separator) join for the same reason as
-        // storage_document_id: a ':' join would fold ('a', 'b:c') and
-        // ('a:b', 'c') into one identity and undercount.
-        let count = self.db.conn().query_row(
-            "
-            SELECT COUNT(
-                DISTINCT collection_name || CHAR(31) ||
-                COALESCE(NULLIF(source_document_id, ''), document_id)
-            )
-            FROM rag_chunks
-            ",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
-        Ok(count as usize)
-    }
-
-    fn collection_summaries_result(&self) -> Result<Vec<RagCollectionSummary>, DynError> {
-        let chunks = self.load_chunks()?;
-        let mut by_collection = HashMap::<String, RagCollectionAccumulator>::new();
-
-        for chunk in chunks {
-            let entry = by_collection
-                .entry(chunk.collection.clone())
-                .or_insert_with(|| RagCollectionAccumulator {
-                    chunk_count: 0,
-                    document_ids: HashSet::new(),
-                    sample_titles: Vec::new(),
-                });
-            entry.chunk_count += 1;
-
-            if entry.document_ids.insert(chunk.document_id.clone())
-                && !entry
-                    .sample_titles
-                    .iter()
-                    .any(|title| title == &chunk.title)
-                && entry.sample_titles.len() < 3
-            {
-                entry.sample_titles.push(chunk.title.clone());
-            }
-        }
-
-        let ordered_names =
-            normalize_rag_collections(&by_collection.keys().cloned().collect::<Vec<_>>());
-        Ok(ordered_names
-            .into_iter()
-            .filter_map(|name| {
-                by_collection
-                    .remove(&name)
-                    .map(|entry| RagCollectionSummary {
-                        label: rag_collection_label(&name).to_string(),
-                        group: rag_collection_group(&name),
-                        name,
-                        document_count: entry.document_ids.len(),
-                        chunk_count: entry.chunk_count,
-                        sample_titles: entry.sample_titles,
-                    })
-            })
-            .collect())
-    }
-
-    fn search_result(
-        &self,
-        query: &str,
-        top_k: usize,
-        collections: &[String],
-    ) -> Result<Vec<RagHit>, DynError> {
-        if top_k == 0 {
-            return Ok(Vec::new());
-        }
-
-        let normalized_collections = normalize_rag_collections(collections);
-        let requested_specialized_collections = normalized_collections
-            .iter()
-            .any(|collection| collection != RAG_COLLECTION_MAIN);
-
-        let query_tokens = tokenize(query);
-        if query_tokens.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Channel 1+2+3: BM25 over the inverted index, with fuzzy
-        // vocabulary matching and PPMI co-occurrence expansion folded
-        // into the query term set. Touches only chunks that share a
-        // term with the (expanded) query.
-        let scored = index::score_query(self.db.conn(), query, &normalized_collections)?;
-
-        // Optional generative channel: only when an embedding model is
-        // wired in, and never fatal — a dead Ollama degrades search to
-        // the lexical-statistical engine instead of failing it.
-        let query_embedding: Option<Vec<f32>> = self.embedder.as_ref().and_then(|embedder| {
-            match embedder.embed(EmbeddingRequest {
-                input: query.to_string(),
-            }) {
-                Ok(response) => Some(response.vector),
-                Err(error) => {
-                    tracing::warn!(
-                        backend = embedder.backend_name(),
-                        %error,
-                        "embedding query failed; falling back to lexical-statistical scoring"
-                    );
-                    None
-                }
-            }
-        });
-
-        let candidate_limit = (top_k * 10).max(50);
-        let lowered_query = query.to_ascii_lowercase();
-
-        // What the self-learning tree knows: chunk reinforcement
-        // always applies; learned routing only steers UNSCOPED
-        // searches (a scoped search already had its branch chosen).
-        let routing_terms = learn::content_terms(query);
-        let learned = LearnedSignals {
-            feedback: learn::feedback_bonuses(self.db.conn())?,
-            routing: if normalized_collections.is_empty() {
-                learn::routing_bonuses(self.db.conn(), &routing_terms)?
-            } else {
-                HashMap::new()
-            },
-        };
-
-        let mut hits = if let Some(query_embedding) = &query_embedding {
-            // A working embedding model is a RETRIEVAL channel, not a
-            // mere re-ranker: scan every in-scope chunk so a
-            // semantic-only match (zero term overlap) is still
-            // reachable, exactly as the pre-index engine behaved. The
-            // corpus scan is the price of the generative channel; the
-            // default model-free path below never pays it.
-            self.fusion_hits_over_all_chunks(
-                scored,
-                query_embedding,
-                &normalized_collections,
-                requested_specialized_collections,
-                &lowered_query,
-                &query_tokens,
-                &learned,
-            )?
-        } else {
-            // Queries the term index cannot serve (e.g. all-stopword
-            // phrases like "who are you") fall back to an exact
-            // substring scan before giving up.
-            let scored = if scored.is_empty() {
-                index::phrase_fallback(
-                    self.db.conn(),
-                    &lowered_query,
-                    &normalized_collections,
-                    candidate_limit,
-                )?
-            } else {
-                scored
-            };
-            if scored.is_empty() {
-                return Ok(Vec::new());
-            }
-            let candidates =
-                pool_candidates(scored, &normalized_collections, candidate_limit);
-            self.hydrate_candidates(
-                candidates,
-                requested_specialized_collections,
-                &lowered_query,
-                &query_tokens,
-                &learned,
-            )?
-        };
-
-        hits.sort_by(|left, right| {
-            right
-                .score
-                .partial_cmp(&left.score)
-                .unwrap_or(Ordering::Equal)
-                .then_with(|| left.document_id.cmp(&right.document_id))
-                .then_with(|| left.chunk_index.cmp(&right.chunk_index))
-        });
-        if requested_specialized_collections {
-            hits = balance_rag_hits(hits, &normalized_collections, top_k);
-        } else {
-            hits.truncate(top_k);
-        }
-
-        // Implicit branch learning: the top hit of an unscoped search
-        // weakly reinforces its collection for this query's terms.
-        // Never fatal — a failed learning write must not fail the
-        // search that triggered it.
-        if normalized_collections.is_empty() && !routing_terms.is_empty() {
-            if let Some(top_hit) = hits.first() {
-                if let Err(error) = learn::reinforce_routing_implicit(
-                    self.db.conn(),
-                    &routing_terms,
-                    &top_hit.collection,
-                ) {
-                    tracing::warn!(%error, "implicit routing reinforcement failed");
-                }
-            }
-        }
-
-        Ok(hits)
-    }
-
-    /// Generative-channel scoring: every in-scope chunk gets
-    /// BM25 (from the index) + exact-phrase bonus + cosine + collection
-    /// bonus, so purely semantic matches survive.
-    #[allow(clippy::too_many_arguments)]
-    fn fusion_hits_over_all_chunks(
-        &self,
-        scored: Vec<index::ScoredChunk>,
-        query_embedding: &[f32],
-        normalized_collections: &[String],
-        requested_specialized_collections: bool,
-        lowered_query: &str,
-        query_tokens: &[String],
-        learned: &LearnedSignals,
-    ) -> Result<Vec<RagHit>, DynError> {
-        let bm25: HashMap<(String, usize), f64> = scored
-            .into_iter()
-            .map(|chunk| ((chunk.document_id, chunk.chunk_index), chunk.score))
-            .collect();
-
-        let mut stmt = self.db.conn().prepare_cached(
-            "
-            SELECT document_id, chunk_index, uri, title, tags_json, text,
-                   embedding_json, collection_name, source_document_id
-            FROM rag_chunks
-            ",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
-            ))
-        })?;
-
-        let mut hits = Vec::new();
-        for row in rows {
-            let (
-                document_id,
-                chunk_index,
-                uri,
-                title,
-                tags_json,
-                text,
-                embedding_json,
-                collection_name,
-                source_document_id,
-            ) = row?;
-            let collection = normalize_rag_collection_name(&collection_name);
-            if !normalized_collections.is_empty() && !normalized_collections.contains(&collection)
-            {
-                continue;
-            }
-            let chunk_index = chunk_index as usize;
-
-            let mut score = bm25
-                .get(&(document_id.clone(), chunk_index))
-                .copied()
-                .unwrap_or(0.0) as f32;
-
-            let normalized_text = text.to_ascii_lowercase();
-            if normalized_text.contains(lowered_query) {
-                score += 2.0;
-            }
-
-            let chunk_embedding: Vec<f32> =
-                serde_json::from_str(&embedding_json).unwrap_or_default();
-            score += cosine_similarity(query_embedding, &chunk_embedding).max(0.0) * 2.5;
-
-            if requested_specialized_collections && collection != RAG_COLLECTION_MAIN {
-                score += 1.25;
-            }
-
-            // Learned signals rerank matches; they never conjure a hit
-            // out of a chunk with no retrieval evidence of its own.
-            if score > 0.0 {
-                let chunk_key = index::chunk_key(&document_id, chunk_index);
-                if let Some(bonus) = learned.feedback.get(&chunk_key) {
-                    score += bonus;
-                }
-                if let Some(bonus) = learned.routing.get(&collection) {
-                    score += bonus;
-                }
-            }
-
-            if score > 0.0 {
-                hits.push(RagHit {
-                    document_id: visible_document_id(&document_id, &source_document_id),
-                    uri,
-                    title,
-                    chunk_index,
-                    score,
-                    snippet: excerpt(&text, lowered_query, query_tokens),
-                    tags: serde_json::from_str(&tags_json)?,
-                    collection,
-                    content_hash: index::content_hash(&text),
-                });
-            }
-        }
-        Ok(hits)
-    }
-
-    /// Default-path scoring: hydrate only the pooled BM25 candidates
-    /// and apply the model-free bonuses.
-    fn hydrate_candidates(
-        &self,
-        candidates: Vec<index::ScoredChunk>,
-        requested_specialized_collections: bool,
-        lowered_query: &str,
-        query_tokens: &[String],
-        learned: &LearnedSignals,
-    ) -> Result<Vec<RagHit>, DynError> {
-        let mut hydrate = self.db.conn().prepare_cached(
-            "
-            SELECT uri, title, tags_json, text, source_document_id
-            FROM rag_chunks
-            WHERE document_id = ?1 AND chunk_index = ?2
-            ",
-        )?;
-
-        let mut hits = Vec::new();
-        for candidate in candidates {
-            let row = hydrate
-                .query_row(
-                    params![&candidate.document_id, candidate.chunk_index as i64],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, String>(3)?,
-                            row.get::<_, String>(4)?,
-                        ))
-                    },
-                )
-                .map(Some)
-                .or_else(|err| match err {
-                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                    other => Err(other),
-                })?;
-            let Some((uri, title, tags_json, text, source_document_id)) = row else {
-                continue;
-            };
-
-            let mut score = candidate.score as f32;
-
-            // Exact-phrase bonus keeps verbatim matches ahead of
-            // bag-of-terms matches (and is the whole score for
-            // phrase-fallback candidates).
-            let normalized_text = text.to_ascii_lowercase();
-            if normalized_text.contains(lowered_query) {
-                score += 2.0;
-            }
-
-            if requested_specialized_collections && candidate.collection != RAG_COLLECTION_MAIN {
-                score += 1.25;
-            }
-
-            // Candidates already carry retrieval evidence (BM25 or the
-            // phrase fallback's exact match), so learned signals may
-            // rerank — including suppressing a repeatedly-not-useful
-            // chunk below the score floor.
-            let chunk_key = index::chunk_key(&candidate.document_id, candidate.chunk_index);
-            if let Some(bonus) = learned.feedback.get(&chunk_key) {
-                score += bonus;
-            }
-            if let Some(bonus) = learned.routing.get(&candidate.collection) {
-                score += bonus;
-            }
-
-            if score > 0.0 {
-                hits.push(RagHit {
-                    document_id: visible_document_id(&candidate.document_id, &source_document_id),
-                    uri,
-                    title,
-                    chunk_index: candidate.chunk_index,
-                    score,
-                    snippet: excerpt(&text, lowered_query, query_tokens),
-                    tags: serde_json::from_str(&tags_json)?,
-                    collection: candidate.collection,
-                    content_hash: index::content_hash(&text),
-                });
-            }
-        }
-        Ok(hits)
-    }
-
-    fn load_chunks(&self) -> Result<Vec<RagChunkRecord>, DynError> {
-        let mut stmt = self.db.conn().prepare(
-            "
-            SELECT document_id, uri, title, tags_json, chunk_index, text, embedding_json,
-                   collection_name, source_document_id
-            FROM rag_chunks
-            ORDER BY document_id ASC, chunk_index ASC
-            ",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
-            ))
-        })?;
-
-        let mut chunks = Vec::new();
-        for row in rows {
-            let (
-                document_id,
-                uri,
-                title,
-                tags_json,
-                chunk_index,
-                text,
-                embedding_json,
-                collection_name,
-                source_document_id,
-            ) = row?;
-            chunks.push(RagChunkRecord {
-                document_id: visible_document_id(&document_id, &source_document_id),
-                collection: normalize_rag_collection_name(&collection_name),
-                uri,
-                title,
-                tags: serde_json::from_str(&tags_json)?,
-                chunk_index: chunk_index as usize,
-                text,
-                embedding: serde_json::from_str(&embedding_json)?,
-            });
-        }
-        Ok(chunks)
-    }
-
-    fn prune_to_budget(&mut self) -> Result<(), DynError> {
-        let budget = self.budget.max_bytes as i64;
-        loop {
-            let current_bytes: i64 = self.db.conn().query_row(
-                "SELECT COALESCE(SUM(size_bytes), 0) FROM rag_chunks",
-                [],
-                |row| row.get(0),
-            )?;
-
-            if current_bytes <= budget {
-                break;
-            }
-
-            let document_count: i64 = self.db.conn().query_row(
-                "SELECT COUNT(DISTINCT document_id) FROM rag_chunks",
-                [],
-                |row| row.get(0),
-            )?;
-
-            if document_count <= 1 {
-                break;
-            }
-            let next_document: Option<String> = self
-                .db
-                .conn()
-                .query_row(
-                    "
-                SELECT document_id
-                FROM rag_chunks
-                GROUP BY document_id
-                ORDER BY MIN(indexed_at) ASC, document_id ASC
-                LIMIT 1
-                ",
-                    [],
-                    |row| row.get(0),
-                )
-                .ok();
-
-            let Some(document_id) = next_document else {
-                break;
-            };
-
-            let tx = self
-                .db
-                .conn_mut()
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let evicted: Vec<(i64, String)> = {
-                let mut stmt = tx.prepare(
-                    "SELECT chunk_index, text FROM rag_chunks WHERE document_id = ?1",
-                )?;
-                let rows = stmt.query_map(params![&document_id], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-                })?;
-                rows.collect::<Result<_, _>>()?
-            };
-            for (chunk_index, text) in &evicted {
-                index::deindex_chunk(&tx, &document_id, *chunk_index as usize, text)?;
-            }
-            let deleted = tx.execute(
-                "DELETE FROM rag_chunks WHERE document_id = ?1",
-                params![document_id],
-            )?;
-            tx.commit()?;
-
-            if deleted == 0 {
-                break;
-            }
-        }
-
-        Ok(())
-    }
-}
-
+#[allow(dead_code)]
 impl RagStorageTask {
     pub fn from_store(store: RagStore) -> Self {
         Self {
@@ -1308,13 +486,6 @@ impl RagPeer {
     }
 }
 
-#[derive(Debug, Default)]
-struct RagCollectionAccumulator {
-    chunk_count: usize,
-    document_ids: HashSet<String>,
-    sample_titles: Vec<String>,
-}
-
 fn storage_error(error: StorageTaskError) -> DynError {
     Box::new(std::io::Error::other(error.to_string()))
 }
@@ -1345,93 +516,6 @@ fn with_correlation(
         Some(cid) => envelope.with_correlation(cid),
         None => envelope,
     }
-}
-
-fn chunk_text(text: &str, config: &ChunkingConfig) -> Vec<String> {
-    let words: Vec<&str> = text.split_whitespace().collect();
-    if words.is_empty() {
-        return Vec::new();
-    }
-
-    let target_words = config.target_words.max(1);
-    let overlap_words = config.overlap_words.min(target_words.saturating_sub(1));
-    let step = (target_words - overlap_words).max(1);
-
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    while start < words.len() {
-        let end = (start + target_words).min(words.len());
-        chunks.push(words[start..end].join(" "));
-        if end == words.len() {
-            break;
-        }
-        start += step;
-    }
-
-    chunks
-}
-
-/// Cap candidates per collection instead of globally: with one shared
-/// cap, a hot collection's long BM25 tail can crowd every other
-/// requested collection out of the pool before `balance_rag_hits` ever
-/// runs, silently breaking its per-collection representation
-/// guarantee.
-fn pool_candidates(
-    scored: Vec<index::ScoredChunk>,
-    normalized_collections: &[String],
-    per_collection_limit: usize,
-) -> Vec<index::ScoredChunk> {
-    if normalized_collections.len() <= 1 {
-        return scored.into_iter().take(per_collection_limit).collect();
-    }
-    let mut taken: HashMap<String, usize> = HashMap::new();
-    scored
-        .into_iter()
-        .filter(|chunk| {
-            let count = taken.entry(chunk.collection.clone()).or_insert(0);
-            if *count < per_collection_limit {
-                *count += 1;
-                true
-            } else {
-                false
-            }
-        })
-        .collect()
-}
-
-fn tokenize(text: &str) -> Vec<String> {
-    text.to_ascii_lowercase()
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .filter(|part| !part.is_empty())
-        .map(std::string::ToString::to_string)
-        .collect()
-}
-
-fn excerpt(text: &str, lowered_query: &str, query_tokens: &[String]) -> String {
-    let normalized_text = text.to_ascii_lowercase();
-    let anchor = normalized_text
-        .find(lowered_query)
-        .or_else(|| {
-            query_tokens
-                .iter()
-                .find_map(|token| normalized_text.find(token))
-        })
-        .unwrap_or(0);
-
-    let mut start = anchor.saturating_sub(80);
-    let mut end = (anchor + lowered_query.len().max(24) + 120).min(text.len());
-
-    while start > 0 && !text.is_char_boundary(start) {
-        start -= 1;
-    }
-    while end < text.len() && !text.is_char_boundary(end) {
-        end += 1;
-    }
-
-    text[start..end]
-        .replace(['\r', '\n'], " ")
-        .trim()
-        .to_string()
 }
 
 fn balance_rag_hits(hits: Vec<RagHit>, collections: &[String], top_k: usize) -> Vec<RagHit> {
@@ -1510,30 +594,24 @@ fn storage_document_id(collection: &str, document_id: &str) -> String {
     format!("{collection}\u{1f}{document_id}")
 }
 
-fn visible_document_id(storage_document_id: &str, source_document_id: &str) -> String {
-    if !source_document_id.trim().is_empty() {
-        return source_document_id.to_string();
+fn content_hash(text: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
     }
-
-    // Current rows join with the unit separator; rows written before
-    // this refactor used "::".
-    storage_document_id
-        .split_once('\u{1f}')
-        .or_else(|| storage_document_id.split_once("::"))
-        .map(|(_, document_id)| document_id.to_string())
-        .unwrap_or_else(|| storage_document_id.to_string())
+    format!("{hash:016x}")
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::Duration};
+    use std::{path::PathBuf, sync::Arc, time::Duration};
 
+    use super::{RagPeer, RagStorageBudget, RagStore};
     use futures::StreamExt;
     use ordo_bus::{Bus, InProcessBus};
     use ordo_models::{EmbeddingClient, EmbeddingRequest, EmbeddingResponse, ModelResult};
-    use ordo_protocol::{topics, CorrelationId, Envelope, NodeId, OrdoMessage, RagDocument};
-
-    use super::{RagPeer, RagStorageBudget, RagStore};
+    use ordo_protocol::{CorrelationId, Envelope, NodeId, OrdoMessage, RagDocument, topics};
 
     /// Deterministic stand-in for a semantic embedding model: any text
     /// mentioning cats/felines lands on one axis, everything else on
@@ -1622,9 +700,11 @@ mod tests {
             5,
             &["operations".to_string()],
         );
-        assert!(operations_hits
-            .iter()
-            .all(|hit| hit.collection == "operations" && hit.document_id != "research-plan"));
+        assert!(
+            operations_hits
+                .iter()
+                .all(|hit| hit.collection == "operations" && hit.document_id != "research-plan")
+        );
 
         let research_hits = store.search_in_collections(
             "citations evidence source review",
@@ -1751,7 +831,10 @@ mod tests {
         // Every query token is a stopword, so the term index has
         // nothing; the exact-phrase fallback must still find it.
         let hits = store.search("who are you", 3);
-        assert!(!hits.is_empty(), "stopword phrase should match via fallback");
+        assert!(
+            !hits.is_empty(),
+            "stopword phrase should match via fallback"
+        );
         assert_eq!(hits[0].document_id, "faq");
     }
 
@@ -1848,6 +931,7 @@ mod tests {
     fn useful_feedback_reranks_equal_hits() {
         let mut store = RagStore::in_memory();
         twin_documents(&mut store);
+        assert_eq!(store.cognitive_observations(), 0);
 
         let hits = store.search("transport relay", 2);
         assert_eq!(hits[0].document_id, "twin-a", "ties break by document id");
@@ -1855,6 +939,12 @@ mod tests {
         store
             .record_feedback("transport relay", "twin-b", "main", 0, "", true)
             .expect("record feedback");
+        assert_eq!(
+            store.cognitive_observations(),
+            1,
+            "the original AtomDB cognitive engine must receive the judgment"
+        );
+        assert_eq!(store.cognitive_context_traces(), 1);
         let hits = store.search("transport relay", 2);
         assert_eq!(
             hits[0].document_id, "twin-b",
@@ -1994,18 +1084,6 @@ mod tests {
                 .expect("record feedback");
         }
 
-        let affinity: f64 = store
-            .db
-            .conn()
-            .query_row(
-                "SELECT affinity FROM rag_routing_stats
-                 WHERE term = 'transport' AND collection_name = 'research'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("routing affinity row");
-        assert!(affinity >= 2.0, "explicit feedback should teach routing");
-
         let hits = store.search("transport relay", 2);
         assert_eq!(
             hits[0].document_id, "res-doc",
@@ -2014,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    fn feedback_rows_follow_document_replacement() {
+    fn feedback_is_scoped_to_the_document_version() {
         let mut store = RagStore::in_memory();
         let document = RagDocument {
             document_id: "guide".to_string(),
@@ -2029,24 +1107,19 @@ mod tests {
             .record_feedback("transport", "guide", "main", 0, "", true)
             .expect("record feedback");
 
-        store.upsert_document(&document).expect("replace doc");
-        let feedback_rows: i64 = store
-            .db
-            .conn()
-            .query_row("SELECT COUNT(*) FROM rag_chunk_feedback", [], |row| {
-                row.get(0)
-            })
-            .expect("count feedback rows");
-        assert_eq!(
-            feedback_rows, 0,
-            "replacing a document must clear its learned reinforcement"
+        let mut replacement = document;
+        replacement.content = "garden flowers bloom nicely".to_string();
+        store.upsert_document(&replacement).expect("replace doc");
+        assert!(
+            store.search("transport", 3).is_empty(),
+            "feedback for the replaced passage must not revive its old version"
         );
     }
 
     #[test]
     fn default_store_needs_no_embedding_model() {
         let store = RagStore::in_memory();
-        assert_eq!(store.embedding_backend(), "lexical-statistical");
+        assert_eq!(store.embedding_backend(), "atomdb-retrieval-field");
         assert_eq!(store.embedding_dimensions(), 0);
     }
 
@@ -2060,8 +1133,7 @@ mod tests {
                 title: "Architecture".to_string(),
                 tags: vec!["docs".to_string()],
                 collection: "main".to_string(),
-                content: "The transport adapter seam keeps routing policy separate."
-                    .to_string(),
+                content: "The transport adapter seam keeps routing policy separate.".to_string(),
             })
             .expect("index architecture doc");
         store
@@ -2121,7 +1193,7 @@ mod tests {
         let hits = store.search("relay", 5);
         assert!(
             hits.iter().any(|hit| hit.document_id == "target"),
-            "PPMI expansion should pull in the transport-only chunk: {hits:?}"
+            "AtomDB activation should pull in the transport-only passage: {hits:?}"
         );
         assert!(
             hits.iter().all(|hit| hit.document_id != "distractor"),
@@ -2141,45 +1213,22 @@ mod tests {
             content: "The transport adapter seam keeps routing policy separate.".to_string(),
         };
         store.upsert_document(&document).expect("first upsert");
-        let df_first: i64 = store
-            .db
-            .conn()
-            .query_row(
-                "SELECT df FROM rag_terms WHERE term = 'transport'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("df after first upsert");
+        let documents_first = store.document_count();
+        let chunks_first = store.chunk_count();
 
         store.upsert_document(&document).expect("second upsert");
-        let df_second: i64 = store
-            .db
-            .conn()
-            .query_row(
-                "SELECT df FROM rag_terms WHERE term = 'transport'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("df after second upsert");
-        assert_eq!(df_first, 1);
-        assert_eq!(
-            df_second, 1,
-            "re-upserting the same document must not inflate document frequency"
-        );
-
-        let stats_rows: i64 = store
-            .db
-            .conn()
-            .query_row("SELECT COUNT(*) FROM rag_chunk_stats", [], |row| row.get(0))
-            .expect("chunk stats count");
-        assert_eq!(stats_rows as usize, store.chunk_count());
+        assert_eq!(documents_first, 1);
+        assert_eq!(store.document_count(), documents_first);
+        assert_eq!(store.chunk_count(), chunks_first);
     }
 
     #[test]
-    fn legacy_databases_rebuild_index_on_open() {
-        let dir = std::env::temp_dir().join(format!("ordo-rag-rebuild-{}", std::process::id()));
+    fn atomdb_reopen_rebuilds_native_derived_index() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../target/ordo-rag-tests")
+            .join(format!("replay-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("legacy.db");
+        let path = dir.join("rag.atomdb");
         let _ = std::fs::remove_file(&path);
 
         {
@@ -2195,27 +1244,10 @@ mod tests {
                         .to_string(),
                 })
                 .expect("index doc");
-            // Simulate a database from before the index existed.
-            for table in [
-                "rag_postings",
-                "rag_terms",
-                "rag_chunk_stats",
-                "rag_cooc",
-                "rag_corpus_stats",
-            ] {
-                store
-                    .db
-                    .conn()
-                    .execute(&format!("DELETE FROM {table}"), [])
-                    .expect("wipe index table");
-            }
-            // Reordered terms are not a contiguous substring, so the
-            // exact-phrase fallback cannot serve this query — only the
-            // (now wiped) term index could.
-            assert!(store.search("adapter transport routing", 3).is_empty());
+            assert!(!store.search("adapter transport routing", 3).is_empty());
         }
 
-        let store = RagStore::open(&path).expect("reopen legacy store");
+        let store = RagStore::open(&path).expect("reopen AtomDB store");
         let hits = store.search("adapter transport routing", 3);
         assert!(
             !hits.is_empty(),
@@ -2224,6 +1256,45 @@ mod tests {
         assert_eq!(hits[0].document_id, "architecture");
 
         drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomdb_keeps_general_and_learning_roots_and_replays_feedback() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../target/ordo-rag-tests")
+            .join(format!("two-slices-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        let path = dir.join("rag.atomdb");
+        let _ = std::fs::remove_file(&path);
+
+        {
+            let mut store = RagStore::open(&path).expect("open AtomDB store");
+            twin_documents(&mut store);
+            store
+                .record_feedback("transport relay", "twin-b", "main", 0, "", true)
+                .expect("persist feedback");
+            assert_eq!(store.search("transport relay", 2)[0].document_id, "twin-b");
+        }
+
+        {
+            let store = RagStore::open(&path).expect("replay both AtomDB slices");
+            assert_eq!(store.document_count(), 2);
+            assert_eq!(
+                store.cognitive_observations(),
+                1,
+                "the learning slice must reconstruct AtomDB cognition on restart"
+            );
+            assert_eq!(store.search("transport relay", 2)[0].document_id, "twin-b");
+        }
+
+        let db = atom_db::AtomDb::open_read_only(&path).expect("inspect AtomDB roots");
+        assert_eq!(
+            db.roots().len(),
+            2,
+            "general retrieval and self-learning must have distinct roots"
+        );
+        drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2371,4 +1442,3 @@ mod tests {
         peer_task.abort();
     }
 }
-

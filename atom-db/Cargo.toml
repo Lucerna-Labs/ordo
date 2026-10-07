@@ -1,0 +1,13 @@
+[package]
+name = "atom-db"
+version = "0.1.0"
+edition = "2024"
+description = "Workspace-local AtomDB storage, cognitive engine, and bounded retrieval for Ordo"
+license = "MIT"
+
+[dependencies]
+atom-retrieval-field = { path = "../atom-retrieval-field" }
+
+[lib]
+name = "atom_db"
+path = "src/lib.rs"

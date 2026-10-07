@@ -5,83 +5,39 @@
 > [open an issue](https://github.com/Lucerna-Labs/ordo/issues) — it helps me fix
 > things faster. See [Feedback](#feedback) below.
 
-Ordo is a local-first AI agent orchestration platform by Lucerna Labs, a
-division of Lucerna Media.
+Ordo is a local-first AI agent system by Lucerna Labs, a division of Lucerna
+Media. This combined build is the new home of the Lightcone project.
 
 It gives you a personal AI assistant that orchestrates tools, capabilities, MCP
 servers, agent teams, memory, retrieval, and automation — all on your machine.
 The model never gets uncontrolled access to your computer: it works through
 scoped capabilities, policies, review gates, mode rules, and explicit operator
-approval. No data leaves your system unless you choose a cloud model provider.
+approval. Its one permanent language model is the local Bonsai 27B PQ2_0,
+routed through the geometric Lightcone and Atom cognitive engine.
 
-Think of it as your own private AI operations center: local models, cloud
-models, persistent memory, scheduled automations, and a multi-agent workflow
-engine — all behind a single operator interface you control.
+Think of it as your own private AI operations center: one resident cognitive
+stack, persistent memory, scheduled automations, and a multi-agent workflow
+engine — all behind a single operator interface you control. Ordo is no longer
+a multi-LLM-provider product.
 
 ## Quick Start
 
-For the full install guide with troubleshooting, see [INSTALL.md](INSTALL.md).
-
-### Windows
-
-**Prerequisites:** [Git](https://git-scm.com), [Node.js 20+](https://nodejs.org), [Rust 1.93+](https://rustup.rs).
-
-```powershell
-cd $env:USERPROFILE\Desktop
-git clone https://github.com/Lucerna-Labs/ordo.git
-cd ordo
-.\Install-Desktop-Shortcut.cmd
-```
-
-Then open **Ordo** from the desktop shortcut.
-
-The first launch builds the Studio UI and Servo shell (5–15 minutes).
-Subsequent launches are fast.
-
-To update an existing clone:
-
-```powershell
-git pull
-.\Install-Desktop-Shortcut.cmd
-```
-
-To launch once without installing the shortcut:
-
-```powershell
-wscript.exe .\Launch-Ordo-Servo.vbs
-```
-
-For troubleshooting with a visible console:
-
-```powershell
-.\Launch-Ordo-Servo.ps1
-```
-
-Default local runtime URL:
-
-```
-http://127.0.0.1:4141
-```
-
-### Linux (Pop!_OS / Ubuntu / Debian)
-
-**Option 1 — Prebuilt `.deb`** (recommended, no compiler needed):
+Launch this combined build from its parent workspace:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-prebuilt.sh | bash
+cd /home/jesse/Desktop/Projects/Atom-lightcone-27b-harness
+./launch-ordo.sh
 ```
 
-Then open **Ordo** from the app menu.
+The launcher validates the resident model and knowledge pack, builds the
+resident cognition server when needed, and starts Ordo's Servo shell. The
+control UI uses `http://127.0.0.1:4141`; the private cognition boundary uses
+`http://127.0.0.1:4142`.
 
-**Option 2 — Build from source** (developers; compiles Servo + SpiderMonkey, 30–60+ min):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Lucerna-Labs/ordo/main/scripts/install-linux-from-github.sh | bash
-```
-
-The installer clones to `~/ordo`, installs all build prerequisites
-(Rust, Node, C/C++ toolchain, GL/X11/Wayland headers), builds, and
-installs the `.deb` or AppImage.
+The generic upstream installers in `INSTALL.md` describe the original
+standalone Ordo distribution. They do not contain this workspace's Bonsai
+weights, Lightcone, or Atom cognitive engine and are not the launch path for
+this combined build.
 
 ## Current Desktop Architecture
 
@@ -91,6 +47,8 @@ workspace and stale Studio/Portable launchers were removed.
 Current shape:
 
 - `ordo-cli`: headless runtime binary.
+- `../lightcone/target/release/ordo_server`: resident OpenAI-shaped cognition
+  boundary used internally by Ordo; it is not a selectable provider.
 - `ordo-control`: local HTTP API and static UI asset server.
 - `ordo-studio`: React UXI built to `ordo-studio/dist`.
 - `ordo-servo-shell`: custom Servo embedder with no address bar or tab strip.
@@ -117,11 +75,11 @@ scripts, and Ordo now provides that origin itself.
 ## What Ordo Does
 
 - Runs a local AI assistant through a dedicated operator UXI.
-- Supports local and cloud model providers through Ordo's provider layer.
-- Protects model switching by unloading/ejecting the previous active local
-  model before selecting a new one.
-- Supports Ollama, LM Studio, Ollama Cloud/OpenAI-compatible endpoints, and
-  custom compatible providers.
+- Uses one permanent local model: `ordo-bonsai-27b-lightcone`.
+- Routes assistant, orchestration, logic, modes, teams, and avatar cognition
+  through the same resident Lightcone + cognitive-engine path.
+- Rejects provider, mode, avatar, and request-level attempts to replace the
+  model; endpoint and model identity are pinned in memory at each call site.
 - Keeps secrets out of prompts and model-visible state.
 - Provides mode-scoped behavior, memory, tools, and skills.
 - Starts in General mode by default.
@@ -130,7 +88,7 @@ scripts, and Ordo now provides that origin itself.
 - Supports Agent Teams for bounded multi-agent collaboration, with visible
   team-working indicators in the chat composer.
 - Supports Ordo Tech Specialist for diagnostics, installs, MCP/plugin upkeep,
-  provider setup, automation setup, avatar setup, and local computer tasks when
+  resident-cognition health, automation setup, avatar setup, and local computer tasks when
   explicitly approved.
 - Provides automation for routines, hooks, cron-style schedules, heartbeats,
   webhooks, local events, dreaming reviews, and bounded coding automation.
@@ -138,9 +96,10 @@ scripts, and Ordo now provides that origin itself.
   Signal and Telegram. SMS is intentionally excluded.
 - Provides a side artifact view for generated files, PDFs, docs, spreadsheets,
   email views, and other agent-produced artifacts without replacing chat.
-- Provides RAG and persistent memory with a stronger hashing fallback when no
-  embedding model is configured. Ollama or llama.cpp embedding models remain
-  optional for better semantic retrieval.
+- Stores RAG in workspace-local AtomDB with two isolated slices: neutral
+  general retrieval and bounded self-learning feedback. AtomDB's native
+  multi-cue retrieval field emits bounded evidence without an embedding model;
+  Ollama or llama.cpp embeddings remain an optional additional channel.
 - Provides MCP security with trust states, quarantine, drift checks,
   provenance tracking, redaction, and audit logging.
 
@@ -148,7 +107,6 @@ scripts, and Ordo now provides that origin itself.
 
 The left rail is intentionally user-facing:
 
-- Provider
 - Assistant
 - Modes
 - Review
@@ -230,7 +188,8 @@ When reporting a bug, include:
 - `ordo-runtime`: component boot and supervision.
 - `ordo-control`: local API, static UI serving, and operator endpoints.
 - `ordo-assistant`: assistant sessions, turn loop, memory, skills, and tool use.
-- `ordo-cloud`: cloud/provider calls and model lifecycle handling.
+- `ordo-cloud`: internal OpenAI-shaped client used only for the pinned resident
+  cognition service in this build.
 - `ordo-rag`: local retrieval with hash fallback and optional embeddings.
 - `ordo-memory`: persistent working and pinned memory.
 - `ordo-mcp-host`: capability providers and MCP-facing tool surface.

@@ -16,7 +16,8 @@ Current direction:
 - Mode-scoped agents.
 - Agent Teams for bounded multi-agent work.
 - Persistent memory and RAG.
-- Provider/model management for local and cloud models.
+- One supervised resident model stack: Bonsai 27B PQ2_0, Lightcone, and the
+  Atom cognitive engine.
 - Ordo Tech Specialist for user-friendly diagnostics and setup help.
 - Automation, hooks, routines, webhooks, dreaming reviews, and bounded coding
   automation.
@@ -36,8 +37,12 @@ Current direction:
   browser chrome.
 - `ordo-assistant` owns sessions, turns, memory recall, skill routing, tool use,
   subagent consultation, and model-facing prompt assembly.
-- `ordo-cloud` owns provider calls and model lifecycle handling.
-- `ordo-rag` indexes local documents and answers retrieval requests.
+- `ordo-cloud` supplies the internal OpenAI-shaped HTTP client used to reach
+  the pinned resident cognition boundary. It is not an operator-selectable
+  cloud-model surface in this build.
+- `atom-db` is the immutable atom/bond persistence substrate for RAG.
+- `ordo-rag` indexes local documents, replays AtomDB state, and answers
+  retrieval requests.
 - `ordo-memory` owns working and pinned memory.
 - `ordo-mcp-host` advertises and executes capability providers.
 - `ordo-security` gates provider calls with scanning and policy.
@@ -66,16 +71,16 @@ tool, not a runtime dependency.
 
 ## Model Lifecycle
 
-Provider switching must be explicit and bounded:
+There is one model lifecycle:
 
-- Only one active local model/provider path should be considered current.
-- Switching from LM Studio to Ollama, or from Ollama to LM Studio, should eject
-  the previous active model before selecting the next one.
-- Cloud and local providers share the same high-level model-choice surface, but
-  local unload/eject behavior only applies where the provider supports it.
-- Model lifecycle actions should be logged.
-- Small local models should receive narrower instructions and simpler Agent
-  Team structures than flagship cloud or large local models.
+- `ordo-runtime` starts and supervises the resident cognition server.
+- The model is loaded once and remains resident for the Ordo process lifetime.
+- The service, endpoint, and model ID are pinned in memory at every LLM call
+  site; request metadata and stored credentials cannot redirect them.
+- Provider switching and cloud-model failover are disabled.
+- Shutdown terminates a cognition server that Ordo itself started. A matching
+  already-running resident server may be reused after its identity is checked.
+- Lifecycle and health failures are logged.
 
 ## Memory And Retrieval
 
@@ -85,10 +90,23 @@ Ordo has three relevant memory lanes:
 - Working and pinned memory for durable operator facts.
 - RAG collections for local documents and self-knowledge.
 
-RAG must work without shipping an embedding model. The default fallback is a
-local hashing embedder with token, phrase, and character n-gram features. If an
-Ollama or llama.cpp embedding model is configured, Ordo can use it for better
-semantic retrieval quality and should make that improvement visible to the user.
+RAG durability is split into two independent roots in `data/ordo-rag.atomdb`:
+
+- The **general slice** owns the active document catalog over immutable native
+  AtomDB passage and term atoms.
+- The **self-learning slice** owns explicit, version-scoped feedback while
+  AtomDB durably reinforces useful paths and learned query-term bridges.
+
+The split prevents learned preferences from rewriting neutral source material.
+AtomDB's own bounded multi-cue retrieval field is the live search engine. Its
+derived graph index and Ordo's active-document catalog rebuild from immutable
+AtomDB facts on open; there is no live SQLite RAG projection. Ordo's shared
+`ordo.db` remains the store for non-RAG operational state.
+
+RAG must work without shipping an embedding model. Native term-to-passage
+activation, bounded evidence packets, exact phrase fallback, and typo handling
+form the default local engine. If Ollama or llama.cpp embeddings are configured,
+they add another retrieval channel rather than replacing AtomDB retrieval.
 
 Persistent memory must stay operator-manageable. Dreaming and diagnostics can
 propose lessons, but they should not silently rewrite durable truths.
@@ -114,8 +132,8 @@ Agent Teams are Ordo's bounded multi-agent surface.
 
 Design rules:
 
-- Teams can be used with local or cloud models.
-- Team size and role complexity should fit the selected model.
+- Every team role uses the resident Ordo model.
+- Team size and role complexity should fit the resident model.
 - Each team role should have its own instructions and allowed skills.
 - Team activity should be visible in the assistant composer or its surrounding
   status area.
@@ -135,8 +153,8 @@ It may help with:
 
 - diagnostics
 - logs
-- provider setup
-- model setup
+- resident cognition diagnostics
+- model-file and knowledge-pack validation
 - skills
 - MCP servers
 - plugins
@@ -183,8 +201,8 @@ for modification instructions.
 - Permissions should use explicit allow/deny UI.
 - MCPs and plugins are untrusted until inspected and graduated.
 - Runs and automations must be logged, bounded, and recoverable.
-- Retrieval, memory, provider decisions, model switching, tool calls, denials,
-  retries, failures, and recovery actions should be visible in logs.
+- Retrieval, memory, resident-model health, tool calls, denials, retries,
+  failures, and recovery actions should be visible in logs.
 - Old unused code paths should be removed instead of kept as confusing
   fallback surfaces.
 

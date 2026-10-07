@@ -13,7 +13,7 @@ workspace. This is exposed as five capabilities, reachable by the Brain
 | `workspace.read_file` | Core | Read a file from the workspace. |
 | `workspace.list` | Optional | List the workspace (or a subdir). |
 | `code.run` | Optional | Run a **compiled WASM module** in the in-process sandbox (fuel/memory/wall-clock limited; **no fs/network**). Pure compute only. |
-| `code.run_native` | Heavy | Run a **native command** (cargo/rustc/python/node/pwsh/cmd) in the workspace. **Network allowed.** Opt-in + gated. |
+| `code.run_native` | Heavy | Run a **native host command** starting in the workspace. **Host filesystem and network access are available.** Opt-in, operator-reviewed, and gated. |
 
 All paths are confined to a single workspace directory
 (`ORDO_CODE_WORKSPACE_PATH`, default `<user_files>/workspace`).
@@ -49,7 +49,8 @@ code-runner subprocess.
 - **`ordo-sandbox`** owns the `Sandbox` trait. `WasmtimeSandbox` (feature
   `wasmtime`) backs `code.run`. **`SubprocessSandbox`** (feature `subprocess`,
   `subprocess_impl.rs`) is the native runner — it runs the *exact* command it is
-  handed, confined to a root, with a timeout, output caps, and process-tree kill.
+  handed, with its initial cwd rooted under the workspace, a timeout, output caps,
+  and process-tree kill. It is not an OS filesystem sandbox.
 - **`ordo-code`** (new crate) — headless `CodeService` (owns the workspace root +
   two `Arc<dyn Sandbox>` backends + `CodePolicy`) and `CodeProvider`. The
   language→program/args mapping and source-file materialization live here.
@@ -65,8 +66,9 @@ No `ordo-protocol` changes: the native run spec tunnels through the existing
 
 ## Security model
 
-`workspace.*` and `code.run` are low-risk. **`code.run_native` runs arbitrary
-native code with the host's network reach**, so it is gated on FOUR independent
+`workspace.*` and `code.run` are lower-risk. **`code.run_native` runs arbitrary
+native code with the host user's filesystem and network reach**, so it is gated on
+FIVE independent
 layers (all off in the crate defaults):
 
 1. **Compile gate** — the `native-exec` cargo feature must be enabled, else
@@ -76,10 +78,13 @@ layers (all off in the crate defaults):
    = cfg!(feature="native-exec") && config.code_allow_native`).
 3. **Program allowlist** — only `cargo, rustc, python, node, pwsh, powershell, cmd,
    sh` may be spawned; anything else is rejected before spawn.
-4. **Workspace confinement** — every `workspace.*` path and the native `cwd` are
-   resolved under the workspace root and rejected on escape (absolute, `..`, and
-   Windows drive-relative `C:foo` / prefixed paths). The child runs with
-   `current_dir` = workspace, `kill_on_drop`, and `CREATE_NO_WINDOW` on Windows.
+4. **Workspace path guard** — every `workspace.*` path and the native `cwd` are
+   resolved under the workspace root and rejected on lexical escape. Workspace
+   file operations also reject existing symbolic-link components. The native
+   child starts in the workspace, but can access other host paths after launch.
+5. **Operator authorization** — every assistant-originated `code.run_native` call
+   is queued for review, then receives a 60-second, one-use ticket bound to the
+   exact capability and canonical argument hash.
 
 Plus the standard `security.gate(.., "code")` (classifiers + audit), and every tool
 call is recorded in the memory archive.
@@ -92,8 +97,9 @@ explicit choice.
 
 ### Per-mode policy
 
-`allowed_tool_lanes` is prefix-matched; `blocked_tool_capabilities` is exact-matched
-and wins. Two read-only modes deliberately keep their stance — `diagnostic` and
+`allowed_tool_lanes` uses explicit semantics: entries ending in `.` or `_` are
+namespace/family prefixes, while every other entry is an exact capability name.
+`blocked_tool_capabilities` is exact-matched and wins. Two read-only modes deliberately keep their stance — `diagnostic` and
 `security_research` list `code.run_native` and `workspace.write_file` in
 `blocked_tool_capabilities`, so they get `code.run` + `workspace.read_file/list` but
 **not** native execution or file writes. To restrict any other mode, add those exact
@@ -105,7 +111,7 @@ seeds fresh installs.)
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `ORDO_CODE_WORKSPACE_PATH` | `<user_files>/workspace` | Confined workspace dir (created at boot). |
+| `ORDO_CODE_WORKSPACE_PATH` | `<user_files>/workspace` | Root for workspace file operations and native initial cwd. |
 | `ORDO_CODE_ALLOW_NATIVE` | `false` | Arms `code.run_native` (needs `native-exec` too). |
 | `ORDO_CODE_LANGUAGES` | empty = all | Comma-separated allowlist of native languages. |
 | `ORDO_CODE_TIMEOUT_MS` | `30000` | Default wall-clock cap per run. |

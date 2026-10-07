@@ -1,6 +1,5 @@
 mod apps_cmd;
 mod chat_cmd;
-mod cloud_cmd;
 mod ext_cmd;
 mod lifecycle;
 mod mcp_cmd;
@@ -21,9 +20,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // it alive; `ordo chat` is the primary user entrypoint.
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("cloud") => tokio::task::spawn_blocking(move || cloud_cmd::run(&args[1..]))
-            .await
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?,
         Some("runtime") => tokio::task::spawn_blocking(move || runtime_cmd::run(&args[1..]))
             .await
             .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?,
@@ -71,7 +67,6 @@ fn print_top_help() {
          Usage:\n  \
          ordo chat [message]      talk to the Assistant (primary entry point)\n  \
          ordo serve               boot the runtime and keep it running (Ctrl+C to stop)\n  \
-         ordo cloud <subcommand>  manage cloud credentials (list/add/delete/test)\n  \
          ordo mcp <subcommand>    install/list/uninstall/quarantine/re-authorize external MCP servers\n  \
          ordo apps <subcommand>   create/list/publish/archive workflow apps via control API\n  \
          ordo ext <subcommand>    install/list/uninstall sandboxed UI extensions\n  \

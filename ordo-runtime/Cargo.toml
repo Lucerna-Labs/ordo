@@ -50,6 +50,7 @@ futures.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
 
 # Opt-in OpenTelemetry export. Turning on the `otel` feature adds an
 # OTLP trace layer to the tracing subscriber when
@@ -75,5 +76,4 @@ sandbox-wasm = ["ordo-sandbox/wasmtime", "ordo-code/wasm"]
 native-exec = ["ordo-sandbox/subprocess", "ordo-code/native"]
 
 [dev-dependencies]
-reqwest.workspace = true
 serde_json.workspace = true

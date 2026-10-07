@@ -13,10 +13,11 @@
 //! - Call the cloud LLM with the configured credential
 //! - Persist the final turn Ã¢â‚¬â€ including every tool call it made
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use futures::future::join_all;
 use futures::StreamExt;
 use ordo_bus::Bus;
@@ -36,7 +37,7 @@ use crate::events::{EventBroadcaster, TurnEvent};
 use crate::knowledge::KnowledgeStore;
 use crate::recall::FactStore;
 use crate::store::AssistantStore;
-use crate::tools::ToolGateway;
+use crate::tools::{canonical_arguments_hash, capability_requires_authorization, ToolGateway};
 use crate::types::{
     AssistantError, AssistantResult, AssistantSession, CancelFlag, CancellationRegistry, Fact,
     FactSummary, KnowledgeKind, NewFact, NewKnowledge, RagHitSummary, RecalledFact, ReviewOutcome,
@@ -60,6 +61,8 @@ const DEFAULT_LLM_TIMEOUT: Duration = Duration::from_secs(ordo_cloud::DEFAULT_RE
 #[allow(dead_code)]
 const DEFAULT_RAG_TIMEOUT: Duration = Duration::from_millis(1500);
 const DEFAULT_MAX_TOOL_ITERATIONS: usize = 6;
+const TOOL_AUTHORIZATION_TTL: Duration = Duration::from_secs(60);
+const TOOL_REVIEW_WAIT: Duration = Duration::from_secs(300);
 
 /// Stop autonomous tool use within a single turn after this many
 /// "tool is gated on this conversation" errors. Without a cap a
@@ -263,11 +266,11 @@ fn diagnostic_allows_cloud_models(request: &TurnRequest) -> bool {
 }
 
 fn is_local_llm_credential(credential: &ordo_cloud::CloudCredential) -> bool {
-    ordo_cloud::local_model_provider(credential).is_some()
+    credential.service == "ordo-resident" || ordo_cloud::local_model_provider(credential).is_some()
 }
 
 fn is_local_model_app_credential(credential: &ordo_cloud::CloudCredential) -> bool {
-    ordo_cloud::local_model_provider(credential).is_some()
+    credential.service == "ordo-resident" || ordo_cloud::local_model_provider(credential).is_some()
 }
 
 #[derive(Clone)]
@@ -279,6 +282,13 @@ pub struct AssistantService {
     pub(crate) http: CloudHttp,
     pub(crate) bus: Option<Arc<dyn Bus>>,
     pub(crate) default_service: String,
+    /// When true, every model call is forced through `default_service`.
+    /// Request overrides, mode defaults, configured credentials, and
+    /// failover providers are intentionally ignored. This is the product
+    /// invariant used by the resident Ordo + Lightcone build.
+    pub(crate) resident_only: bool,
+    pub(crate) resident_base_url: Option<String>,
+    pub(crate) resident_model_id: Option<String>,
     /// Ordered list of credential service names to try when the
     /// primary credential isn't configured or isn't loadable (Phase
     /// 4.5). Empty = no failover. The chain is *resolution-time
@@ -425,6 +435,9 @@ impl AssistantService {
             http,
             bus: None,
             default_service,
+            resident_only: false,
+            resident_base_url: None,
+            resident_model_id: None,
             failover_chain: Vec::new(),
             tools: None,
             events: EventBroadcaster::new(),
@@ -522,7 +535,10 @@ impl AssistantService {
     /// back to the General Assistant manifest when the session's
     /// stored mode isn't in the registry. Returns None when the
     /// service has no registry attached at all (legacy shape).
-    pub(crate) fn resolve_mode_for_session(&self, session_id: Uuid) -> Option<ordo_modes::ModeManifest> {
+    pub(crate) fn resolve_mode_for_session(
+        &self,
+        session_id: Uuid,
+    ) -> Option<ordo_modes::ModeManifest> {
         self.resolve_session_mode_manifest(session_id)
     }
 
@@ -653,6 +669,12 @@ impl AssistantService {
         self
     }
 
+    pub fn with_bus_and_host(mut self, bus: Arc<dyn Bus>, trusted_host: NodeId) -> Self {
+        self.tools = Some(ToolGateway::new(bus.clone()).with_trusted_host(trusted_host));
+        self.bus = Some(bus);
+        self
+    }
+
     /// Configure a fallback chain of credential service names. Tried
     /// in order at credential resolution if the primary isn't
     /// available. Primary picking: `request.credential` (if set) Ã¢â€ â€™
@@ -665,6 +687,38 @@ impl AssistantService {
     pub fn with_default_service(mut self, service: impl Into<String>) -> Self {
         self.default_service = service.into();
         self
+    }
+
+    /// Permanently bind this assistant instance to one resident model
+    /// service. This is stronger than selecting a default: all provider
+    /// overrides and failover paths are disabled.
+    pub fn with_resident_model(
+        mut self,
+        service: impl Into<String>,
+        base_url: impl Into<String>,
+        model_id: impl Into<String>,
+    ) -> Self {
+        self.default_service = service.into();
+        self.resident_base_url = Some(base_url.into());
+        self.resident_model_id = Some(model_id.into());
+        self.failover_chain.clear();
+        self.resident_only = true;
+        self
+    }
+
+    fn pin_resident_credential(&self, credential: &mut ordo_cloud::CloudCredential) {
+        if !self.resident_only {
+            return;
+        }
+        credential.service = self.default_service.clone();
+        credential.auth_style = "none".to_string();
+        credential.secret.clear();
+        credential.base_url = self.resident_base_url.clone();
+        if let Some(model_id) = &self.resident_model_id {
+            credential
+                .extras
+                .insert("model".to_string(), model_id.clone());
+        }
     }
 
     pub fn with_http(mut self, http: CloudHttp) -> Self {
@@ -680,6 +734,13 @@ impl AssistantService {
     pub fn with_tool_gateway(mut self, gateway: ToolGateway) -> Self {
         self.tools = Some(gateway);
         self
+    }
+
+    pub async fn tool_lightcone_status(&self) -> Option<tool_lightcone_mcp::EngineStatus> {
+        match &self.tools {
+            Some(gateway) => Some(gateway.causal_status().await),
+            None => None,
+        }
     }
 
     pub fn with_max_tool_iterations(mut self, iterations: usize) -> Self {
@@ -702,6 +763,11 @@ impl AssistantService {
         credential_service: &str,
         reason: &str,
     ) -> AssistantResult<()> {
+        // The resident server owns the Bonsai model for the lifetime of
+        // Ordo. The legacy local-provider lifecycle must never unload it.
+        if self.resident_only {
+            return Ok(());
+        }
         let report = self
             .credentials
             .enforce_single_local_model(&self.http, Some(credential_service), reason)
@@ -1394,33 +1460,35 @@ impl AssistantService {
                     dest.push(name);
                 }
             };
-        if let Some(explicit) = &request.credential {
-            push(explicit.clone(), &mut candidates, &mut seen);
-        }
-        if let Some(mode_default) = active_mode
-            .as_ref()
-            .and_then(|mode| mode.default_credential.as_ref())
-        {
-            push(mode_default.clone(), &mut candidates, &mut seen);
-        }
-        push(self.default_service.clone(), &mut candidates, &mut seen);
-        for name in &self.failover_chain {
-            push(name.clone(), &mut candidates, &mut seen);
-        }
-        // Provider-neutral fallback: if none of the explicit candidates
-        // resolved, walk every configured credential. Lets operators
-        // ship Ordo with no hardcoded provider preference â€” whichever
-        // credential exists is usable.
-        if let Ok(all) = self.credentials.list().await {
-            for cred in all {
-                push(cred.service.clone(), &mut candidates, &mut seen);
+        if self.resident_only {
+            push(self.default_service.clone(), &mut candidates, &mut seen);
+        } else {
+            if let Some(explicit) = &request.credential {
+                push(explicit.clone(), &mut candidates, &mut seen);
+            }
+            if let Some(mode_default) = active_mode
+                .as_ref()
+                .and_then(|mode| mode.default_credential.as_ref())
+            {
+                push(mode_default.clone(), &mut candidates, &mut seen);
+            }
+            push(self.default_service.clone(), &mut candidates, &mut seen);
+            for name in &self.failover_chain {
+                push(name.clone(), &mut candidates, &mut seen);
+            }
+            // Provider-neutral fallback for legacy, unlocked instances.
+            if let Ok(all) = self.credentials.list().await {
+                for cred in all {
+                    push(cred.service.clone(), &mut candidates, &mut seen);
+                }
             }
         }
         let mut primary_error: Option<AssistantError> = None;
         let mut resolved: Option<(String, ordo_cloud::CloudCredential)> = None;
         for name in &candidates {
             match self.credentials.get(name.clone()).await {
-                Ok(Some(cred)) => {
+                Ok(Some(mut cred)) => {
+                    self.pin_resident_credential(&mut cred);
                     if diagnostic_mode
                         && !diagnostic_cloud_allowed
                         && !is_local_llm_credential(&cred)
@@ -1434,6 +1502,21 @@ impl AssistantService {
                             primary_error = Some(AssistantError::NoCredential(
                                 "diagnostic-local-model".into(),
                             ));
+                        }
+                        continue;
+                    }
+                    // Paused credentials never serve chat turns. An explicit
+                    // request for a paused credential is a hard error (same
+                    // message as the MCP lane); anything else skips to the
+                    // next candidate so Pause actually stops billing.
+                    if !cred.enabled() {
+                        if request.credential.as_deref() == Some(name.as_str()) {
+                            return Err(AssistantError::InvalidArgument(format!(
+                                "credential for service '{name}' is paused; enable it in the Provider tab before use"
+                            )));
+                        }
+                        if primary_error.is_none() {
+                            primary_error = Some(AssistantError::NoCredential(name.clone()));
                         }
                         continue;
                     }
@@ -1475,7 +1558,10 @@ impl AssistantService {
             .skip(resolved_position + 1)
             .cloned()
             .collect();
-        if request.credential.is_some() || is_local_model_app_credential(&credential_init) {
+        if self.resident_only
+            || request.credential.is_some()
+            || is_local_model_app_credential(&credential_init)
+        {
             failover_remaining.clear();
         }
         if diagnostic_mode && !diagnostic_cloud_allowed {
@@ -1536,6 +1622,8 @@ impl AssistantService {
             } else {
                 (Value::Null, HashMap::new())
             };
+        let advertised_bus_capabilities: HashSet<String> =
+            capability_providers.keys().cloned().collect();
         let mut tool_use_enabled = tools_payload.is_array();
 
         // --- Prompt assembly (thin bootstrap) -------------------------
@@ -1781,6 +1869,14 @@ impl AssistantService {
                 failover_remaining.remove(0);
                 match self.credentials.get(next_name.clone()).await {
                     Ok(Some(next_cred)) => {
+                        if !next_cred.enabled() {
+                            tracing::warn!(
+                                target: "ordo_assistant",
+                                to = %next_name,
+                                "failover candidate is paused; skipping"
+                            );
+                            continue;
+                        }
                         tracing::warn!(
                             target: "ordo_assistant",
                             from = %credential_service,
@@ -2003,24 +2099,40 @@ impl AssistantService {
                         .and_then(|v| v.as_str())
                         .unwrap_or("{}")
                         .to_string();
-                    let arguments: Value =
-                        serde_json::from_str(&arguments_raw).unwrap_or_else(|_| json!({}));
+                    let (arguments, skip_reason) = match serde_json::from_str(&arguments_raw) {
+                        Ok(arguments) => (arguments, None),
+                        Err(err) => (
+                            json!({}),
+                            Some(format!(
+                                "invalid JSON arguments for tool '{fn_name}': {err}"
+                            )),
+                        ),
+                    };
                     CallRecord {
                         idx,
                         call_id,
                         fn_name,
                         arguments,
                         invocation_uuid: Uuid::new_v4(),
-                        skip_reason: None,
+                        skip_reason,
                     }
                 })
                 .collect();
 
             for rec in &mut records {
+                if rec.skip_reason.is_none()
+                    && !is_meta_tool_capability(&rec.fn_name)
+                    && !advertised_bus_capabilities.contains(&rec.fn_name)
+                {
+                    rec.skip_reason = Some(format!(
+                        "tool call rejected: '{}' was not advertised for this session and mode",
+                        rec.fn_name
+                    ));
+                }
                 let signature = tool_call_signature(&rec.fn_name, &rec.arguments);
                 let count = tool_call_counts.entry(signature).or_insert(0);
                 *count += 1;
-                if *count > 1 {
+                if *count > 1 && rec.skip_reason.is_none() {
                     rec.skip_reason = Some(format!(
                         "duplicate tool call skipped: '{}' was already called with the same arguments in this turn. Use the prior result and write the final answer.",
                         rec.fn_name
@@ -2044,6 +2156,16 @@ impl AssistantService {
             // Cheap mutex peek; we use it to gate sensitive
             // capabilities on tainted conversations.
             let session_tainted = self.session_is_tainted(session_id);
+            // If this same parallel batch introduces untrusted web/MCP
+            // material, sensitive siblings are blocked before any task starts.
+            // Otherwise a read and a write could race while the session still
+            // looked clean.
+            let batch_introduces_untrusted = records.iter().any(|rec| {
+                capability_introduces_untrusted(
+                    &rec.fn_name,
+                    capability_providers.get(&rec.fn_name).map(String::as_str),
+                )
+            });
 
             let dispatch_futs = records.into_iter().map(|rec| async move {
                 let started = std::time::Instant::now();
@@ -2054,13 +2176,14 @@ impl AssistantService {
                 // it can't do is reach for write/dispatch tools that
                 // would actuate on planted instructions.
                 let was_duplicate = rec.skip_reason.is_some();
-                let was_gated = session_tainted && is_sensitive_capability(&rec.fn_name);
+                let was_gated = (session_tainted || batch_introduces_untrusted)
+                    && is_sensitive_capability(&rec.fn_name);
                 let result = if let Some(reason) = rec.skip_reason.clone() {
                     Err(AssistantError::InvalidArgument(reason))
                 } else if was_gated {
                     Err(AssistantError::InvalidArgument(format!(
-                        "tool '{}' is gated on this conversation: untrusted-web content has \
-                         entered the context. Clear the conversation's taint (Studio: chat \
+                        "tool '{}' is gated on this conversation: untrusted content has \
+                         entered or is entering the context. Clear the conversation's taint (Studio: chat \
                          header â†’ Clear taint) or start a new session to invoke this \
                          capability.",
                         rec.fn_name
@@ -2114,6 +2237,22 @@ impl AssistantService {
             for (rec, result, duration_ms, _was_gated, _was_duplicate) in outputs {
                 match result {
                     Ok(value) => {
+                        if rec.fn_name.starts_with("web.") {
+                            let source_url = rec
+                                .arguments
+                                .get("url")
+                                .or_else(|| rec.arguments.get("query"))
+                                .and_then(Value::as_str)
+                                .unwrap_or(rec.fn_name.as_str())
+                                .to_string();
+                            self.taint_session(
+                                session_id,
+                                ordo_protocol::Taint::UntrustedWeb {
+                                    source_url,
+                                    fetched_at: Utc::now().to_rfc3339(),
+                                },
+                            );
+                        }
                         // MCP auto-taint: a successful tool call routed
                         // through an external MCP server taints the
                         // session. See `mcp_taint_for_provider` for the
@@ -2486,6 +2625,16 @@ impl AssistantService {
         let mut tools: Vec<Value> = meta_tool_schemas();
         let mut providers: HashMap<String, String> = HashMap::new();
 
+        // No loaded mode means no executable policy. Keep the local memory
+        // meta-tools available, but fail closed for every bus capability.
+        let Some(mode) = mode else {
+            warn!(
+                target: "ordo_assistant",
+                "no active mode policy; exposing meta-tools only"
+            );
+            return (Value::Array(tools), providers);
+        };
+
         // Per-subagent lane narrowing (Stage 1): when this session has an
         // allowed-lanes override, bus capabilities must ALSO match one of
         // those lanes (on top of the mode's lanes). Meta-tools above are
@@ -2504,18 +2653,14 @@ impl AssistantService {
         // mode then narrows that list further to its declared lanes
         // and respects its `blocked_tool_capabilities`.
         //
-        // When `mode` is None (legacy / no-registry deploys), we keep
-        // every gateway-allowed capability â€” pre-mode behavior.
         let mut mode_filtered = 0usize;
         if let Some(gateway) = &self.tools {
             match gateway.available_tools().await {
                 Ok(descriptors) => {
                     for d in descriptors {
-                        if let Some(mode) = mode {
-                            if !mode.allows_capability(&d.capability) {
-                                mode_filtered += 1;
-                                continue;
-                            }
+                        if !mode.allows_capability(&d.capability) {
+                            mode_filtered += 1;
+                            continue;
                         }
                         if let Some(lanes) = &iso_lanes {
                             if !capability_in_lanes(&d.capability, lanes) {
@@ -2524,15 +2669,18 @@ impl AssistantService {
                             }
                         }
                         providers.insert(d.capability.clone(), d.provider.clone());
+                        let parameters = d.input_schema.clone().unwrap_or_else(|| {
+                            json!({
+                                "type": "object",
+                                "additionalProperties": true,
+                            })
+                        });
                         tools.push(json!({
                             "type": "function",
                             "function": {
                                 "name": d.capability,
                                 "description": d.description,
-                                "parameters": {
-                                    "type": "object",
-                                    "additionalProperties": true,
-                                },
+                                "parameters": parameters,
                             }
                         }));
                     }
@@ -2544,34 +2692,124 @@ impl AssistantService {
                 ),
             }
         }
-        if let Some(mode) = mode {
-            if mode_filtered > 0 {
-                tracing::debug!(
-                    target: "ordo_assistant",
-                    mode = %mode.id,
-                    filtered = mode_filtered,
-                    "mode allowlist filtered out non-permitted capabilities"
-                );
-                // Telemetry event so the studio's insight trace can
-                // render "X capabilities were blocked by the active
-                // mode" without re-deriving from the manifest. Only
-                // emit when filter actually fired â€” silent on
-                // matches.
-                self.events.publish(
+        if mode_filtered > 0 {
+            tracing::debug!(
+                target: "ordo_assistant",
+                mode = %mode.id,
+                filtered = mode_filtered,
+                "mode allowlist filtered out non-permitted capabilities"
+            );
+            // Telemetry event so the studio's insight trace can
+            // render "X capabilities were blocked by the active
+            // mode" without re-deriving from the manifest. Only
+            // emit when filter actually fired â€” silent on
+            // matches.
+            self.events.publish(
+                session_id,
+                TurnEvent::ModeToolFilterApplied {
                     session_id,
-                    TurnEvent::ModeToolFilterApplied {
-                        session_id,
-                        mode_id: mode.id.clone(),
-                        // tools[0..meta_count] are the meta-tools we
-                        // injected at the top; the rest were the
-                        // mode-permitted bus capabilities.
-                        kept_capabilities: providers.len(),
-                        filtered_count: mode_filtered,
-                    },
-                );
-            }
+                    mode_id: mode.id.clone(),
+                    // tools[0..meta_count] are the meta-tools we
+                    // injected at the top; the rest were the
+                    // mode-permitted bus capabilities.
+                    kept_capabilities: providers.len(),
+                    filtered_count: mode_filtered,
+                },
+            );
         }
         (Value::Array(tools), providers)
+    }
+
+    async fn require_operator_tool_review(
+        &self,
+        session_id: Uuid,
+        capability: &str,
+        arguments: &Value,
+    ) -> AssistantResult<()> {
+        let Some(review) = self.review.clone() else {
+            return Err(AssistantError::InvalidArgument(format!(
+                "capability '{capability}' requires operator approval, but no review service is configured"
+            )));
+        };
+
+        let hash = canonical_arguments_hash(arguments);
+        let hash_hex: String = hash.iter().map(|byte| format!("{byte:02x}")).collect();
+        let redacted = redact_tool_arguments_for_review(arguments);
+        let rendered = serde_json::to_string_pretty(&redacted).unwrap_or_else(|_| "{}".into());
+        let preview: String = rendered.chars().take(8192).collect();
+        let truncated = rendered.chars().count() > preview.chars().count();
+        let content = format!(
+            "Capability: {capability}\nArguments SHA-256: {hash_hex}\n\n{}{}",
+            preview,
+            if truncated {
+                "\n...[review preview truncated; approval remains bound to the complete hash]"
+            } else {
+                ""
+            }
+        );
+        let mut metadata = HashMap::new();
+        metadata.insert("session_id".into(), json!(session_id.to_string()));
+        metadata.insert("capability".into(), json!(capability));
+        metadata.insert("arguments_sha256".into(), json!(hash_hex));
+        metadata.insert(
+            "authorization_ttl_secs".into(),
+            json!(TOOL_AUTHORIZATION_TTL.as_secs()),
+        );
+
+        let submitted = review
+            .request(ordo_review::NewReviewRequest {
+                origin_capability: capability.to_string(),
+                origin_plugin: None,
+                title: format!("Authorize tool: {capability}"),
+                content_type: "application/json".into(),
+                content: content.clone(),
+                metadata,
+            })
+            .map_err(|err| AssistantError::InvalidArgument(err.to_string()))?;
+        self.events.publish(
+            session_id,
+            TurnEvent::ReviewRequested {
+                session_id,
+                review_request_id: submitted.id,
+                draft: content,
+            },
+        );
+        let resolved = review
+            .wait_for(submitted.id, TOOL_REVIEW_WAIT)
+            .await
+            .map_err(|err| {
+                AssistantError::InvalidArgument(format!(
+                    "operator approval for '{capability}' did not resolve: {err}"
+                ))
+            })?;
+        self.events.publish(
+            session_id,
+            TurnEvent::ReviewResolved {
+                session_id,
+                outcome: ReviewOutcome {
+                    review_request_id: resolved.id,
+                    state: resolved.state.label().to_string(),
+                    delivered_content: String::new(),
+                    note: resolved.decision_note.clone(),
+                },
+            },
+        );
+        match resolved.state {
+            ordo_review::ReviewState::Approved => Ok(()),
+            ordo_review::ReviewState::EditedAndApproved => Err(AssistantError::InvalidArgument(
+                format!(
+                    "operator edited the review for '{capability}'; exact arguments are immutable, so submit a new call"
+                ),
+            )),
+            ordo_review::ReviewState::Denied => Err(AssistantError::InvalidArgument(format!(
+                "operator denied capability '{capability}'"
+            ))),
+            ordo_review::ReviewState::Expired | ordo_review::ReviewState::Open => {
+                Err(AssistantError::InvalidArgument(format!(
+                    "operator approval for capability '{capability}' expired"
+                )))
+            }
+        }
     }
 
     /// Route a tool call to the meta-tool handlers (fact recall and self-
@@ -2580,6 +2818,73 @@ impl AssistantService {
     /// a `{preamble, ...}` envelope so the level preamble is visible to
     /// the LLM every time it pulls a new layer.
     async fn dispatch_tool(
+        &self,
+        session_id: Uuid,
+        capability: &str,
+        arguments: Value,
+    ) -> AssistantResult<Value> {
+        if capability.starts_with("assistant.") {
+            let Some(gateway) = &self.tools else {
+                return Err(AssistantError::InvalidArgument(
+                    "assistant has no Tool-Lightcone gateway configured".into(),
+                ));
+            };
+            return gateway
+                .invoke_local(capability, arguments, |arguments| async move {
+                    self.dispatch_meta_tool(session_id, capability, arguments)
+                        .await
+                })
+                .await;
+        }
+
+        // A mode manifest is an execution boundary, not just a schema hint.
+        let Some(active_mode) = self.resolve_mode_for_session(session_id) else {
+            return Err(AssistantError::InvalidArgument(format!(
+                "capability '{capability}' is blocked because no active mode policy is loaded"
+            )));
+        };
+        if !active_mode.allows_capability(capability) {
+            return Err(AssistantError::InvalidArgument(format!(
+                "capability '{capability}' is blocked by active mode '{}'",
+                active_mode.id
+            )));
+        }
+
+        // Per-subagent lane narrowing is enforced again immediately before dispatch.
+        if let Some(lanes) = self
+            .session_isolation
+            .lock()
+            .get(&session_id)
+            .and_then(|iso| iso.allowed_lanes.clone())
+        {
+            if !capability_in_lanes(capability, &lanes) {
+                return Err(AssistantError::InvalidArgument(format!(
+                    "capability '{capability}' is outside this subagent's allowed tool lanes"
+                )));
+            }
+        }
+
+        let Some(gateway) = &self.tools else {
+            return Err(AssistantError::InvalidArgument(
+                "assistant has no Tool-Lightcone gateway configured".into(),
+            ));
+        };
+        if capability_requires_authorization(capability)
+            || mode_requires_operator_review(&active_mode, capability)
+        {
+            self.require_operator_tool_review(session_id, capability, &arguments)
+                .await?;
+            let authorization =
+                gateway.authorize_once(capability, &arguments, TOOL_AUTHORIZATION_TTL)?;
+            gateway
+                .invoke_authorized(authorization, capability, arguments)
+                .await
+        } else {
+            gateway.invoke(capability, arguments).await
+        }
+    }
+
+    async fn dispatch_meta_tool(
         &self,
         session_id: Uuid,
         capability: &str,
@@ -2603,30 +2908,9 @@ impl AssistantService {
             "assistant.remember_fact" => self.meta_remember_fact(session_id, arguments).await,
             "assistant.list_facts" => self.meta_list_facts(session_id, arguments).await,
             "assistant.forget_fact" => self.meta_forget_fact(session_id, arguments).await,
-            other => {
-                // Per-subagent lane narrowing is enforced at DISPATCH too,
-                // not just in the schema build: a scoped subagent can't
-                // reach an off-lane workspace capability by naming it
-                // directly. Fail-closed.
-                if let Some(lanes) = self
-                    .session_isolation
-                    .lock()
-                    .get(&session_id)
-                    .and_then(|iso| iso.allowed_lanes.clone())
-                {
-                    if !capability_in_lanes(other, &lanes) {
-                        return Err(AssistantError::InvalidArgument(format!(
-                            "capability '{other}' is outside this subagent's allowed tool lanes"
-                        )));
-                    }
-                }
-                let Some(gateway) = &self.tools else {
-                    return Err(AssistantError::InvalidArgument(
-                        "assistant has no tool gateway configured".into(),
-                    ));
-                };
-                gateway.invoke(other, arguments).await
-            }
+            other => Err(AssistantError::InvalidArgument(format!(
+                "unknown assistant meta-tool '{other}'"
+            ))),
         }
     }
 
@@ -2684,6 +2968,102 @@ impl AssistantService {
     }
 }
 
+fn is_meta_tool_capability(capability: &str) -> bool {
+    matches!(
+        capability,
+        "assistant.recall_memory"
+            | "assistant.knowledge_lookup"
+            | "assistant.parallel_lookup"
+            | "assistant.consult_mode_agent"
+            | "assistant.remember_knowledge"
+            | "assistant.remember_fact"
+            | "assistant.list_facts"
+            | "assistant.forget_fact"
+    )
+}
+
+fn mode_requires_operator_review(mode: &ordo_modes::ModeManifest, capability: &str) -> bool {
+    let has_policy = |name: &str| mode.policies.iter().any(|policy| policy == name);
+    if has_policy("confirm_file_writes")
+        && (capability.starts_with("filesystem.write_")
+            || capability.starts_with("workspace.write_")
+            || capability == "files.upload")
+    {
+        return true;
+    }
+    if has_policy("confirm_destructive_actions")
+        && matches!(
+            capability,
+            "files.delete"
+                | "skills.delete"
+                | "plugins.delete"
+                | "mcp.servers.uninstall"
+                | "agent_teams.delete"
+                | "apps.unpublish"
+                | "apps.archive"
+        )
+    {
+        return true;
+    }
+    has_policy("operator_permission_required_for_os_actions")
+        && (capability == "code.run_native"
+            || capability.starts_with("ssh.")
+            || capability.starts_with("api.")
+            || capability == "rest.sync_resource"
+            || capability.starts_with("runtime.update"))
+}
+
+fn capability_introduces_untrusted(capability: &str, provider: Option<&str>) -> bool {
+    if capability.starts_with("web.") {
+        return true;
+    }
+    matches!(
+        provider,
+        Some(provider)
+            if provider.starts_with("mcp:") && !provider.starts_with("mcp:trusted:")
+    )
+}
+
+fn redact_tool_arguments_for_review(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    let normalized = key.to_ascii_lowercase();
+                    let redacted = if normalized == "module_b64" {
+                        json!(format!(
+                            "<base64 module omitted: {} characters>",
+                            value.as_str().map(str::len).unwrap_or_default()
+                        ))
+                    } else if [
+                        "secret",
+                        "token",
+                        "password",
+                        "credential",
+                        "api_key",
+                        "private_key",
+                    ]
+                    .iter()
+                    .any(|needle| normalized.contains(needle))
+                    {
+                        json!("***redacted***")
+                    } else {
+                        redact_tool_arguments_for_review(value)
+                    };
+                    (key.clone(), redacted)
+                })
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(
+            values
+                .iter()
+                .map(redact_tool_arguments_for_review)
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Sensitive-capability allowlist for tainted conversations.
 ///
 /// Returns `true` when the capability is one we refuse to invoke if
@@ -2718,6 +3098,13 @@ impl AssistantService {
 ///     every result already flows through the boundary wrap so the
 ///     cup gate sees them as untrusted ancestry)
 fn is_sensitive_capability(capability: &str) -> bool {
+    if capability_requires_authorization(capability)
+        || capability.starts_with("workspace.write_")
+        || capability.starts_with("filesystem.write_")
+        || capability.starts_with("agent_teams.")
+    {
+        return true;
+    }
     // Outbound / network-effecting
     matches!(
         capability,
@@ -2729,7 +3116,6 @@ fn is_sensitive_capability(capability: &str) -> bool {
     // File / state writes
             | "files.upload"
             | "files.delete"
-            | "filesystem.write_file"
             | "apps.publish"
             | "apps.unarchive"
     // Credential surface
@@ -2741,6 +3127,8 @@ fn is_sensitive_capability(capability: &str) -> bool {
             | "assistant.remember_fact"
             | "assistant.remember_knowledge"
             | "assistant.forget_fact"
+            | "memory.remember_note"
+            | "memory.remember_fact"
     // Skill/plugin install / admin
             | "skills.install"
             | "skills.delete"
@@ -2978,6 +3366,10 @@ mod taint_helpers_tests {
             "files.upload",
             "files.delete",
             "filesystem.write_file",
+            "workspace.write_file",
+            "code.run_native",
+            "agent_teams.upsert",
+            "rest.sync_resource",
             "memory.pin_note",
             "assistant.remember_fact",
             "assistant.remember_knowledge",
@@ -3000,6 +3392,8 @@ mod taint_helpers_tests {
             "knowledge.summarize",
             "knowledge.answer_question",
             "filesystem.read_file",
+            "workspace.read_file",
+            "code.run",
             "files.list",
             "files.get",
             "logic.identify_claims",
@@ -3011,6 +3405,32 @@ mod taint_helpers_tests {
         ] {
             assert!(!is_sensitive_capability(cap), "{cap} should be allowed");
         }
+    }
+
+    #[test]
+    fn untrusted_sources_and_review_redaction_are_fail_closed() {
+        assert!(capability_introduces_untrusted(
+            "web.fetch_and_strain",
+            None
+        ));
+        assert!(capability_introduces_untrusted(
+            "ext.tool",
+            Some("mcp:server")
+        ));
+        assert!(!capability_introduces_untrusted(
+            "ext.tool",
+            Some("mcp:trusted:server")
+        ));
+
+        let redacted = redact_tool_arguments_for_review(&json!({
+            "api_token": "do-not-store",
+            "nested": {"password": "hidden", "value": 7},
+            "module_b64": "AAAA"
+        }));
+        assert_eq!(redacted["api_token"], json!("***redacted***"));
+        assert_eq!(redacted["nested"]["password"], json!("***redacted***"));
+        assert_eq!(redacted["nested"]["value"], json!(7));
+        assert!(redacted["module_b64"].as_str().unwrap().contains("omitted"));
     }
 
     #[test]
@@ -3206,6 +3626,18 @@ mod cross_mode_consult_tests {
         registry
     }
 
+    #[test]
+    fn mode_policy_strings_drive_runtime_review_requirements() {
+        let mut mode = test_mode("tech", "Tech", None, None);
+        mode.policies = vec![
+            "confirm_file_writes".into(),
+            "operator_permission_required_for_os_actions".into(),
+        ];
+        assert!(mode_requires_operator_review(&mode, "workspace.write_file"));
+        assert!(mode_requires_operator_review(&mode, "ssh.prepare_command"));
+        assert!(!mode_requires_operator_review(&mode, "workspace.read_file"));
+    }
+
     async fn credentials_for(base_url: &str) -> CloudCredentialTask {
         let store = CloudCredentialStore::in_memory().expect("credential store");
         let task = CloudCredentialTask::start(store);
@@ -3219,6 +3651,122 @@ mod cross_mode_consult_tests {
         .await
         .expect("upsert test credential");
         task
+    }
+
+    #[tokio::test]
+    async fn dispatch_rechecks_active_mode_instead_of_trusting_schema_only() {
+        let registry = registry_with(vec![test_mode("general", "General", None, None)]);
+        let service = AssistantService::new(
+            AssistantStore::in_memory().expect("store"),
+            Arc::new(HashingEmbedder::new(96)),
+            credentials_for("http://127.0.0.1:9").await,
+        )
+        .with_modes(registry);
+        let session = service
+            .new_session(Some("mode gate"), Some("general"))
+            .expect("session");
+
+        let err = service
+            .dispatch_tool(session.id, "filesystem.read_file", json!({"path": "x"}))
+            .await
+            .expect_err("off-mode capability must fail at dispatch");
+        assert!(err.to_string().contains("blocked by active mode"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_without_mode_registry_fails_closed() {
+        let service = AssistantService::new(
+            AssistantStore::in_memory().expect("store"),
+            Arc::new(HashingEmbedder::new(96)),
+            credentials_for("http://127.0.0.1:9").await,
+        );
+        let session = service
+            .new_session(Some("no mode registry"), None)
+            .expect("legacy session");
+        let err = service
+            .dispatch_tool(session.id, "knowledge.answer_question", json!({}))
+            .await
+            .expect_err("missing policy must block bus dispatch");
+        assert!(err.to_string().contains("no active mode policy"));
+    }
+
+    #[tokio::test]
+    async fn privileged_dispatch_waits_for_operator_and_uses_reviewed_ticket() {
+        let mut mode = test_mode("general", "General", None, None);
+        mode.allowed_tool_lanes.push("skills.".into());
+        mode.normalize_and_validate().unwrap();
+        let registry = registry_with(vec![mode]);
+        let bus = Arc::new(ordo_bus::InProcessBus::default());
+        let review = ordo_review::ReviewService::new(
+            ordo_review::ReviewStore::in_memory().expect("review store"),
+        );
+        let mut service = AssistantService::new(
+            AssistantStore::in_memory().expect("store"),
+            Arc::new(HashingEmbedder::new(96)),
+            credentials_for("http://127.0.0.1:9").await,
+        )
+        .with_modes(registry)
+        .with_review(review.clone());
+        service.tools = Some(ToolGateway::for_test(bus.clone()));
+        service.bus = Some(bus.clone());
+        let service = Arc::new(service);
+        let session = service
+            .new_session(Some("reviewed tool"), Some("general"))
+            .expect("session");
+
+        let mut requests = bus.subscribe(topics::TOOL_REQUEST).await.unwrap();
+        let responder = bus.clone();
+        tokio::spawn(async move {
+            let request = requests.next().await.unwrap();
+            let correlation = request.correlation_id.unwrap();
+            let OrdoMessage::ToolCallRequested {
+                invocation_id,
+                capability,
+                ..
+            } = request.payload
+            else {
+                panic!("unexpected request");
+            };
+            let response = Envelope::new(
+                NodeId::new(),
+                OrdoMessage::ToolCallCompleted {
+                    invocation_id,
+                    capability,
+                    result: json!({"deleted": true}),
+                },
+            )
+            .with_correlation(correlation);
+            responder
+                .publish(topics::TOOL_RESPONSE, response)
+                .await
+                .unwrap();
+        });
+
+        let caller = service.clone();
+        let call = tokio::spawn(async move {
+            caller
+                .dispatch_tool(session.id, "skills.delete", json!({"id": "old-skill"}))
+                .await
+        });
+
+        let pending = loop {
+            let pending = review.pending().unwrap();
+            if let Some(request) = pending.into_iter().next() {
+                break request;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        };
+        assert_eq!(pending.origin_capability, "skills.delete");
+        assert!(pending.metadata.contains_key("arguments_sha256"));
+        review
+            .decide(
+                pending.id,
+                ordo_review::ReviewDecisionKind::Approve { note: None },
+            )
+            .unwrap();
+
+        let result = call.await.unwrap().expect("approved call");
+        assert_eq!(result["result"]["deleted"], json!(true));
     }
 
     #[tokio::test]

@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "atom-db",
+    "atom-retrieval-field",
     "ordo-protocol",
     "ordo-bus",
     "ordo-classify",
